@@ -307,6 +307,12 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,a.reason))
                     continue
 
+                # Legacy presentation subtotal: vendor-name column itself contains only '소계'.
+                if not code and not desc and _is_summary_label(vendor_name):
+                    if pending:
+                        flush_pending_as_issues("소계 행에 거래처코드/거래처명이 없어 상세 행의 거래처를 확정할 수 없음")
+                    continue
+
                 # Group subtotal row: vendor code/name + '소계' and exact sum of preceding details.
                 if code and vendor_name and summary_label:
                     subtotal=a.value or 0
