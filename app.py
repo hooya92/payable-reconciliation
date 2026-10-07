@@ -14,7 +14,7 @@ BG="#F5F5F7"; CARD="#FFFFFF"; TEXT="#1D1D1F"; MUTED="#6E6E73"; ACCENT="#007AFF";
 
 class App(tk.Tk):
     def __init__(self):
-        super().__init__(); self.title("미지급금 대사"); self.geometry("980x720"); self.minsize(880,650); self.configure(bg=BG)
+        super().__init__(); self.title("명세서 대사"); self.geometry("980x720"); self.minsize(880,650); self.configure(bg=BG)
         today=date.today()
         self.year=tk.IntVar(value=today.year); self.month=tk.IntVar(value=today.month)
         self.prior_paths=[]; self.douzone_paths=[]; self.account_codes=tk.StringVar(value="25301")
@@ -26,8 +26,8 @@ class App(tk.Tk):
         s.configure("TButton",font=("Segoe UI",10),padding=(14,9),background="#FFFFFF",bordercolor=BORDER); s.map("TButton",background=[("active",SOFT)]); s.configure("TEntry",padding=8,fieldbackground="#FFFFFF",bordercolor=BORDER)
         s.configure("Accent.TButton",font=("Segoe UI Semibold",10),padding=(18,10),foreground="white",background=ACCENT,bordercolor=ACCENT); s.map("Accent.TButton",background=[("active","#0066CC")])
         root=tk.Frame(self,bg=BG); root.pack(fill="both",expand=True,padx=44,pady=30)
-        tk.Label(root,text="미지급금 대사",font=("Segoe UI Semibold",28),bg=BG,fg=TEXT).pack(anchor="w")
-        tk.Label(root,text="정상 건은 숨기고 사람이 확인해야 할 항목만 선명하게 보여줍니다.",font=("Segoe UI",11),bg=BG,fg=MUTED).pack(anchor="w",pady=(4,18))
+        tk.Label(root,text="명세서 대사",font=("Segoe UI Semibold",28),bg=BG,fg=TEXT).pack(anchor="w")
+        tk.Label(root,text="전월 명세서와 더존 전표를 대사해 차월 명세서 초안을 만들고, 확인이 필요한 항목만 보여줍니다.",font=("Segoe UI",11),bg=BG,fg=MUTED).pack(anchor="w",pady=(4,18))
 
         period=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER); period.pack(fill="x",pady=(0,12))
         left=tk.Frame(period,bg=CARD); left.pack(side="left",padx=22,pady=16)
@@ -41,7 +41,7 @@ class App(tk.Tk):
         tk.Label(period,textvariable=self.period_text,font=("Segoe UI Semibold",12),bg=CARD,fg=ACCENT,justify="left").pack(side="left",padx=30)
 
         card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); card.pack(fill="x")
-        tk.Label(card,text="전월 담당자 명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).grid(row=0,column=0,sticky="nw",padx=(22,12),pady=16)
+        tk.Label(card,text="전월 명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).grid(row=0,column=0,sticky="nw",padx=(22,12),pady=16)
         self.prior_list=tk.Listbox(card,height=4,font=("Segoe UI",9),selectmode="extended"); self.prior_list.grid(row=0,column=1,sticky="ew",pady=16)
         pf=tk.Frame(card,bg=CARD); pf.grid(row=0,column=2,padx=18,pady=16,sticky="n")
         ttk.Button(pf,text="파일 추가",command=self.pick_priors).pack(fill="x"); ttk.Button(pf,text="선택 제거",command=self.remove_priors).pack(fill="x",pady=(6,0))
@@ -108,7 +108,7 @@ class App(tk.Tk):
 
     def _summary(self,counts):
         for w in self.summary.winfo_children(): w.destroy()
-        cards=[("자동 대사",counts.get(Status.MATCHED,0)),("대사 예외",sum(v for k,v in counts.items() if k!=Status.MATCHED)),("입력 확인",len(self.issues)),("신규 미지급",len(self.new_items))]
+        cards=[("자동 대사 완료",counts.get(Status.MATCHED,0)),("검토 필요",sum(v for k,v in counts.items() if k!=Status.MATCHED)),("입력 확인",len(self.issues)),("당월 신규 명세",len(self.new_items))]
         for i,(name,value) in enumerate(cards):
             box=tk.Frame(self.summary,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0)); self.summary.grid_columnconfigure(i,weight=1)
             tk.Label(box,text=name,font=("Segoe UI",10),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(13,2))
@@ -128,7 +128,7 @@ class App(tk.Tk):
         return duplicates
 
     def run(self):
-        if not self.prior_paths or not self.douzone_paths: messagebox.showwarning("파일 필요","전월 담당자 명세서와 더존 Raw를 각각 1개 이상 추가해주세요."); return
+        if not self.prior_paths or not self.douzone_paths: messagebox.showwarning("파일 필요","전월 명세서와 더존 Raw를 각각 1개 이상 추가해주세요."); return
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
@@ -141,14 +141,14 @@ class App(tk.Tk):
             for x in self.results:
                 if x.status != Status.MATCHED:
                     self.detail.insert("", "end", values=(x.prior.source.owner or x.prior.source.file_name, x.prior.vendor_name, f"{int(x.prior.amount):,}", x.status.value, x.reason))
-            self.status_text.set(f"{p.label} 대사 완료 · 전월 {run.prior_count:,}건 · 대사 예외 {exc:,}건 · 신규 {len(self.new_items):,}건")
+            self.status_text.set(f"{p.label} 대사 완료 · 전월 명세 {run.prior_count:,}건 · 검토 필요 {exc:,}건 · 당월 신규 명세 {len(self.new_items):,}건")
             self.export_btn.config(state="normal")
         except Exception as e: messagebox.showerror("대사 중단",str(e))
 
     def export(self):
         if not self.results and not self.issues: return
         p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
-        path=filedialog.asksaveasfilename(defaultextension=".xlsx",initialfile=f"{p.year}_{p.month:02d}_미지급금_대사결과.xlsx",filetypes=[("Excel","*.xlsx")])
+        path=filedialog.asksaveasfilename(defaultextension=".xlsx",initialfile=f"{p.year}_{p.month:02d}_명세서_대사결과.xlsx",filetypes=[("Excel","*.xlsx")])
         if not path:return
         try:
             write_result(path,self.results,self.new_items,self.issues,self.prior_paths+self.douzone_paths,p.label)

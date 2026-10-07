@@ -45,7 +45,7 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
         draft.append(["전체합계","","","","",sum(r[5] for r in draft_rows),"차월명세서 초안 합계",""])
 
 
-    nw=wb.create_sheet("신규미지급"); nw.append(["기표일자","계정코드","거래처코드","거래처명","적요","대변"])
+    nw=wb.create_sheet("당월신규명세"); nw.append(["기표일자","계정코드","거래처코드","거래처명","적요","대변"])
     for j in new_items: nw.append([j.date,j.account_code,j.vendor_code,j.vendor_name,j.description,int(j.credit)])
     ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","전월적요","금액","더존행"])
     for x in results:
