@@ -40,3 +40,13 @@ python -m tests.synthetic_adversarial_factory
 ```
 
 프로젝트 아래 `synthetic_adversarial/` 폴더에 가상 `.xlsx` 두 개가 생성됩니다. 생성 파일은 Git에서 무시되며 회사 데이터는 포함하지 않습니다.
+
+
+## 정상 가상 더존 Raw 생성
+실제 더존 Raw 파일이 없어도 UI/대사 흐름을 확인할 수 있도록 정상 가상 Raw를 만들 수 있습니다.
+
+```bash
+python -m tests.synthetic_douzone_raw_factory
+```
+
+프로젝트 아래 `synthetic_raw/더존_Raw_정상_2026_1년.xlsx`가 생성됩니다. 더존 전표출력 형태처럼 두 개의 `코드` 열을 사용하고, 여러 월의 전표와 25301 외 계정도 섞어 대상월/계정 필터를 확인할 수 있게 구성되어 있습니다.
