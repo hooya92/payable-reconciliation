@@ -9,9 +9,11 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
     debits = [j for j in journal_lines if j.debit > 0]
     by_key: dict[tuple[str, Decimal], list[JournalLine]] = defaultdict(list)
     by_amount: dict[Decimal, list[JournalLine]] = defaultdict(list)
+    by_vendor: dict[str, list[JournalLine]] = defaultdict(list)
     for line in debits:
         by_key[(normalize_code(line.vendor_code), line.debit)].append(line)
         by_amount[line.debit].append(line)
+        by_vendor[normalize_code(line.vendor_code)].append(line)
 
     used: set[int] = set()
     results: list[ReconcileResult] = []
@@ -34,6 +36,10 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
             used.add(id(candidates[0]))
             results.append(ReconcileResult(Status.DESCRIPTION_MISMATCH, item, candidates[0], "거래처코드와 금액은 같지만 적요가 다름", "VENDOR_AMOUNT"))
         else:
+            partial = [x for x in by_vendor.get(key[0], []) if id(x) not in used and 0 < x.debit < item.amount]
+            if partial:
+                results.append(ReconcileResult(Status.AMBIGUOUS, item, partial[0], "동일 거래처에 더 작은 차변이 있어 부분지급 가능성 확인 필요", "POSSIBLE_PARTIAL"))
+                continue
             other = [x for x in by_amount.get(item.amount, []) if normalize_code(x.vendor_code) != normalize_code(item.vendor_code)]
             if other:
                 results.append(ReconcileResult(Status.VENDOR_MISMATCH, item, other[0], "다른 거래처코드에서 동일 차변 금액 발견", "OTHER_VENDOR_AMOUNT"))
