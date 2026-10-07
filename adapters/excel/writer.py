@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Iterable
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from domain.models import Status
 
 
