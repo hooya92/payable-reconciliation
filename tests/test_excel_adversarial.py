@@ -17,6 +17,17 @@ class ExcelAdversarialTests(unittest.TestCase):
         for row in rows: ws.append(row)
         wb.save(path)
 
+    def test_numeric_vendor_code_preserves_displayed_leading_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"raw.xlsx"
+            wb=Workbook(); ws=wb.active; ws.append(DZ_HEADER)
+            ws.append(["2026-08-01",1,1,"2026-08-01",1,"일반",25301,"미지급금-일반",51330,"가상","A",100,0])
+            ws.cell(2,7).number_format="00000"; ws.cell(2,9).number_format="000000"
+            wb.save(p)
+            r=read_douzone(p,{"25301"},AccountingPeriod(2026,8))
+            self.assertEqual(r.items[0].vendor_code,"051330")
+            self.assertEqual(r.items[0].account_code,"25301")
+
     def test_header_row_can_be_offset(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"raw.xlsx"
