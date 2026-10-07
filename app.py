@@ -1,5 +1,6 @@
 from __future__ import annotations
 import tkinter as tk
+import customtkinter as ctk
 import hashlib
 from collections import Counter
 from datetime import date
@@ -29,6 +30,9 @@ BORDER_STRONG="#D2D2D7"
 SOFT="#F2F2F7"
 LIST_BG="#FAFAFC"
 SELECT_BG="#DDEBFF"
+
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
 
 
 def file_digest(path):
@@ -98,13 +102,13 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
     return max(common).next()
 
 
-class App(tk.Tk):
+class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("명세서 대사")
         self.geometry("1120x780")
         self.minsize(900,650)
-        self.configure(bg=BG)
+        self.configure(fg_color=BG)
 
         today=date.today()
         self.year=tk.IntVar(value=today.year)
@@ -221,7 +225,7 @@ class App(tk.Tk):
             fg=MUTED,
         ).pack(anchor="w",pady=(5,22))
 
-        period=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        period=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=18)
         period.pack(fill="x",pady=(0,14))
         left=tk.Frame(period,bg=CARD)
         left.pack(side="left",padx=22,pady=18)
@@ -243,7 +247,7 @@ class App(tk.Tk):
             justify="left",
         ).pack(side="left",padx=(38,20))
 
-        card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        card=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=20)
         card.pack(fill="x")
         card.grid_columnconfigure(0,minsize=165)
         card.grid_columnconfigure(1,weight=1)
@@ -272,8 +276,11 @@ class App(tk.Tk):
         self.prior_list.grid(row=1,column=1,sticky="ew",pady=14)
         pf=tk.Frame(card,bg=CARD)
         pf.grid(row=1,column=2,padx=18,pady=14,sticky="n")
-        ttk.Button(pf,text="파일 추가",command=self.pick_priors).pack(fill="x")
-        ttk.Button(pf,text="선택 제거",command=self.remove_priors).pack(fill="x",pady=(6,0))
+        ctk.CTkButton(pf,text="파일 추가",command=self.pick_priors,width=108,height=34,corner_radius=11,
+                      fg_color=SOFT,hover_color="#E9E9EE",text_color=TEXT).pack(fill="x")
+        ctk.CTkButton(pf,text="선택 제거",command=self.remove_priors,width=108,height=34,corner_radius=11,
+                      fg_color="transparent",hover_color=SOFT,text_color=MUTED,
+                      border_width=1,border_color=BORDER).pack(fill="x",pady=(6,0))
 
         divider=tk.Frame(card,bg=BORDER,height=1)
         divider.grid(row=2,column=0,columnspan=3,sticky="ew",padx=22)
@@ -290,8 +297,11 @@ class App(tk.Tk):
         self.douzone_list.grid(row=3,column=1,sticky="ew",pady=14)
         df=tk.Frame(card,bg=CARD)
         df.grid(row=3,column=2,padx=18,pady=14,sticky="n")
-        ttk.Button(df,text="파일 추가",command=self.pick_douzone).pack(fill="x")
-        ttk.Button(df,text="선택 제거",command=self.remove_douzone).pack(fill="x",pady=(6,0))
+        ctk.CTkButton(df,text="파일 추가",command=self.pick_douzone,width=108,height=34,corner_radius=11,
+                      fg_color=SOFT,hover_color="#E9E9EE",text_color=TEXT).pack(fill="x")
+        ctk.CTkButton(df,text="선택 제거",command=self.remove_douzone,width=108,height=34,corner_radius=11,
+                      fg_color="transparent",hover_color=SOFT,text_color=MUTED,
+                      border_width=1,border_color=BORDER).pack(fill="x",pady=(6,0))
 
         options=tk.Frame(card,bg=CARD)
         options.grid(row=4,column=0,columnspan=3,sticky="ew",padx=22,pady=(4,10))
@@ -309,22 +319,33 @@ class App(tk.Tk):
 
         actions=tk.Frame(root,bg=BG)
         actions.pack(fill="x",pady=(16,12))
-        ttk.Button(actions,text="대사 시작",style="Accent.TButton",command=self.run).pack(side="left")
-        self.export_btn=ttk.Button(actions,text="결과 Excel 저장",command=self.export,state="disabled")
+        ctk.CTkButton(
+            actions,text="대사 시작",command=self.run,width=132,height=44,corner_radius=13,
+            fg_color=ACCENT,hover_color=ACCENT_HOVER,text_color="white",
+            font=("Segoe UI Semibold",10)
+        ).pack(side="left")
+        self.export_btn=ctk.CTkButton(
+            actions,text="결과 Excel 저장",command=self.export,state="disabled",
+            width=140,height=44,corner_radius=13,fg_color=CARD,hover_color=SOFT,
+            text_color=TEXT,border_width=1,border_color=BORDER_STRONG,
+            font=("Segoe UI Semibold",10)
+        )
         self.export_btn.pack(side="left",padx=(10,0))
 
-        self.banner=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        self.banner=ctk.CTkFrame(
+            root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=18
+        )
         self.banner.pack(fill="x",pady=(0,14))
-        banner_text=tk.Frame(self.banner,bg=CARD)
-        banner_text.pack(fill="x",padx=18,pady=13)
-        self.banner_title=tk.Label(
-            banner_text,text="대사 전",font=("Segoe UI Semibold",11),bg=CARD,fg=TEXT
+        self.banner_title=ctk.CTkLabel(
+            self.banner,text="대사 전",font=("Segoe UI Semibold",12),
+            text_color=TEXT,anchor="w"
         )
-        self.banner_title.pack(anchor="w")
-        self.banner_detail=tk.Label(
-            banner_text,textvariable=self.status_text,font=("Segoe UI",9),bg=CARD,fg=MUTED
+        self.banner_title.pack(fill="x",padx=20,pady=(14,0))
+        self.banner_detail=ctk.CTkLabel(
+            self.banner,textvariable=self.status_text,font=("Segoe UI",9),
+            text_color=MUTED,anchor="w"
         )
-        self.banner_detail.pack(anchor="w",pady=(3,0))
+        self.banner_detail.pack(fill="x",padx=20,pady=(2,14))
 
         self.summary=tk.Frame(root,bg=BG)
         self.summary.pack(fill="x",pady=(0,14))
@@ -335,20 +356,22 @@ class App(tk.Tk):
         )
         self.preflight.pack(fill="x",pady=(0,10))
 
-        result_card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        result_card=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=20)
         result_card.pack(fill="both",expand=True)
 
         result_header=tk.Frame(result_card,bg=CARD)
         result_header.pack(fill="x",padx=18,pady=(17,10))
         tk.Label(result_header,text="결과 상세",font=("Segoe UI Semibold",13),bg=CARD,fg=TEXT).pack(side="left")
-        self.matched_view_btn=ttk.Button(
-            result_header,text="자동 대사 0",style="Segment.TButton",
-            command=lambda:self._set_result_view("matched")
+        self.matched_view_btn=ctk.CTkButton(
+            result_header,text="자동 대사 0",command=lambda:self._set_result_view("matched"),
+            width=112,height=34,corner_radius=12,fg_color=SOFT,hover_color="#E9E9EE",
+            text_color=MUTED
         )
         self.matched_view_btn.pack(side="right")
-        self.review_view_btn=ttk.Button(
-            result_header,text="검토 필요 0",style="SegmentActive.TButton",
-            command=lambda:self._set_result_view("review")
+        self.review_view_btn=ctk.CTkButton(
+            result_header,text="검토 필요 0",command=lambda:self._set_result_view("review"),
+            width=112,height=34,corner_radius=12,fg_color=CARD,hover_color=SOFT,
+            text_color=TEXT,border_width=1,border_color=BORDER_STRONG
         )
         self.review_view_btn.pack(side="right",padx=(0,6))
 
@@ -414,13 +437,9 @@ class App(tk.Tk):
             "error":(RED_BG,RED,MUTED,"#F3C7C2"),
         }
         bg,title_fg,detail_fg,border=palette[kind]
-        self.banner.configure(bg=bg,highlightbackground=border)
-        for child in self.banner.winfo_children():
-            child.configure(bg=bg)
-            for sub in child.winfo_children():
-                sub.configure(bg=bg)
-        self.banner_title.configure(text=title,fg=title_fg)
-        self.banner_detail.configure(fg=detail_fg)
+        self.banner.configure(fg_color=bg,border_color=border)
+        self.banner_title.configure(text=title,text_color=title_fg)
+        self.banner_detail.configure(text_color=detail_fg)
         self.status_text.set(detail)
 
     def _update_period(self):
@@ -586,12 +605,14 @@ class App(tk.Tk):
             ("당월 신규 명세",b["new"],ACCENT,"현재는 검토 대상으로 유지"),
         ]
         for i,(name,value,color,sub) in enumerate(cards):
-            box=tk.Frame(self.summary,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+            box=ctk.CTkFrame(
+                self.summary,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=17
+            )
             box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0))
             self.summary.grid_columnconfigure(i,weight=1)
-            tk.Label(box,text=name,font=("Segoe UI Semibold",9),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(13,0))
-            tk.Label(box,text=f"{value:,}",font=("Segoe UI Semibold",24),bg=CARD,fg=color).pack(anchor="w",padx=16,pady=(2,0))
-            tk.Label(box,text=sub,font=("Segoe UI",8),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(1,13))
+            ctk.CTkLabel(box,text=name,font=("Segoe UI Semibold",9),text_color=MUTED,anchor="w").pack(fill="x",padx=17,pady=(13,0))
+            ctk.CTkLabel(box,text=f"{value:,}",font=("Segoe UI Semibold",25),text_color=color,anchor="w").pack(fill="x",padx=17,pady=(0,0))
+            ctk.CTkLabel(box,text=sub,font=("Segoe UI",8),text_color=MUTED,anchor="w").pack(fill="x",padx=17,pady=(0,13))
         self._update_view_buttons()
 
     def _clear_detail(self):
@@ -608,13 +629,21 @@ class App(tk.Tk):
             return
         matched=sum(1 for x in self.results if x.status==Status.MATCHED)
         review=sum(1 for x in self.results if x.status!=Status.MATCHED)
+        review_active=self.result_view=="review"
+        matched_active=self.result_view=="matched"
         self.review_view_btn.configure(
             text=f"검토 필요 {review:,}",
-            style="SegmentActive.TButton" if self.result_view=="review" else "Segment.TButton",
+            fg_color=CARD if review_active else SOFT,
+            text_color=TEXT if review_active else MUTED,
+            border_width=1 if review_active else 0,
+            border_color=BORDER_STRONG,
         )
         self.matched_view_btn.configure(
             text=f"자동 대사 {matched:,}",
-            style="SegmentActive.TButton" if self.result_view=="matched" else "Segment.TButton",
+            fg_color=CARD if matched_active else SOFT,
+            text_color=TEXT if matched_active else MUTED,
+            border_width=1 if matched_active else 0,
+            border_color=BORDER_STRONG,
         )
 
     def _refresh_detail(self):
@@ -639,7 +668,7 @@ class App(tk.Tk):
                     x.prior.source.owner or x.prior.source.file_name,
                     x.prior.vendor_name,
                     f"{int(x.prior.amount):,}",
-                    x.status.value,
+                    ("● " + x.status.value) if x.status==Status.MATCHED else x.status.value,
                     x.reason,
                 ),
                 tags=(tag,) if tag else (),
