@@ -30,3 +30,13 @@ python -m unittest discover -s tests -v
 ```
 
 > 현재는 실제 회사 파일이 아닌 합성 데이터 기준으로 개발합니다. 첫 실파일 검증에서 더존/명세서 헤더 구조와 업무 예외를 확인한 뒤 규칙을 보강합니다.
+
+
+## 악성 가상 Excel 직접 생성
+실제 회사 자료 없이 지저분한 입력/애매한 대사 케이스를 눈으로 확인하려면:
+
+```bash
+python -m tests.synthetic_adversarial_factory
+```
+
+프로젝트 아래 `synthetic_adversarial/` 폴더에 가상 `.xlsx` 두 개가 생성됩니다. 생성 파일은 Git에서 무시되며 회사 데이터는 포함하지 않습니다.
