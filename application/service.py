@@ -4,6 +4,7 @@ from pathlib import Path
 
 from adapters.excel.reader import read_douzone, read_prior
 from domain.models import Status
+from domain.normalization import normalize_code, normalize_text
 from domain.period import AccountingPeriod
 from domain.reconciliation import new_payables, reconcile
 
@@ -38,9 +39,29 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
             )
         cross_seen.setdefault(key,item)
 
-    journal_items=[]; dz_issues=[]
+    journal_items=[]; dz_issues=[]; raw_seen={}
     for path in douzone_paths:
         dz=read_douzone(path,account_codes or None,period)
+        source_name=Path(path).name
+        for item in dz.items:
+            key=(
+                item.date,
+                normalize_code(item.account_code),
+                normalize_code(item.vendor_code),
+                normalize_text(item.vendor_name),
+                normalize_text(item.description),
+                item.debit,
+                item.credit,
+            )
+            prev=raw_seen.get(key)
+            if prev and prev != source_name:
+                raise ValueError(
+                    "더존 Raw 파일 간 동일 전표 의심: "
+                    f"{item.date} / {item.vendor_name or item.vendor_code} / "
+                    f"차변 {item.debit:,.0f} / 대변 {item.credit:,.0f} / "
+                    f"{prev} ↔ {source_name}. 겹치는 Raw 범위를 확인해주세요."
+                )
+            raw_seen.setdefault(key,source_name)
         journal_items.extend(dz.items); dz_issues.extend(dz.issues)
 
     issues=prior_issues+dz_issues
