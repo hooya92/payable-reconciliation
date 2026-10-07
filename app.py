@@ -42,22 +42,13 @@ def find_duplicate_files(prior_paths, douzone_paths, digests=None):
                 seen[digest]=(kind,Path(path).name)
     return duplicates
 
-def statement_confirmation_text(period):
-    return f"선택한 전월 명세서가 모두 {period.previous().label} 마감본임을 확인했습니다."
-
-def validate_statement_confirmation(confirmed, period):
-    if not confirmed:
-        raise ValueError(
-            f"전월 명세서 확인이 필요합니다. 선택한 파일이 모두 {period.previous().label} 마감본인지 확인해주세요."
-        )
-
 class App(tk.Tk):
     def __init__(self):
         super().__init__(); self.title("명세서 대사"); self.geometry("980x720"); self.minsize(880,650); self.configure(bg=BG)
         today=date.today()
         self.year=tk.IntVar(value=today.year); self.month=tk.IntVar(value=today.month)
         self.prior_paths=[]; self.douzone_paths=[]; self.account_codes=tk.StringVar(value="25301")
-        self.period_text=tk.StringVar(); self.statement_confirm_text=tk.StringVar(); self.statement_confirmed=tk.BooleanVar(value=False)
+        self.period_text=tk.StringVar()
         self.status_text=tk.StringVar(value="대상 회계월과 파일을 확인한 뒤 대사를 시작하세요.")
         self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self.last_source_digests={}; self._build(); self._update_period()
 
@@ -109,9 +100,8 @@ class App(tk.Tk):
         tk.Label(opt,text="미지급금 계정코드",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(side="left")
         ttk.Entry(opt,textvariable=self.account_codes,width=18).pack(side="left",padx=12)
         tk.Label(opt,text="여러 개면 쉼표로 구분",font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(side="left")
-        confirm=tk.Frame(card,bg=CARD); confirm.grid(row=3,column=0,columnspan=3,sticky="ew",padx=22,pady=(0,16))
-        ttk.Checkbutton(confirm,textvariable=self.statement_confirm_text,variable=self.statement_confirmed).pack(anchor="w")
-        tk.Label(confirm,text="※ 명세서 행의 날짜는 장기이월 때문에 월 검증에 사용하지 않습니다.",font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w",padx=(22,0),pady=(2,0))
+        note=tk.Frame(card,bg=CARD); note.grid(row=3,column=0,columnspan=3,sticky="ew",padx=22,pady=(0,16))
+        tk.Label(note,text="※ 전월 명세서는 선택 회계월의 전월 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w")
 
         actions=tk.Frame(root,bg=BG); actions.pack(fill="x",pady=16)
         ttk.Button(actions,text="사전검사 + 대사 시작",style="Accent.TButton",command=self.run).pack(side="left")
@@ -144,23 +134,19 @@ class App(tk.Tk):
     def _update_period(self):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
-            self.period_text.set(f"{p.previous().label} 명세서  →  {p.label} 더존 전표\n※ Raw는 선택 회계월로 필터링하고, 명세서 행 날짜는 대사키로 쓰지 않습니다.")
-            self.statement_confirm_text.set(statement_confirmation_text(p))
+            self.period_text.set(f"{p.previous().label} 명세서  →  {p.label} 더존 전표\n※ Raw는 선택 회계월로 필터링하고, 전월 명세서 시트는 자동 선택합니다.")
         except Exception:
             self.period_text.set("올바른 연/월을 선택해주세요.")
-            self.statement_confirm_text.set("전월 명세서의 마감월을 확인해주세요.")
 
     def _on_period_changed(self):
         self._update_period()
-        self._invalidate_results(reset_statement_confirmation=True)
+        self._invalidate_results()
 
-    def _invalidate_results(self, reset_statement_confirmation=False):
+    def _invalidate_results(self):
         if not hasattr(self,"export_btn"):
             return
         had_result=bool(self.results or self.new_items or self.issues or self.last_period)
         self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self.last_source_digests={}
-        if reset_statement_confirmation:
-            self.statement_confirmed.set(False)
         self.export_btn.config(state="disabled")
         self._summary({})
         self.preflight.config(text="")
@@ -181,7 +167,7 @@ class App(tk.Tk):
         for p in paths:
             if p not in self.prior_paths:
                 self.prior_paths.append(p); self.prior_list.insert("end",Path(p).name); changed=True
-        if changed: self._invalidate_results(reset_statement_confirmation=True)
+        if changed: self._invalidate_results()
 
     def pick_douzone(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
@@ -201,7 +187,7 @@ class App(tk.Tk):
         selected=list(self.prior_list.curselection())
         for i in reversed(selected):
             self.prior_list.delete(i); self.prior_paths.pop(i)
-        if selected: self._invalidate_results(reset_statement_confirmation=True)
+        if selected: self._invalidate_results()
 
     def pick(self,var):
         p=filedialog.askopenfilename(filetypes=[("Excel","*.xlsx *.xlsm")])
@@ -232,7 +218,6 @@ class App(tk.Tk):
                 a,b=dup[0]
                 raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
-            validate_statement_confirmation(self.statement_confirmed.get(),p)
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
             run=run_reconciliation(list(self.prior_paths),list(self.douzone_paths),codes,p)
             after_digests=snapshot_file_digests(source_paths)
