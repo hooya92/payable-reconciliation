@@ -59,7 +59,7 @@ def changed_snapshot_paths(snapshot):
 def find_duplicate_files(prior_paths, douzone_paths, digests=None):
     seen={}; duplicates=[]
     digests=digests or snapshot_file_digests(list(prior_paths)+list(douzone_paths))
-    for kind, paths in (("전월 명세",prior_paths),("더존 Raw",douzone_paths)):
+    for kind, paths in (("명세서",prior_paths),("더존 Raw",douzone_paths)):
         for path in paths:
             digest=digests[str(Path(path).resolve())]
             if digest in seen:
@@ -83,13 +83,13 @@ def reconciliation_breakdown(counts, new_count=0, issue_count=0):
 def completion_detail(period, prior_count, counts, new_count=0, issue_count=0):
     b=reconciliation_breakdown(counts,new_count,issue_count)
     return (
-        f"{period.label} · 전월 명세 {prior_count:,}건 처리 · "
+        f"{period.label} · 명세서 {prior_count:,}건 처리 · "
         f"자동 대사 {b['matched']:,}건 · 검토 필요 {b['review']:,}건 · 입력 확인 {b['issues']:,}건"
     )
 
 
 def suggest_reconciliation_period(current_period, statement_period_groups):
-    """Infer the target accounting month from the latest statement month shared by all files."""
+    """Infer the target accounting month directly from the latest statement month."""
     groups=[set(group) for group in statement_period_groups if group]
     if not groups:
         return None
@@ -100,11 +100,7 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
 
 
 def infer_period_from_inputs(statement_period_groups, raw_period_groups):
-    """Infer the reconciliation month from actual statement tabs and Raw journal dates.
-
-    When both sides expose month information, prefer the latest exact pair:
-    statement month M + Raw month M+1. Never guess across a conflicting pair.
-    """
+    """Infer the reconciliation month from the same month present in statement and Raw."""
     statement_groups=[set(group) for group in statement_period_groups if group]
     raw_groups=[set(group) for group in raw_period_groups if group]
 
@@ -241,7 +237,7 @@ class App(ctk.CTk):
         tk.Label(root,text="명세서 대사",font=("Segoe UI Semibold",30),bg=BG,fg=TEXT).pack(anchor="w")
         tk.Label(
             root,
-            text="전월 명세서와 더존 전표를 자동 대사하고, 사람이 확인할 항목만 남깁니다.",
+            text="명세서서와 더존 전표를 자동 대사하고, 사람이 확인할 항목만 남깁니다.",
             font=("Segoe UI",11),
             bg=BG,
             fg=MUTED,
@@ -291,7 +287,7 @@ class App(ctk.CTk):
 
         prior_label=tk.Frame(card,bg=CARD)
         prior_label.grid(row=1,column=0,sticky="nw",padx=(22,12),pady=14)
-        tk.Label(prior_label,text="전월 명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
+        tk.Label(prior_label,text="명세서서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
         tk.Label(prior_label,textvariable=self.prior_count_text,font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w",pady=(3,0))
         self.prior_list=tk.Listbox(
             card,height=3,font=("Segoe UI",9),selectmode="extended",
@@ -336,7 +332,7 @@ class App(ctk.CTk):
 
         tk.Label(
             card,
-            text="전월 명세서는 선택 회계월의 전월 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
+            text="명세서서는 선택 회계월의 전월 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
             font=("Segoe UI",9),
             bg=CARD,
             fg=MUTED,
@@ -477,7 +473,7 @@ class App(ctk.CTk):
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             self.period_text.set(
                 f"{p.previous().label} 명세서  →  {p.label} 더존 전표\n"
-                "Raw는 선택 회계월로 필터링하고, 전월 명세서 시트는 자동 선택합니다."
+                "Raw는 선택 회계월로 필터링하고, 명세서서 시트는 자동 선택합니다."
             )
         except Exception:
             self.period_text.set("올바른 연/월을 선택해주세요.")
@@ -512,7 +508,7 @@ class App(ctk.CTk):
 
     def _refresh_file_counts(self):
         try:
-            needed=AccountingPeriod(int(self.year.get()),int(self.month.get())).previous().label
+            needed=AccountingPeriod(int(self.year.get()),int(self.month.get())).label
             prior_state=f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
             self.prior_count_text.set(f"필요: {needed} · {prior_state}")
         except Exception:
@@ -599,7 +595,7 @@ class App(ctk.CTk):
                     self.prior_list.insert("end",Path(p).name)
                     added_prior=True
                     if requested_kind!="prior":
-                        moved.append(f"{Path(p).name} → 전월 명세서")
+                        moved.append(f"{Path(p).name} → 명세서서")
             elif kind=="douzone":
                 if p not in self.douzone_paths:
                     self.douzone_paths.append(p)
@@ -726,8 +722,8 @@ class App(ctk.CTk):
         else:
             rows=[x for x in self.results if x.status!=Status.MATCHED]
             self.detail_hint_text.set(
-                "사람이 확인해야 하는 전월 명세 항목만 표시합니다."
-                if rows else "검토할 전월 명세 항목이 없습니다."
+                "사람이 확인해야 하는 명세서 항목만 표시합니다."
+                if rows else "검토할 명세서 항목이 없습니다."
             )
         for x in rows:
             tag="matched" if x.status==Status.MATCHED else ""
@@ -745,7 +741,7 @@ class App(ctk.CTk):
 
     def run(self):
         if not self.prior_paths or not self.douzone_paths:
-            messagebox.showwarning("파일 필요","전월 명세서와 더존 Raw를 각각 1개 이상 추가해주세요.")
+            messagebox.showwarning("파일 필요","명세서서와 더존 Raw를 각각 1개 이상 추가해주세요.")
             return
         self._invalidate_results()
         sync_state=self._maybe_align_period_from_inputs(show_banner=False)

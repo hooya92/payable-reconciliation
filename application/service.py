@@ -24,7 +24,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
     prior_items=[]; prior_issues=[]
     for path in prior_paths:
-        rr=read_prior(path,Path(path).stem,period.previous())
+        rr=read_prior(path,Path(path).stem,period)
         prior_items.extend(rr.items); prior_issues.extend(rr.issues)
 
     cross_seen={}

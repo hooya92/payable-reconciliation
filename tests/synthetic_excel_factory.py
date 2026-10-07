@@ -14,24 +14,24 @@ def build(out_dir="synthetic_data", prior_count=2400, raw_noise=7200):
         priors[i%len(owners)].append((code,vendor,"2026-07-31",desc,amount))
         kind=i%40
         if kind==0:
-            raw.append(("2026-08-10","25301","미지급금-일반","999999","가상오류거래처",desc,amount,0)); expected["VENDOR_MISMATCH"]+=1
+            raw.append(("2026-07-10","25301","미지급금-일반","999999","가상오류거래처",desc,amount,0)); expected["VENDOR_MISMATCH"]+=1
         elif kind==1:
             expected["UNPAID"]+=1
         elif kind==2:
-            raw.append(("2026-08-10","25301","미지급금-일반",code,vendor,desc+" 적요변경",amount,0)); expected["MATCHED"]+=1; expected["MATCHED_WITH_NOTE"]+=1
+            raw.append(("2026-07-10","25301","미지급금-일반",code,vendor,desc+" 적요변경",amount,0)); expected["MATCHED"]+=1; expected["MATCHED_WITH_NOTE"]+=1
         else:
-            raw.append(("2026-08-10","25301","미지급금-일반",code,vendor,desc,amount,0)); expected["MATCHED"]+=1
+            raw.append(("2026-07-10","25301","미지급금-일반",code,vendor,desc,amount,0)); expected["MATCHED"]+=1
     # Current-month new credits.
     for i in range(600):
-        code=f"{700000+i:06d}"; raw.append(("2026-08-20","25301","미지급금-일반",code,f"가상신규{i:04d}",f"8월 신규비용 {i:04d}",0,200000+(i*3571)%50000000))
+        code=f"{700000+i:06d}"; raw.append(("2026-07-20","25301","미지급금-일반",code,f"가상신규{i:04d}",f"7월 신규비용 {i:04d}",0,200000+(i*3571)%50000000))
     # Long-range noise: same account but outside target month.
     for i in range(raw_noise):
         month=(i%12)+1
-        if month==8: month=7
+        if month==7: month=6
         code=f"{800000+(i%1000):06d}"; raw.append((f"2026-{month:02d}-15","25301","미지급금-일반",code,f"기간외가상{i%1000:04d}",f"기간외 전표 {i}",0,1000+i))
     rng.shuffle(raw)
     for owner,rows in zip(owners,priors):
-        wb=Workbook(); ws=wb.active; ws.title="미지급세부명세"
+        wb=Workbook(); ws=wb.active; ws.title="26.07"
         ws.append(["거래처코드","거래처명","날짜","적요","금액"])
         for row in rows: ws.append(row)
         wb.save(root/f"{owner}_2026-07_미지급.xlsx")

@@ -15,7 +15,7 @@ class SyntheticExcelE2ETests(unittest.TestCase):
             root=Path(tmp); prior_items=[]; issues=[]
             for p in sorted(root.glob("담당자*_미지급.xlsx")):
                 r=read_prior(p,p.stem); prior_items.extend(r.items); issues.extend(r.issues)
-            dz=read_douzone(root/"더존_Raw_2026_1년.xlsx",{"25301"},AccountingPeriod(2026,8))
+            dz=read_douzone(root/"더존_Raw_2026_1년.xlsx",{"25301"},AccountingPeriod(2026,7))
             issues.extend(dz.issues)
             result=reconcile(prior_items,dz.items); counts=Counter(x.status for x in result)
             self.assertEqual(len(issues),0)
@@ -43,7 +43,7 @@ class SyntheticExcelE2ETests(unittest.TestCase):
             prior=[]
             for fp in sorted(root.glob("담당자*_미지급.xlsx")): prior.extend(read_prior(fp,fp.stem).items)
             journal=[]
-            for fp in sorted(root.glob("더존_Raw_part*.xlsx")): journal.extend(read_douzone(fp,{"25301"},AccountingPeriod(2026,8)).items)
+            for fp in sorted(root.glob("더존_Raw_part*.xlsx")): journal.extend(read_douzone(fp,{"25301"},AccountingPeriod(2026,7)).items)
             result=reconcile(prior,journal); counts=Counter(x.status for x in result)
             self.assertEqual(counts[Status.MATCHED],expected["MATCHED"])
             self.assertEqual(sum(x.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" for x in result),expected["MATCHED_WITH_NOTE"])

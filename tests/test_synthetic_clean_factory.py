@@ -15,7 +15,7 @@ class SyntheticCleanFactoryTests(unittest.TestCase):
                 [data["prior_path"]],
                 [data["raw_path"]],
                 {"25301"},
-                AccountingPeriod(2026,8),
+                AccountingPeriod(2026,7),
             )
             self.assertEqual(run.prior_count,4)
             self.assertEqual(run.counts[Status.MATCHED],4)

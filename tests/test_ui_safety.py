@@ -29,7 +29,7 @@ class UISafetyTests(unittest.TestCase):
             current,
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
         )
-        self.assertEqual(suggested,AccountingPeriod(2026,8))
+        self.assertEqual(suggested,AccountingPeriod(2026,7))
 
     def test_latest_statement_month_drives_target_even_if_current_month_also_matches(self):
         current=AccountingPeriod(2026,8)
@@ -37,7 +37,7 @@ class UISafetyTests(unittest.TestCase):
             current,
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
         )
-        self.assertEqual(suggested,AccountingPeriod(2026,9))
+        self.assertEqual(suggested,AccountingPeriod(2026,8))
 
     def test_no_auto_suggestion_when_statement_files_share_no_month(self):
         current=AccountingPeriod(2026,9)
@@ -60,10 +60,10 @@ class UISafetyTests(unittest.TestCase):
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
             [[AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
         )
-        self.assertEqual(period,AccountingPeriod(2026,8))
+        self.assertEqual(period,AccountingPeriod(2026,7))
         self.assertEqual(source,"statement+raw")
 
-    def test_latest_exact_statement_raw_pair_wins(self):
+    def test_latest_same_statement_raw_month_wins(self):
         period,source=infer_period_from_inputs(
             [[AccountingPeriod(2026,5),AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
@@ -73,7 +73,7 @@ class UISafetyTests(unittest.TestCase):
 
     def test_statement_raw_month_conflict_is_not_guessed(self):
         period,source=infer_period_from_inputs(
-            [[AccountingPeriod(2026,8)]],
+            [[AccountingPeriod(2026,7)]],
             [[AccountingPeriod(2026,8)]],
         )
         self.assertIsNone(period)

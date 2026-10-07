@@ -113,7 +113,7 @@ def _select_prior_sheets(wb, groups, period):
             })
             found_text=", ".join(p.label for p in found) if found else names
             raise ValueError(
-                f"현재 대상 회계월은 {period.next().label}이므로 {period.label} 명세서가 필요합니다. "
+                f"현재 대상 회계월은 {period.label}이며 같은 월 명세서가 필요합니다. "
                 f"선택한 파일에서 확인된 명세서 월: {found_text}. "
                 f"{period.label} 시트가 포함된 파일을 선택하거나 대상 회계월을 변경해주세요."
             )
@@ -361,7 +361,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
             required=("vendor_code","vendor_name","description","amount")
             missing=[x for x in required if not cols[x]]
             if missing:
-                raise ValueError("전월 명세서 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
+                raise ValueError("명세서 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
             out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
 
             # Some real statement sheets place vendor code/name only on the yellow subtotal row
@@ -371,7 +371,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
             def flush_pending_as_issues(reason):
                 nonlocal pending
                 for rec in pending:
-                    out.issues.append(InputIssue("전월명세",ws.title,rec["row"],"거래처",rec["description"],reason))
+                    out.issues.append(InputIssue("명세서",ws.title,rec["row"],"거래처",rec["description"],reason))
                 pending=[]
 
             for r,row in enumerate(ws.iter_rows(min_row=hr+1,values_only=False),start=hr+1):
@@ -396,7 +396,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 if any(_is_formula(cell) for cell in relevant_cells):
                     if pending:
                         flush_pending_as_issues("그룹 중간에 수식 셀이 있어 거래처를 안전하게 확정할 수 없음")
-                    out.issues.append(InputIssue("전월명세",ws.title,r,"수식",amount_cell.value,
+                    out.issues.append(InputIssue("명세서",ws.title,r,"수식",amount_cell.value,
                         "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 대사하지 않음"))
                     continue
 
@@ -408,7 +408,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 if a.quality==DataQuality.SUSPICIOUS:
                     if pending:
                         flush_pending_as_issues("그룹 중간에 확인이 필요한 금액 형식이 있어 거래처를 확정할 수 없음")
-                    out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,a.reason))
+                    out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,a.reason))
                     continue
 
                 # Legacy presentation subtotal: vendor-name column itself contains only '소계'.
@@ -422,7 +422,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     subtotal=a.value or 0
                     if subtotal <= 0:
                         flush_pending_as_issues("거래처 소계 금액이 0 이하라 그룹을 확정할 수 없음")
-                        out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,"소계 금액이 0 이하"))
+                        out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,"소계 금액이 0 이하"))
                         continue
                     if not pending:
                         # A subtotal without detail rows is presentation-only; do not turn it into a payable.
@@ -431,7 +431,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     if pending_total != subtotal:
                         reason=f"상세 합계 {pending_total:,.0f}원과 소계 {subtotal:,.0f}원이 달라 자동 대사하지 않음"
                         flush_pending_as_issues(reason)
-                        out.issues.append(InputIssue("전월명세",ws.title,r,"소계",a.raw,reason))
+                        out.issues.append(InputIssue("명세서",ws.title,r,"소계",a.raw,reason))
                         continue
                     for rec in pending:
                         out.items.append(PayableItem(
@@ -447,13 +447,13 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                         flush_pending_as_issues("거래처 소계가 나오기 전에 다른 거래처 행이 시작되어 그룹을 확정할 수 없음")
                     row_invalid=False
                     if not code:
-                        out.issues.append(InputIssue("전월명세",ws.title,r,"거래처코드","", "거래처코드 없음")); row_invalid=True
+                        out.issues.append(InputIssue("명세서",ws.title,r,"거래처코드","", "거래처코드 없음")); row_invalid=True
                     if not vendor_name:
-                        out.issues.append(InputIssue("전월명세",ws.title,r,"거래처명","", "거래처명 없음")); row_invalid=True
+                        out.issues.append(InputIssue("명세서",ws.title,r,"거래처명","", "거래처명 없음")); row_invalid=True
                     if not desc:
-                        out.issues.append(InputIssue("전월명세",ws.title,r,"적요","", "적요 없음")); row_invalid=True
+                        out.issues.append(InputIssue("명세서",ws.title,r,"적요","", "적요 없음")); row_invalid=True
                     if (a.value or 0) <= 0:
-                        out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,"금액이 0 이하라 자동 대사하지 않음")); row_invalid=True
+                        out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,"금액이 0 이하라 자동 대사하지 않음")); row_invalid=True
                     if row_invalid:
                         continue
                     out.items.append(PayableItem(
@@ -476,7 +476,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 if not desc and (a.value or 0)>0:
                     if pending:
                         flush_pending_as_issues("적요 없는 행이 그룹 중간에 있어 거래처를 확정할 수 없음")
-                    out.issues.append(InputIssue("전월명세",ws.title,r,"적요","", "적요 없음"))
+                    out.issues.append(InputIssue("명세서",ws.title,r,"적요","", "적요 없음"))
                     continue
 
             if pending:
@@ -485,6 +485,6 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
         wb.close()
     if not out.items and not out.issues:
         target=f" {period.label}" if period else ""
-        raise ValueError(f"전월 명세서에서{target} 대사할 항목을 찾지 못했습니다.")
+        raise ValueError(f"명세서에서{target} 대사할 항목을 찾지 못했습니다.")
     return out
 

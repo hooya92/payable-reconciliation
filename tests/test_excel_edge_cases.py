@@ -220,7 +220,7 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             aug.append(["거래처코드","거래처명","날짜","적요","금액"])
             aug.append(["002002","8월업체","2026-08-31","8월 비용",200])
             wb.save(p)
-            with self.assertRaisesRegex(ValueError,"현재 대상 회계월은 2026년 10월이므로 2026년 9월 명세서가 필요합니다"):
+            with self.assertRaisesRegex(ValueError,"현재 대상 회계월은 2026년 9월이며 같은 월 명세서가 필요합니다"):
                 read_prior(p,"",AccountingPeriod(2026,9))
 
 if __name__=="__main__": unittest.main()

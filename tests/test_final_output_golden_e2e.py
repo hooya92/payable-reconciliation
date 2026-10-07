@@ -16,7 +16,7 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
     def test_adversarial_inputs_produce_exact_conservative_workbook(self):
         with tempfile.TemporaryDirectory() as tmp:
             data=build(tmp)
-            period=AccountingPeriod(2026,8)
+            period=AccountingPeriod(2026,7)
 
             run=run_reconciliation(
                 [data["prior_path"]],
@@ -43,7 +43,7 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
 
             # Summary is a fixed golden answer for this adversarial fixture.
             summary=dict(wb["요약"].iter_rows(min_row=1,max_col=2,values_only=True))
-            self.assertEqual(summary["대상 회계월"],"2026년 8월")
+            self.assertEqual(summary["대상 회계월"],"2026년 7월")
             self.assertEqual(summary["확인 필요"],4)
             self.assertEqual(summary["입력 형식 확인"],3)
             self.assertEqual(summary["차월 초안"],0)
@@ -71,7 +71,7 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             # Dirty source rows are quarantined and never disappear silently.
             input_issues=list(wb["입력데이터확인"].iter_rows(min_row=2,values_only=True))
             self.assertEqual(len(input_issues),3)
-            self.assertEqual(sum(row[0]=="전월명세" for row in input_issues),1)
+            self.assertEqual(sum(row[0]=="명세서" for row in input_issues),1)
             self.assertEqual(sum(row[0]=="더존" for row in input_issues),2)
 
             # Raw input issues mean absence of a debit is not trustworthy enough
@@ -88,7 +88,7 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             self.assertEqual(len(current),1)
             self.assertEqual(current[0][0],"사람 확인 필요")
             self.assertEqual(current[0][3],"002001")
-            self.assertEqual(current[0][5],"8월 신규 유류비")
+            self.assertEqual(current[0][5],"7월 신규 유류비")
             self.assertEqual(current[0][6],880000)
             self.assertIn("차월 초안 자동포함 안 함",current[0][7])
 

@@ -16,7 +16,7 @@ class AdversarialExcelE2ETests(unittest.TestCase):
             data=build(tmp); expected=data["expected"]
 
             prior=read_prior(data["prior_path"],"가상담당")
-            raw=read_douzone(data["raw_path"],{"25301"},AccountingPeriod(2026,8))
+            raw=read_douzone(data["raw_path"],{"25301"},AccountingPeriod(2026,7))
             results=reconcile(prior.items,raw.items)
             counts=Counter(x.status for x in results)
 
