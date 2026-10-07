@@ -9,6 +9,9 @@ class PeriodTests(unittest.TestCase):
     def test_august_uses_july(self):
         self.assertEqual((prior_period_for(2026, 8).year, prior_period_for(2026, 8).month), (2026, 7))
 
+    def test_december_to_january_rollover(self):
+        self.assertEqual(AccountingPeriod(2027,1).previous(), AccountingPeriod(2026,12))
+
     def test_period_contains_only_selected_month(self):
         p = AccountingPeriod(2026, 8)
         self.assertTrue(p.contains("2026-08-31"))
