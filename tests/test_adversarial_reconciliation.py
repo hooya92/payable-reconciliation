@@ -21,6 +21,11 @@ class AdversarialReconciliationTests(unittest.TestCase):
         self.assertEqual(result[0].status, Status.AMBIGUOUS)
         self.assertEqual(result[0].rule, "POSSIBLE_PARTIAL")
 
+    def test_larger_same_vendor_debit_requires_combined_payment_review(self):
+        result = reconcile([payable("001001", "운송비", 100)], [debit("001001", "통합지급", 150)])
+        self.assertEqual(result[0].status, Status.AMBIGUOUS)
+        self.assertEqual(result[0].rule, "POSSIBLE_COMBINED")
+
     def test_duplicate_debits_never_choose_one_arbitrarily(self):
         result = reconcile(
             [payable("001001", "운송비", 100)],

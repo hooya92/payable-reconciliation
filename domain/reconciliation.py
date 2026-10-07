@@ -44,9 +44,14 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
                 reason += " · 거래처명도 다름"
             results.append(ReconcileResult(Status.DESCRIPTION_MISMATCH, item, line, reason, "VENDOR_AMOUNT"))
         else:
-            partial = [x for x in by_vendor.get(key[0], []) if id(x) not in used and 0 < x.debit < item.amount]
+            remaining_vendor_debits = [x for x in by_vendor.get(key[0], []) if id(x) not in used and x.debit > 0]
+            partial = [x for x in remaining_vendor_debits if x.debit < item.amount]
             if partial:
                 results.append(ReconcileResult(Status.AMBIGUOUS, item, partial[0], "동일 거래처에 더 작은 차변이 있어 부분지급 가능성 확인 필요", "POSSIBLE_PARTIAL"))
+                continue
+            combined = [x for x in remaining_vendor_debits if x.debit > item.amount]
+            if combined:
+                results.append(ReconcileResult(Status.AMBIGUOUS, item, combined[0], "동일 거래처에 더 큰 차변이 있어 합산지급 가능성 확인 필요", "POSSIBLE_COMBINED"))
                 continue
             other = [x for x in by_amount.get(item.amount, []) if normalize_code(x.vendor_code) != normalize_code(item.vendor_code)]
             if other:
