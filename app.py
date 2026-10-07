@@ -468,7 +468,7 @@ class App(ctk.CTk):
         self.last_period=None
         self.last_source_paths=[]
         self.last_source_digests={}
-        self.export_btn.config(state="disabled")
+        self.export_btn.configure(state="disabled")
         self._summary({})
         self.preflight.config(text="")
         self._clear_detail()
@@ -728,7 +728,7 @@ class App(ctk.CTk):
                 self._set_banner("success","대사 완료 · 확인 항목 있음",detail)
             else:
                 self._set_banner("success","대사 완료",detail)
-            self.export_btn.config(state="normal")
+            self.export_btn.configure(state="normal")
         except Exception as e:
             self._set_banner("error","대사 중단","입력 내용을 확인한 뒤 다시 실행해주세요.")
             messagebox.showerror("대사 중단",str(e))
