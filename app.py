@@ -12,14 +12,30 @@ from application.service import run_reconciliation
 
 BG="#F5F5F7"; CARD="#FFFFFF"; TEXT="#1D1D1F"; MUTED="#6E6E73"; ACCENT="#007AFF"; WARN="#B45309"; BORDER="#D2D2D7"; SOFT="#E8E8ED"
 
-def find_duplicate_files(prior_paths, douzone_paths):
+def file_digest(path):
+    h=hashlib.sha256()
+    with open(path,"rb") as f:
+        for chunk in iter(lambda:f.read(1024*1024),b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+def snapshot_file_digests(paths):
+    return {str(Path(path).resolve()):file_digest(path) for path in paths}
+
+def changed_snapshot_paths(snapshot):
+    changed=[]
+    for path,digest in snapshot.items():
+        p=Path(path)
+        if not p.exists() or file_digest(p)!=digest:
+            changed.append(p.name)
+    return changed
+
+def find_duplicate_files(prior_paths, douzone_paths, digests=None):
     seen={}; duplicates=[]
+    digests=digests or snapshot_file_digests(list(prior_paths)+list(douzone_paths))
     for kind, paths in (("전월 명세",prior_paths),("더존 Raw",douzone_paths)):
         for path in paths:
-            h=hashlib.sha256()
-            with open(path,"rb") as f:
-                for chunk in iter(lambda:f.read(1024*1024),b""): h.update(chunk)
-            digest=h.hexdigest()
+            digest=digests[str(Path(path).resolve())]
             if digest in seen:
                 duplicates.append((seen[digest],(kind,Path(path).name)))
             else:
@@ -33,7 +49,7 @@ class App(tk.Tk):
         self.year=tk.IntVar(value=today.year); self.month=tk.IntVar(value=today.month)
         self.prior_paths=[]; self.douzone_paths=[]; self.account_codes=tk.StringVar(value="25301")
         self.period_text=tk.StringVar(); self.status_text=tk.StringVar(value="대상 회계월과 파일을 확인한 뒤 대사를 시작하세요.")
-        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self._build(); self._update_period()
+        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self.last_source_digests={}; self.last_source_digests={}; self._build(); self._update_period()
 
     def _build(self):
         s=ttk.Style(self); s.theme_use("clam")
@@ -96,7 +112,7 @@ class App(tk.Tk):
         if not hasattr(self,"export_btn"):
             return
         had_result=bool(self.results or self.new_items or self.issues or self.last_period)
-        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]
+        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self.last_source_digests={}
         self.export_btn.config(state="disabled")
         self._summary({})
         self.preflight.config(text="")
@@ -161,13 +177,18 @@ class App(tk.Tk):
         self.status_text.set("사전검사 및 대사 실행 중...")
         self.update_idletasks()
         try:
-            dup=self._duplicate_files()
+            source_paths=list(self.prior_paths)+list(self.douzone_paths)
+            before_digests=snapshot_file_digests(source_paths)
+            dup=find_duplicate_files(self.prior_paths,self.douzone_paths,before_digests)
             if dup:
                 a,b=dup[0]
                 raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
             run=run_reconciliation(list(self.prior_paths),list(self.douzone_paths),codes,p)
+            after_digests=snapshot_file_digests(source_paths)
+            if before_digests != after_digests:
+                raise ValueError("대사 실행 중 입력 Excel이 변경되었습니다. 파일 저장이 끝난 뒤 다시 실행해주세요.")
             self.issues=run.issues; self.results=run.results; self.new_items=run.new_items
             counts=run.counts; self._summary(counts)
             exc=sum(v for k,v in counts.items() if k!=Status.MATCHED)
@@ -177,7 +198,8 @@ class App(tk.Tk):
                 if x.status != Status.MATCHED:
                     self.detail.insert("", "end", values=(x.prior.source.owner or x.prior.source.file_name, x.prior.vendor_name, f"{int(x.prior.amount):,}", x.status.value, x.reason))
             self.last_period=p
-            self.last_source_paths=list(self.prior_paths)+list(self.douzone_paths)
+            self.last_source_paths=source_paths
+            self.last_source_digests=after_digests
             self.status_text.set(f"{p.label} 대사 완료 · 전월 명세 {run.prior_count:,}건 · 전월 검토 {exc:,}건 · 당월 신규 검토 {len(self.new_items):,}건")
             self.export_btn.config(state="normal")
         except Exception as e:
@@ -187,6 +209,11 @@ class App(tk.Tk):
     def export(self):
         if self.last_period is None:
             messagebox.showwarning("대사 필요","현재 입력 조건으로 대사를 먼저 실행해주세요."); return
+        changed=changed_snapshot_paths(self.last_source_digests)
+        if changed:
+            self._invalidate_results()
+            messagebox.showwarning("입력 파일 변경","대사 후 입력 Excel이 변경되거나 사라졌습니다: "+", ".join(changed)+"\n다시 대사를 실행해주세요.")
+            return
         p=self.last_period
         path=filedialog.asksaveasfilename(defaultextension=".xlsx",initialfile=f"{p.year}_{p.month:02d}_명세서_대사결과.xlsx",filetypes=[("Excel","*.xlsx")])
         if not path:return
