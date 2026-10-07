@@ -69,7 +69,9 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             # Only code/amount/ambiguity/input-safety exceptions remain for human review.
             review=list(wb["확인필요"].iter_rows(min_row=2,values_only=True))
             self.assertEqual(len(review),4)
-            review_codes={row[6] for row in review}
+            review_headers=[cell.value for cell in wb["확인필요"][1]]
+            self.assertNotIn("담당자",review_headers)
+            review_codes={row[5] for row in review}
             self.assertEqual(review_codes,{"001003","001005","001006","001007"})
 
             # Dirty source rows are quarantined and never disappear silently.
@@ -82,7 +84,7 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             # to auto-carry an item into the next-month draft.
             draft_rows=list(wb["차월명세서 초안"].iter_rows(min_row=2,values_only=True))
             self.assertEqual(draft_rows,[])
-            unpaid_review=[row for row in review if row[6]=="001006"]
+            unpaid_review=[row for row in review if row[5]=="001006"]
             self.assertEqual(len(unpaid_review),1)
             self.assertEqual(unpaid_review[0][0],"더존 입력 확인 필요")
             self.assertIn("지급 여부를 확정할 수 없음",unpaid_review[0][1])
@@ -106,6 +108,8 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
                 self.assertIsNone(wb[sheet_name].sheet_properties.tabColor)
 
             completed_sheet=wb["자동대사완료"]
+            self.assertIsNotNone(completed_sheet.sheet_properties.tabColor)
+            self.assertTrue(completed_sheet.sheet_properties.tabColor.rgb.endswith("70AD47"))
             self.assertGreater(completed_sheet.column_dimensions["D"].width,20)
             self.assertGreaterEqual(completed_sheet.row_dimensions[2].height,20)
 
