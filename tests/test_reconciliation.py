@@ -31,6 +31,10 @@ class ReconcileTests(unittest.TestCase):
         r = reconcile([p("051330", "주류", 100)], [])
         self.assertEqual(r[0].status, Status.UNPAID)
 
+    def test_description_mismatch_candidate_is_not_reused(self):
+        r = reconcile([p("051330", "A", 100), p("051330", "B", 100)], [j("051330", "X", 100)])
+        self.assertTrue(all(x.status == Status.AMBIGUOUS for x in r))
+
     def test_duplicate_candidates_are_ambiguous(self):
         r = reconcile([p("051330", "주류", 100)], [j("051330", "주류", 100), j("051330", "주류", 100)])
         self.assertEqual(r[0].status, Status.AMBIGUOUS)
