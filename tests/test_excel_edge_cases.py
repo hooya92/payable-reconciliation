@@ -48,6 +48,21 @@ class ExcelEdgeCaseTests(unittest.TestCase):
                 [AccountingPeriod(2026,7),AccountingPeriod(2026,8)],
             )
 
+    def test_douzone_common_header_aliases_are_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"전표출력.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["전표일자","계정과목코드","계정명","거래처번호","업체명","전표적요","차변액","대변액"])
+            ws.append(["2026-07-15","25301","미지급금-일반","051330","가상물류","7월 운송비",1250000,0])
+            wb.save(p)
+
+            self.assertEqual(classify_excel_input(p),"douzone")
+            self.assertEqual(detect_douzone_periods(p,{"25301"}),[AccountingPeriod(2026,7)])
+            result=read_douzone(p,{"25301"},AccountingPeriod(2026,7))
+            self.assertEqual(len(result.items),1)
+            self.assertEqual(result.items[0].vendor_code,"051330")
+            self.assertEqual(result.items[0].description,"7월 운송비")
+            self.assertEqual(result.items[0].debit,1250000)
+
     def test_douzone_duplicate_code_headers_and_target_month_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"raw.xlsx"; wb=Workbook(); ws=wb.active
