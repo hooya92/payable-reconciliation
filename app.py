@@ -16,20 +16,20 @@ from application.service import run_reconciliation
 BG="#F5F5F7"
 CARD="#FFFFFF"
 TEXT="#1D1D1F"
-MUTED="#6E6E73"
-ACCENT="#007AFF"
-ACCENT_HOVER="#0066CC"
-GREEN="#1F7A4D"
-GREEN_BG="#EFF8F3"
+MUTED="#86868B"
+ACCENT="#0071E3"
+ACCENT_HOVER="#0077ED"
+GREEN="#248A3D"
+GREEN_BG="#F0F9F2"
 WARN="#A15C00"
-WARN_BG="#FFF7E8"
+WARN_BG="#FFF8E8"
 RED="#B42318"
 RED_BG="#FFF1F0"
 BORDER="#E5E5EA"
 BORDER_STRONG="#D2D2D7"
-SOFT="#F2F2F7"
-LIST_BG="#FAFAFC"
-SELECT_BG="#DDEBFF"
+SOFT="#F5F5F7"
+LIST_BG="#FBFBFD"
+SELECT_BG="#E8F1FF"
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -158,6 +158,7 @@ class App(ctk.CTk):
         self.douzone_paths=[]
         self.account_codes=tk.StringVar(value="25301")
         self.period_text=tk.StringVar()
+        self.period_badge_text=tk.StringVar(value="자동 감지 대기")
         self.status_text=tk.StringVar(value="대상 회계월과 파일을 선택한 뒤 대사를 시작하세요.")
         self.prior_count_text=tk.StringVar(value="선택된 파일 없음")
         self.raw_count_text=tk.StringVar(value="선택된 파일 없음")
@@ -175,52 +176,14 @@ class App(ctk.CTk):
         self._update_period()
 
     def _build(self):
+        # Native table styling kept for dense result inspection; the surrounding UI
+        # uses rounded CustomTkinter surfaces and restrained Apple-like spacing.
         s=ttk.Style(self)
         s.theme_use("clam")
         s.configure(
-            "TButton",
-            font=("Segoe UI",10),
-            padding=(14,9),
-            background=CARD,
-            foreground=TEXT,
-            bordercolor=BORDER_STRONG,
-            relief="flat",
-        )
-        s.map("TButton",background=[("active",SOFT)],foreground=[("disabled","#A1A1A6")])
-        s.configure("TEntry",padding=8,fieldbackground=CARD,bordercolor=BORDER_STRONG)
-        s.configure(
-            "Accent.TButton",
-            font=("Segoe UI Semibold",10),
-            padding=(20,11),
-            foreground="white",
-            background=ACCENT,
-            bordercolor=ACCENT,
-            relief="flat",
-        )
-        s.map("Accent.TButton",background=[("active",ACCENT_HOVER),("disabled","#9DC7F5")])
-        s.configure(
-            "Segment.TButton",
-            font=("Segoe UI Semibold",9),
-            padding=(13,7),
-            foreground=MUTED,
-            background=SOFT,
-            bordercolor=BORDER,
-            relief="flat",
-        )
-        s.map("Segment.TButton",background=[("active","#EAEAEE")])
-        s.configure(
-            "SegmentActive.TButton",
-            font=("Segoe UI Semibold",9),
-            padding=(13,7),
-            foreground=TEXT,
-            background=CARD,
-            bordercolor=BORDER_STRONG,
-            relief="flat",
-        )
-        s.configure(
             "Treeview",
-            font=("Segoe UI",9),
-            rowheight=34,
+            font=("Segoe UI",10),
+            rowheight=38,
             background=CARD,
             fieldbackground=CARD,
             foreground=TEXT,
@@ -230,25 +193,28 @@ class App(ctk.CTk):
         s.configure(
             "Treeview.Heading",
             font=("Segoe UI Semibold",9),
-            padding=(8,8),
-            background=SOFT,
+            padding=(10,10),
+            background="#F7F7F9",
             foreground=MUTED,
             bordercolor=BORDER,
             relief="flat",
         )
 
-        shell=tk.Frame(self,bg=BG)
+        shell=ctk.CTkFrame(self,fg_color=BG,corner_radius=0)
         shell.pack(fill="both",expand=True)
         self.scroll_canvas=tk.Canvas(shell,bg=BG,highlightthickness=0,borderwidth=0)
-        scroll=ttk.Scrollbar(shell,orient="vertical",command=self.scroll_canvas.yview)
+        scroll=ctk.CTkScrollbar(
+            shell,orientation="vertical",command=self.scroll_canvas.yview,
+            width=12,fg_color=BG,button_color="#C7C7CC",button_hover_color="#AEAEB2"
+        )
         self.scroll_canvas.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right",fill="y")
+        scroll.pack(side="right",fill="y",padx=(0,4),pady=6)
         self.scroll_canvas.pack(side="left",fill="both",expand=True)
 
         scroll_body=tk.Frame(self.scroll_canvas,bg=BG)
         self.scroll_window=self.scroll_canvas.create_window((0,0),window=scroll_body,anchor="nw")
-        self.root_content=tk.Frame(scroll_body,bg=BG)
-        self.root_content.pack(fill="both",expand=True,padx=44,pady=(30,38))
+        self.root_content=ctk.CTkFrame(scroll_body,fg_color="transparent",corner_radius=0)
+        self.root_content.pack(fill="both",expand=True,padx=46,pady=(34,42))
         root=self.root_content
 
         scroll_body.bind("<Configure>",lambda _e:self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all")))
@@ -257,187 +223,231 @@ class App(ctk.CTk):
         self.bind_all("<Button-4>",self._on_mousewheel,add="+")
         self.bind_all("<Button-5>",self._on_mousewheel,add="+")
 
-        tk.Label(root,text="명세서 대사",font=("Segoe UI Semibold",30),bg=BG,fg=TEXT).pack(anchor="w")
-        tk.Label(
-            root,
-            text="명세서와 더존 전표를 자동 대사하고, 사람이 확인할 항목만 남깁니다.",
-            font=("Segoe UI",11),
-            bg=BG,
-            fg=MUTED,
-        ).pack(anchor="w",pady=(5,22))
+        # Hero
+        hero=ctk.CTkFrame(root,fg_color="transparent")
+        hero.pack(fill="x",pady=(0,22))
+        hero.grid_columnconfigure(0,weight=1)
+        ctk.CTkLabel(
+            hero,text="명세서 대사",font=("Segoe UI Semibold",34),
+            text_color=TEXT,anchor="w"
+        ).grid(row=0,column=0,sticky="w")
+        ctk.CTkLabel(
+            hero,text="명세서와 더존 전표를 같은 회계월 기준으로 빠르게 대사합니다.",
+            font=("Segoe UI",11),text_color=MUTED,anchor="w"
+        ).grid(row=1,column=0,sticky="w",pady=(3,0))
+        ctk.CTkLabel(
+            hero,text="LOCAL  ·  READ ONLY",font=("Segoe UI Semibold",9),
+            text_color=MUTED,fg_color="#ECECF0",corner_radius=11,
+            padx=12,pady=5
+        ).grid(row=0,column=1,rowspan=2,sticky="e")
 
-        period=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=18)
+        # Accounting period card
+        period=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=22)
         period.pack(fill="x",pady=(0,14))
-        left=tk.Frame(period,bg=CARD)
-        left.pack(side="left",padx=22,pady=18)
-        tk.Label(left,text="대상 회계월",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
-        controls=tk.Frame(left,bg=CARD)
-        controls.pack(anchor="w",pady=(8,0))
-        self.year_spin=ttk.Spinbox(controls,from_=2020,to=2100,textvariable=self.year,width=7,state="readonly")
-        self.year_spin.pack(side="left")
-        tk.Label(controls,text="년",bg=CARD,fg=MUTED).pack(side="left",padx=(5,12))
-        self.month_spin=ttk.Spinbox(controls,from_=1,to=12,textvariable=self.month,width=4,state="readonly")
-        self.month_spin.pack(side="left")
-        tk.Label(controls,text="월",bg=CARD,fg=MUTED).pack(side="left",padx=(5,10))
-        tk.Label(controls,text="파일에서 자동 감지",font=("Segoe UI Semibold",9),bg=CARD,fg=GREEN).pack(side="left")
-        self.year.trace_add("write",lambda *_:self._on_period_changed())
-        self.month.trace_add("write",lambda *_:self._on_period_changed())
-        tk.Label(
-            period,
-            textvariable=self.period_text,
-            font=("Segoe UI Semibold",11),
-            bg=CARD,
-            fg=ACCENT,
-            justify="left",
-        ).pack(side="left",padx=(38,20))
+        period.grid_columnconfigure(1,weight=1)
 
-        card=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=20)
+        period_left=ctk.CTkFrame(period,fg_color="transparent")
+        period_left.grid(row=0,column=0,sticky="w",padx=(24,28),pady=20)
+        ctk.CTkLabel(
+            period_left,text="대상 회계월",font=("Segoe UI Semibold",10),
+            text_color=MUTED,anchor="w"
+        ).pack(anchor="w")
+        badge_row=ctk.CTkFrame(period_left,fg_color="transparent")
+        badge_row.pack(anchor="w",pady=(7,0))
+        ctk.CTkLabel(
+            badge_row,textvariable=self.period_badge_text,
+            font=("Segoe UI Semibold",18),text_color=TEXT,
+            fg_color="#F2F2F7",corner_radius=12,padx=14,pady=7
+        ).pack(side="left")
+        ctk.CTkLabel(
+            badge_row,text="●  파일에서 자동 감지",
+            font=("Segoe UI Semibold",9),text_color=GREEN,
+            fg_color="#EDF8F0",corner_radius=11,padx=11,pady=5
+        ).pack(side="left",padx=(9,0))
+
+        ctk.CTkLabel(
+            period,textvariable=self.period_text,
+            font=("Segoe UI Semibold",11),text_color=ACCENT,
+            justify="left",anchor="w"
+        ).grid(row=0,column=1,sticky="w",padx=(12,24),pady=20)
+
+        # Inputs
+        card=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=24)
         card.pack(fill="x")
-        card.grid_columnconfigure(0,minsize=165)
+        card.grid_columnconfigure(0,minsize=155)
         card.grid_columnconfigure(1,weight=1)
-        card.grid_columnconfigure(2,minsize=130)
+        card.grid_columnconfigure(2,minsize=124)
 
-        header=tk.Frame(card,bg=CARD)
-        header.grid(row=0,column=0,columnspan=3,sticky="ew",padx=22,pady=(18,8))
-        tk.Label(header,text="입력 파일",font=("Segoe UI Semibold",13),bg=CARD,fg=TEXT).pack(side="left")
-        tk.Label(
-            header,
-            text="  원본은 수정하지 않고 읽기만 합니다.",
-            font=("Segoe UI",9),
-            bg=CARD,
-            fg=MUTED,
-        ).pack(side="left",pady=(2,0))
+        header=ctk.CTkFrame(card,fg_color="transparent")
+        header.grid(row=0,column=0,columnspan=3,sticky="ew",padx=24,pady=(22,10))
+        ctk.CTkLabel(
+            header,text="입력 파일",font=("Segoe UI Semibold",15),
+            text_color=TEXT,anchor="w"
+        ).pack(side="left")
+        ctk.CTkLabel(
+            header,text="원본 파일은 읽기만 하고 수정하지 않습니다.",
+            font=("Segoe UI",9),text_color=MUTED,anchor="w"
+        ).pack(side="left",padx=(12,0),pady=(2,0))
 
-        prior_label=tk.Frame(card,bg=CARD)
-        prior_label.grid(row=1,column=0,sticky="nw",padx=(22,12),pady=14)
-        tk.Label(prior_label,text="명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
-        tk.Label(prior_label,textvariable=self.prior_count_text,font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w",pady=(3,0))
-        self.prior_list=tk.Listbox(
-            card,height=3,font=("Segoe UI",9),selectmode="extended",
-            bg=LIST_BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
-            relief="flat",highlightthickness=1,highlightbackground=BORDER,highlightcolor=ACCENT,
+        def add_file_row(row,title,count_var,add_command,remove_command):
+            label=ctk.CTkFrame(card,fg_color="transparent")
+            label.grid(row=row,column=0,sticky="nw",padx=(24,12),pady=13)
+            ctk.CTkLabel(
+                label,text=title,font=("Segoe UI Semibold",10),
+                text_color=TEXT,anchor="w"
+            ).pack(anchor="w")
+            ctk.CTkLabel(
+                label,textvariable=count_var,font=("Segoe UI",9),
+                text_color=MUTED,anchor="w"
+            ).pack(anchor="w",pady=(3,0))
+
+            list_wrap=ctk.CTkFrame(
+                card,fg_color=LIST_BG,border_width=1,border_color=BORDER,
+                corner_radius=14,height=58
+            )
+            list_wrap.grid(row=row,column=1,sticky="ew",pady=10)
+            list_wrap.grid_propagate(False)
+            lb=tk.Listbox(
+                list_wrap,height=2,font=("Segoe UI",9),selectmode="extended",
+                bg=LIST_BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
+                relief="flat",highlightthickness=0,borderwidth=0,
+                activestyle="none"
+            )
+            lb.pack(fill="both",expand=True,padx=10,pady=7)
+
+            buttons=ctk.CTkFrame(card,fg_color="transparent")
+            buttons.grid(row=row,column=2,padx=(16,18),pady=10,sticky="n")
+            ctk.CTkButton(
+                buttons,text="파일 추가",command=add_command,width=106,height=34,
+                corner_radius=11,fg_color="#F0F0F4",hover_color="#E7E7EC",
+                text_color=TEXT,font=("Segoe UI Semibold",9)
+            ).pack(fill="x")
+            ctk.CTkButton(
+                buttons,text="선택 제거",command=remove_command,width=106,height=30,
+                corner_radius=10,fg_color="transparent",hover_color=SOFT,
+                text_color=MUTED,font=("Segoe UI",9)
+            ).pack(fill="x",pady=(5,0))
+            return lb
+
+        self.prior_list=add_file_row(
+            1,"명세서",self.prior_count_text,self.pick_priors,self.remove_priors
         )
-        self.prior_list.grid(row=1,column=1,sticky="ew",pady=14)
-        pf=tk.Frame(card,bg=CARD)
-        pf.grid(row=1,column=2,padx=18,pady=14,sticky="n")
-        ctk.CTkButton(pf,text="파일 추가",command=self.pick_priors,width=108,height=34,corner_radius=11,
-                      fg_color=SOFT,hover_color="#E9E9EE",text_color=TEXT).pack(fill="x")
-        ctk.CTkButton(pf,text="선택 제거",command=self.remove_priors,width=108,height=34,corner_radius=11,
-                      fg_color="transparent",hover_color=SOFT,text_color=MUTED,
-                      border_width=1,border_color=BORDER).pack(fill="x",pady=(6,0))
-
-        divider=tk.Frame(card,bg=BORDER,height=1)
-        divider.grid(row=2,column=0,columnspan=3,sticky="ew",padx=22)
-
-        raw_label=tk.Frame(card,bg=CARD)
-        raw_label.grid(row=3,column=0,sticky="nw",padx=(22,12),pady=14)
-        tk.Label(raw_label,text="더존 Raw",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
-        tk.Label(raw_label,textvariable=self.raw_count_text,font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w",pady=(3,0))
-        self.douzone_list=tk.Listbox(
-            card,height=3,font=("Segoe UI",9),selectmode="extended",
-            bg=LIST_BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
-            relief="flat",highlightthickness=1,highlightbackground=BORDER,highlightcolor=ACCENT,
+        divider=ctk.CTkFrame(card,fg_color=BORDER,height=1,corner_radius=0)
+        divider.grid(row=2,column=0,columnspan=3,sticky="ew",padx=24)
+        self.douzone_list=add_file_row(
+            3,"더존 Raw",self.raw_count_text,self.pick_douzone,self.remove_douzone
         )
-        self.douzone_list.grid(row=3,column=1,sticky="ew",pady=14)
-        df=tk.Frame(card,bg=CARD)
-        df.grid(row=3,column=2,padx=18,pady=14,sticky="n")
-        ctk.CTkButton(df,text="파일 추가",command=self.pick_douzone,width=108,height=34,corner_radius=11,
-                      fg_color=SOFT,hover_color="#E9E9EE",text_color=TEXT).pack(fill="x")
-        ctk.CTkButton(df,text="선택 제거",command=self.remove_douzone,width=108,height=34,corner_radius=11,
-                      fg_color="transparent",hover_color=SOFT,text_color=MUTED,
-                      border_width=1,border_color=BORDER).pack(fill="x",pady=(6,0))
 
-        options=tk.Frame(card,bg=CARD)
-        options.grid(row=4,column=0,columnspan=3,sticky="ew",padx=22,pady=(4,10))
-        tk.Label(options,text="미지급금 계정코드",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(side="left")
-        ttk.Entry(options,textvariable=self.account_codes,width=16).pack(side="left",padx=(12,8))
-        tk.Label(options,text="여러 개면 쉼표로 구분",font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(side="left")
+        options=ctk.CTkFrame(card,fg_color="#F8F8FA",corner_radius=15)
+        options.grid(row=4,column=0,columnspan=3,sticky="ew",padx=24,pady=(8,10))
+        ctk.CTkLabel(
+            options,text="미지급금 계정코드",font=("Segoe UI Semibold",10),
+            text_color=TEXT
+        ).pack(side="left",padx=(14,10),pady=11)
+        ctk.CTkEntry(
+            options,textvariable=self.account_codes,width=132,height=32,
+            corner_radius=9,fg_color=CARD,border_color=BORDER_STRONG,
+            text_color=TEXT,font=("Segoe UI",10)
+        ).pack(side="left",pady=8)
+        ctk.CTkLabel(
+            options,text="여러 개면 쉼표로 구분",font=("Segoe UI",9),
+            text_color=MUTED
+        ).pack(side="left",padx=(10,0))
 
-        tk.Label(
+        ctk.CTkLabel(
             card,
-            text="명세서는 대상 회계월과 같은 월의 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
-            font=("Segoe UI",9),
-            bg=CARD,
-            fg=MUTED,
-        ).grid(row=5,column=0,columnspan=3,sticky="w",padx=22,pady=(0,18))
+            text="명세서는 대상 회계월과 같은 월의 시트를 자동 선택합니다.  ·  행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
+            font=("Segoe UI",9),text_color=MUTED,anchor="w"
+        ).grid(row=5,column=0,columnspan=3,sticky="ew",padx=24,pady=(0,20))
 
-        actions=tk.Frame(root,bg=BG)
+        # Primary actions
+        actions=ctk.CTkFrame(root,fg_color="transparent")
         actions.pack(fill="x",pady=(16,12))
         ctk.CTkButton(
-            actions,text="대사 시작",command=self.run,width=132,height=44,corner_radius=13,
-            fg_color=ACCENT,hover_color=ACCENT_HOVER,text_color="white",
-            font=("Segoe UI Semibold",10)
+            actions,text="대사 시작",command=self.run,width=148,height=46,
+            corner_radius=14,fg_color=ACCENT,hover_color=ACCENT_HOVER,
+            text_color="white",font=("Segoe UI Semibold",11)
         ).pack(side="left")
         self.export_btn=ctk.CTkButton(
             actions,text="결과 Excel 저장",command=self.export,state="disabled",
-            width=140,height=44,corner_radius=13,fg_color=CARD,hover_color=SOFT,
+            width=148,height=46,corner_radius=14,fg_color=CARD,hover_color="#FAFAFC",
             text_color=TEXT,border_width=1,border_color=BORDER_STRONG,
             font=("Segoe UI Semibold",10)
         )
         self.export_btn.pack(side="left",padx=(10,0))
 
+        # Status
         self.banner=ctk.CTkFrame(
-            root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=18
+            root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=20
         )
         self.banner.pack(fill="x",pady=(0,14))
+        banner_inner=ctk.CTkFrame(self.banner,fg_color="transparent")
+        banner_inner.pack(fill="x",padx=20,pady=14)
         self.banner_title=ctk.CTkLabel(
-            self.banner,text="대사 전",font=("Segoe UI Semibold",12),
+            banner_inner,text="대사 전",font=("Segoe UI Semibold",11),
             text_color=TEXT,anchor="w"
         )
-        self.banner_title.pack(fill="x",padx=20,pady=(14,0))
+        self.banner_title.pack(anchor="w")
         self.banner_detail=ctk.CTkLabel(
-            self.banner,textvariable=self.status_text,font=("Segoe UI",9),
+            banner_inner,textvariable=self.status_text,font=("Segoe UI",9),
             text_color=MUTED,anchor="w"
         )
-        self.banner_detail.pack(fill="x",padx=20,pady=(2,14))
+        self.banner_detail.pack(fill="x",pady=(3,0))
 
-        self.summary=tk.Frame(root,bg=BG)
+        self.summary=ctk.CTkFrame(root,fg_color="transparent")
         self.summary.pack(fill="x",pady=(0,14))
         self._summary({})
 
-        self.preflight=tk.Label(
-            root,text="",font=("Segoe UI",9),bg=BG,fg=WARN,justify="left",anchor="w"
+        self.preflight=ctk.CTkLabel(
+            root,text="",font=("Segoe UI",9),text_color=WARN,
+            justify="left",anchor="w"
         )
         self.preflight.pack(fill="x",pady=(0,10))
 
-        result_card=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=20)
+        # Result card
+        result_card=ctk.CTkFrame(root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=24)
         result_card.pack(fill="both",expand=True)
 
-        result_header=tk.Frame(result_card,bg=CARD)
-        result_header.pack(fill="x",padx=18,pady=(17,10))
-        tk.Label(result_header,text="결과 상세",font=("Segoe UI Semibold",13),bg=CARD,fg=TEXT).pack(side="left")
+        result_header=ctk.CTkFrame(result_card,fg_color="transparent")
+        result_header.pack(fill="x",padx=20,pady=(18,8))
+        ctk.CTkLabel(
+            result_header,text="결과 상세",font=("Segoe UI Semibold",15),
+            text_color=TEXT
+        ).pack(side="left")
         self.matched_view_btn=ctk.CTkButton(
             result_header,text="자동 대사 0",command=lambda:self._set_result_view("matched"),
-            width=112,height=34,corner_radius=12,fg_color=SOFT,hover_color="#E9E9EE",
-            text_color=MUTED
+            width=112,height=34,corner_radius=11,fg_color=SOFT,hover_color="#ECECF0",
+            text_color=MUTED,font=("Segoe UI Semibold",9)
         )
         self.matched_view_btn.pack(side="right")
         self.review_view_btn=ctk.CTkButton(
             result_header,text="검토 필요 0",command=lambda:self._set_result_view("review"),
-            width=112,height=34,corner_radius=12,fg_color=CARD,hover_color=SOFT,
-            text_color=TEXT,border_width=1,border_color=BORDER_STRONG
+            width=112,height=34,corner_radius=11,fg_color=CARD,hover_color=SOFT,
+            text_color=TEXT,border_width=1,border_color=BORDER_STRONG,
+            font=("Segoe UI Semibold",9)
         )
         self.review_view_btn.pack(side="right",padx=(0,6))
 
-        tk.Label(
+        ctk.CTkLabel(
             result_card,textvariable=self.detail_hint_text,font=("Segoe UI",9),
-            bg=CARD,fg=MUTED,anchor="w"
-        ).pack(fill="x",padx=18,pady=(0,9))
+            text_color=MUTED,anchor="w"
+        ).pack(fill="x",padx=20,pady=(0,10))
 
-        table_wrap=tk.Frame(result_card,bg=BORDER)
-        table_wrap.pack(fill="both",expand=True,padx=18,pady=(0,18))
+        table_wrap=ctk.CTkFrame(
+            result_card,fg_color=BORDER,corner_radius=14,border_width=0
+        )
+        table_wrap.pack(fill="both",expand=True,padx=20,pady=(0,20))
         self.detail=ttk.Treeview(
             table_wrap,
             columns=("owner","vendor","amount","status","reason"),
-            show="headings",
-            height=8,
+            show="headings",height=8,
         )
         columns=(
             ("owner","원본 명세",165),
-            ("vendor","거래처",170),
+            ("vendor","거래처",180),
             ("amount","금액",120),
-            ("status","상태",140),
-            ("reason","사유 / 참고",420),
+            ("status","상태",150),
+            ("reason","사유 / 참고",430),
         )
         for col,title,width in columns:
             self.detail.heading(col,text=title)
@@ -445,11 +455,13 @@ class App(ctk.CTk):
         self.detail.tag_configure("matched",foreground=GREEN)
         self.detail.pack(fill="both",expand=True,padx=1,pady=1)
 
-        tk.Label(
-            root,
+        footer=ctk.CTkFrame(root,fg_color="#ECECF0",corner_radius=12)
+        footer.pack(anchor="w",pady=(14,0))
+        ctk.CTkLabel(
+            footer,
             text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",
-            font=("Segoe UI",9),bg=BG,fg=MUTED,
-        ).pack(anchor="w",pady=(14,0))
+            font=("Segoe UI",9),text_color=MUTED
+        ).pack(padx=12,pady=6)
 
         self.account_codes.trace_add("write",lambda *_:self._on_account_code_changed())
 
@@ -494,12 +506,14 @@ class App(ctk.CTk):
     def _update_period(self):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
+            self.period_badge_text.set(p.label)
             self.period_text.set(
                 f"{p.label} 명세서  ↔  {p.label} 더존 전표\n"
                 "명세서와 Raw에서 같은 회계월을 자동 감지합니다."
             )
         except Exception:
-            self.period_text.set("올바른 연/월을 선택해주세요.")
+            self.period_badge_text.set("자동 감지 대기")
+            self.period_text.set("파일을 추가하면 회계월을 자동으로 감지합니다.")
         if hasattr(self,"prior_count_text"):
             self._refresh_file_counts()
 
@@ -519,7 +533,7 @@ class App(ctk.CTk):
         self.last_source_digests={}
         self.export_btn.configure(state="disabled")
         self._summary({})
-        self.preflight.config(text="")
+        self.preflight.configure(text="")
         self._clear_detail()
         self.result_view="review"
         self._update_view_buttons()
@@ -701,20 +715,35 @@ class App(ctk.CTk):
             w.destroy()
         b=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
         cards=[
-            ("자동 대사 완료",b["matched"],GREEN,"코드·금액 기준 자동 처리"),
-            ("검토 필요",b["review"],WARN,"사람이 확인할 항목"),
-            ("입력 확인",b["issues"],RED,"자동 처리에서 제외"),
-            ("당월 신규 명세",b["new"],ACCENT,"현재는 검토 대상으로 유지"),
+            ("자동 대사",b["matched"],GREEN,"확정"),
+            ("검토 필요",b["review"],WARN,"확인"),
+            ("입력 확인",b["issues"],RED,"보류"),
+            ("Raw 신규",b["new"],ACCENT,"검토"),
         ]
-        for i,(name,value,color,sub) in enumerate(cards):
+        for i,(name,value,color,badge) in enumerate(cards):
             box=ctk.CTkFrame(
-                self.summary,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=17
+                self.summary,fg_color=CARD,border_width=1,border_color=BORDER,
+                corner_radius=20,height=102
             )
             box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0))
+            box.grid_propagate(False)
             self.summary.grid_columnconfigure(i,weight=1)
-            ctk.CTkLabel(box,text=name,font=("Segoe UI Semibold",9),text_color=MUTED,anchor="w").pack(fill="x",padx=17,pady=(13,0))
-            ctk.CTkLabel(box,text=f"{value:,}",font=("Segoe UI Semibold",25),text_color=color,anchor="w").pack(fill="x",padx=17,pady=(0,0))
-            ctk.CTkLabel(box,text=sub,font=("Segoe UI",8),text_color=MUTED,anchor="w").pack(fill="x",padx=17,pady=(0,13))
+
+            top=ctk.CTkFrame(box,fg_color="transparent")
+            top.pack(fill="x",padx=16,pady=(14,0))
+            ctk.CTkLabel(
+                top,text=name,font=("Segoe UI Semibold",9),
+                text_color=MUTED
+            ).pack(side="left")
+            ctk.CTkLabel(
+                top,text=badge,font=("Segoe UI Semibold",8),
+                text_color=color,fg_color="#F7F7F9",
+                corner_radius=9,padx=8,pady=3
+            ).pack(side="right")
+            ctk.CTkLabel(
+                box,text=f"{value:,}",font=("Segoe UI Semibold",27),
+                text_color=TEXT,anchor="w"
+            ).pack(fill="x",padx=16,pady=(2,12))
         self._update_view_buttons()
 
     def _clear_detail(self):
@@ -814,13 +843,13 @@ class App(ctk.CTk):
             self._summary(counts)
 
             breakdown=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
-            self.preflight.config(
+            self.preflight.configure(
                 text=(
                     f"입력 확인 {len(self.issues):,}건 · 해당 행은 자동 대사에서 제외했습니다."
                     if self.issues else
                     "사전검사 통과 · 자동 제외된 입력 이상이 없습니다."
                 ),
-                fg=(WARN if self.issues else GREEN),
+                text_color=(WARN if self.issues else GREEN),
             )
 
             self.result_view="review" if any(x.status!=Status.MATCHED for x in self.results) else "matched"
