@@ -95,4 +95,31 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             self.assertEqual(len(r.items),0)
             self.assertTrue(any(x.field=="차변" and "수식" in x.reason for x in r.issues))
 
+    def test_unrelated_cover_sheet_is_ignored_but_data_sheet_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"prior_multi.xlsx"; wb=Workbook()
+            cover=wb.active; cover.title="표지"; cover.append(["명세서 안내"]); cover.append(["작성자","가상담당"])
+            ws=wb.create_sheet("실제데이터")
+            ws.append(["거래처코드","거래처명","날짜","적요","금액"])
+            ws.append(["001234","가상상사","2026-07-31","유류비",100000]); wb.save(p)
+            r=read_prior(p)
+            self.assertEqual(len(r.items),1)
+            self.assertEqual(r.recognized_sheets,["실제데이터"])
+
+    def test_prior_partial_data_like_sheet_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"prior_changed.xlsx"; wb=Workbook(); ws=wb.active; ws.title="명세"
+            ws.append(["거래처코드","거래처명","적요","청구액"])
+            ws.append(["001234","가상상사","유류비",100000]); wb.save(p)
+            with self.assertRaisesRegex(ValueError,"데이터 표처럼 보이지만"):
+                read_prior(p)
+
+    def test_douzone_partial_data_like_sheet_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"raw_changed.xlsx"; wb=Workbook(); ws=wb.active; ws.title="전표출력"
+            ws.append(["기표일자","계정코드","거래처명","적요","차변","금액"])
+            ws.append(["2026-08-01","25301","가상상사","유류비",100000,0]); wb.save(p)
+            with self.assertRaisesRegex(ValueError,"전표 표처럼 보이지만"):
+                read_douzone(p,{"25301"},AccountingPeriod(2026,8))
+
 if __name__=="__main__": unittest.main()

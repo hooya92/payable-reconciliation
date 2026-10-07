@@ -99,8 +99,8 @@ class App(tk.Tk):
 
     def _update_period(self):
         try:
-            p=AccountingPeriod(int(self.year.get()),int(self.month.get())); prev=p.previous()
-            self.period_text.set(f"{prev.label} 명세  →  {p.label} 전표\n※ Raw에서는 이 회계월만 추출하고, 개별 대사키에는 날짜를 쓰지 않습니다.")
+            p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
+            self.period_text.set(f"기준 명세서  →  {p.label} 더존 전표\n※ 명세서의 월은 추정하지 않으며, Raw만 선택 회계월로 필터링합니다.")
         except Exception:
             self.period_text.set("올바른 연/월을 선택해주세요.")
 

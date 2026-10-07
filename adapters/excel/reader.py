@@ -25,6 +25,7 @@ class ReadResult:
     items: list = field(default_factory=list)
     issues: list[InputIssue] = field(default_factory=list)
     detected_headers: list[str] = field(default_factory=list)
+    recognized_sheets: list[str] = field(default_factory=list)
 
 
 def _text(v): return "" if v is None else str(v).strip()
@@ -54,6 +55,17 @@ def _header_row(ws, required_groups, max_rows=30):
         if all(any(name in vals for name in group) for group in required_groups):
             return r, vals
     return None, []
+
+
+def _partial_header_row(ws, required_groups, min_groups, max_rows=30):
+    """Detect a likely data table whose headers changed enough that we should not silently ignore it."""
+    best=(None,0)
+    for r in range(1, min(ws.max_row, max_rows) + 1):
+        vals=[_header(ws.cell(r,c).value) for c in range(1,ws.max_column+1)]
+        matched=sum(any(_header(name) in vals for name in group) for group in required_groups)
+        if matched>best[1]:
+            best=(r,matched)
+    return best if best[1]>=min_groups else (None,0)
 
 
 def _first(vals, *names):
@@ -90,10 +102,19 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
         raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
     wb=load_workbook(path,read_only=True,data_only=False)
     out=ReadResult()
+    groups=[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")]
     try:
         for ws in wb.worksheets:
-            hr, vals=_header_row(ws,[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")])
-            if not hr: continue
+            hr, vals=_header_row(ws,groups)
+            if not hr:
+                partial_row,matched=_partial_header_row(ws,groups,3)
+                if partial_row:
+                    raise ValueError(
+                        f"더존 파일의 '{ws.title}' 시트가 전표 표처럼 보이지만 필수 헤더를 완전히 식별하지 못했습니다 "
+                        f"(필수 항목 {matched}/4개 인식). 시트 구조를 확인해주세요."
+                    )
+                continue
+            out.recognized_sheets.append(ws.title)
             cols=_douzone_columns(vals)
             needed=["vendor_code","vendor_name","description","debit","credit","account_code"]
             if period: needed.append("date")
@@ -168,10 +189,19 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
 
 def read_prior(path: str|Path, owner: str = "") -> ReadResult:
     wb=load_workbook(path,read_only=True,data_only=False); out=ReadResult()
+    groups=[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")]
     try:
         for ws in wb.worksheets:
-            hr,vals=_header_row(ws,[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")])
-            if not hr: continue
+            hr,vals=_header_row(ws,groups)
+            if not hr:
+                partial_row,matched=_partial_header_row(ws,groups,3)
+                if partial_row:
+                    raise ValueError(
+                        f"명세서의 '{ws.title}' 시트가 데이터 표처럼 보이지만 필수 헤더를 완전히 식별하지 못했습니다 "
+                        f"(필수 항목 {matched}/4개 인식). 시트 구조를 확인해주세요."
+                    )
+                continue
+            out.recognized_sheets.append(ws.title)
             cols={
                 "vendor_code":_first(vals,"거래처코드","거래처 코드","코드"),
                 "vendor_name":_first(vals,"거래처명","거래처","업체명"),
