@@ -124,17 +124,17 @@ def read_prior(path: str|Path, owner: str = "") -> ReadResult:
             "description":_first(vals,"적요","내역","내용"),
             "amount":_first(vals,"금액","미지급금","잔액")}
         out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
-        for r in range(hr+1,ws.max_row+1):
+        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=True), start=hr+1):
             code=normalize_code(row[cols["vendor_code"]-1])
             desc=_text(row[cols["description"]-1])
-            a=parse_amount(ws.cell(r,cols["amount"]).value)
+            a=parse_amount(row[cols["amount"]-1])
             if not code and not desc and (a.value or 0)==0: continue  # subtotal/blank
             if a.quality==DataQuality.SUSPICIOUS:
                 out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,a.reason)); continue
             if not code or not desc or (a.value or 0)<=0:
                 continue
             out.items.append(PayableItem(code,_text(row[cols["vendor_name"]-1]),desc,a.value,
-                _date(ws.cell(r,cols["date"]).value) if cols["date"] else "",r, SourceRef(Path(path).name, ws.title, r, owner)))
+                _date(row[cols["date"]-1]) if cols["date"] else "",r, SourceRef(Path(path).name, ws.title, r, owner)))
     wb.close()
     if not out.items and not out.issues: raise ValueError("전월 명세서에서 대사할 항목을 찾지 못했습니다.")
     return out
