@@ -45,7 +45,7 @@ def _autofit_sheet(sheet):
         header=str(col[0].value or "")
         content_width=max((_display_width(cell.value) for cell in col),default=0)
         if any(key in header for key in ("적요","사유","참고","원본파일","거래처명","원본값","근거")):
-            min_width,max_width=18,46
+            min_width,max_width=24,46
         elif any(key in header for key in ("코드","행","상태","구분","시트","필드")):
             min_width,max_width=10,20
         else:
