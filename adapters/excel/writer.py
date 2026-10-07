@@ -17,12 +17,28 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
         ws.append([x.status.value,x.reason,x.prior.source.owner,x.prior.source.file_name,x.prior.source.sheet,x.prior.source.row,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount), j.vendor_name if j else "",j.description if j else "",int(j.debit) if j else "",j.row_number if j else ""])
     iq=wb.create_sheet("입력데이터확인"); iq.append(["출처","시트","행","필드","원본값","사유"])
     for x in issues: iq.append([x.source,x.sheet,x.row,x.field,str(x.raw_value),x.reason])
+    # Draft is intentionally conservative: only definitely-unpaid prior items and
+    # current-month credits are included. Review/ambiguous items stay out until a human decides.
+    draft=wb.create_sheet("차월명세서 초안")
+    draft.append(["구분","담당자","거래처코드","거래처명","날짜","적요","금액","근거","원본파일","원본행"])
+    for x in results:
+        if x.status==Status.UNPAID:
+            p=x.prior
+            draft.append(["전월이월",p.source.owner,p.vendor_code,p.vendor_name,p.date,p.description,int(p.amount),
+                          "당월 대응 차변 없음",p.source.file_name,p.source.row])
+    for j in new_items:
+        draft.append(["당월신규","",j.vendor_code,j.vendor_name,j.date,j.description,int(j.credit),
+                      "당월 미지급금 대변","더존",j.row_number])
+
     nw=wb.create_sheet("신규미지급"); nw.append(["기표일자","계정코드","거래처코드","거래처명","적요","대변"])
     for j in new_items: nw.append([j.date,j.account_code,j.vendor_code,j.vendor_name,j.description,int(j.credit)])
     ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","전월적요","금액","더존행"])
     for x in results:
         if x.status==Status.MATCHED: ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number])
     info=wb.create_sheet("요약",0); info.append(["대상 회계월",period_label]); info.append(["확인 필요",sum(x.status!=Status.MATCHED for x in results)]); info.append(["입력 형식 확인",len(issues)])
+    info.append(["차월 초안",sum(x.status==Status.UNPAID for x in results)+len(new_items)])
+    info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID) for x in results)])
+    info.append(["초안 원칙","확정 미지급 이월 + 당월 신규만 포함 / 검토 필요 건은 제외"])
     for sheet in wb.worksheets:
         if sheet.max_row and sheet.max_column:
             for c in sheet[1]:
