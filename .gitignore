@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 *.xlsx
 *.xls
+*.xlsm
 !samples/*.txt
 build/
 dist/
