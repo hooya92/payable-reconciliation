@@ -544,10 +544,14 @@ class App(ctk.CTk):
             self._set_banner("idle","대사 전","대상 회계월과 파일을 선택한 뒤 대사를 시작하세요.")
 
     def _refresh_file_counts(self):
+        if not self.prior_paths and not self.douzone_paths:
+            self.prior_count_text.set("선택된 파일 없음")
+            self.raw_count_text.set("선택된 파일 없음")
+            return
         try:
             needed=AccountingPeriod(int(self.year.get()),int(self.month.get())).label
             prior_state=f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
-            self.prior_count_text.set(f"필요: {needed} · {prior_state}")
+            self.prior_count_text.set(f"필요: {needed} · {prior_state}" if self.prior_paths else prior_state)
         except Exception:
             self.prior_count_text.set(
                 f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
@@ -557,6 +561,14 @@ class App(ctk.CTk):
         )
 
     def _maybe_align_period_from_inputs(self, show_banner=True):
+        if not self.prior_paths and not self.douzone_paths:
+            self.period_badge_text.set("자동 감지 대기")
+            self.period_text.set("명세서와 Raw 파일을 추가하면 회계월을 자동으로 감지합니다.")
+            self._refresh_file_counts()
+            if show_banner:
+                self._set_banner("idle","대사 전","명세서와 더존 Raw 파일을 추가해주세요.")
+            return None
+
         statement_groups=[]
         statement_labels=[]
         for path in self.prior_paths:
