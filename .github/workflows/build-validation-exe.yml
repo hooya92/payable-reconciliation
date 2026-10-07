@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: final distribution build 2026-10-08
+# Release trigger: latest Excel styling release
 
 on:
   workflow_dispatch:
