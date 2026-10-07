@@ -7,7 +7,7 @@ from adapters.excel.writer import write_result
 from domain.models import JournalLine, PayableItem, ReconcileResult, SourceRef, Status
 
 class NextMonthDraftTests(unittest.TestCase):
-    def test_draft_contains_only_definite_carryover_and_new_credits(self):
+    def test_draft_contains_only_definite_carryover_and_keeps_new_credits_for_review(self):
         src=SourceRef("담당자A.xlsx","명세",7,"담당자A")
         unpaid=PayableItem("001001","가상A","7월 운송비",Decimal("1000"),"2026-07-31",7,src)
         matched=PayableItem("001002","가상B","7월 보관비",Decimal("2000"),"2026-07-31",8,src)
@@ -27,13 +27,17 @@ class NextMonthDraftTests(unittest.TestCase):
             detail=[r for r in rows if r[0] in ("전월이월","당월신규")]
             subtotals=[r for r in rows if r[0]=="소계"]
             totals=[r for r in rows if r[0]=="전체합계"]
-            self.assertEqual(len(detail),2)
-            self.assertEqual({r[0] for r in detail},{"전월이월","당월신규"})
-            self.assertEqual({r[5] for r in detail},{1000,4000})
+            self.assertEqual(len(detail),1)
+            self.assertEqual(detail[0][0],"전월이월")
+            self.assertEqual(detail[0][5],1000)
             self.assertNotIn(3000,{r[5] for r in detail})
-            self.assertEqual(len(subtotals),2)
+            self.assertEqual(len(subtotals),1)
             self.assertEqual(len(totals),1)
-            self.assertEqual(totals[0][5],5000)
+            self.assertEqual(totals[0][5],1000)
+            review=list(wb["당월신규명세"].iter_rows(min_row=2,values_only=True))
+            self.assertEqual(len(review),1)
+            self.assertEqual(review[0][0],"사람 확인 필요")
+            self.assertEqual(review[0][6],4000)
             wb.close()
 
 if __name__=="__main__": unittest.main()

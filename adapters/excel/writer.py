@@ -27,9 +27,9 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
             p=x.prior
             draft_rows.append(["전월이월",p.vendor_code,p.vendor_name,p.date,p.description,int(p.amount),
                                "당월 대응 차변 없음",f"{p.source.file_name} · {p.source.row}행"])
-    for j in new_items:
-        draft_rows.append(["당월신규",j.vendor_code,j.vendor_name,j.date,j.description,int(j.credit),
-                           "당월 미지급금 대변",f"더존 · {j.row_number}행"])
+    # Current-month credits are intentionally NOT auto-added to the draft yet.
+    # Same-month payment/cancellation/reissue rules are not confirmed, so every
+    # current-month new statement item stays in the review sheet for a human decision.
     draft_rows.sort(key=lambda x:(x[2] or "",x[1] or "",x[3] or "",x[4] or ""))
 
     current=None; subtotal=0
@@ -45,8 +45,10 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
         draft.append(["전체합계","","","","",sum(r[5] for r in draft_rows),"차월명세서 초안 합계",""])
 
 
-    nw=wb.create_sheet("당월신규명세"); nw.append(["기표일자","계정코드","거래처코드","거래처명","적요","대변"])
-    for j in new_items: nw.append([j.date,j.account_code,j.vendor_code,j.vendor_name,j.description,int(j.credit)])
+    nw=wb.create_sheet("당월신규명세"); nw.append(["검토상태","기표일자","계정코드","거래처코드","거래처명","적요","대변","사유"])
+    for j in new_items:
+        nw.append(["사람 확인 필요",j.date,j.account_code,j.vendor_code,j.vendor_name,j.description,int(j.credit),
+                   "당월 발생·당월 지급/취소·재발행 규칙 미확정으로 차월 초안 자동포함 안 함"])
     ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","전월적요","금액","더존행"])
     for x in results:
         if x.status==Status.MATCHED: ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number])
@@ -56,8 +58,9 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     info.append(["입력 형식 확인",len(issues)])
     info.append(["차월 초안",len(draft_rows)])
     info.append(["차월 초안 금액",sum(r[5] for r in draft_rows)])
-    info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID) for x in results)])
-    info.append(["초안 원칙","확정 미지급 이월 + 당월 신규만 포함 / 검토 필요 건은 제외"])
+    info.append(["당월 신규 명세 검토",len(new_items)])
+    info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID) for x in results)+len(new_items)])
+    info.append(["초안 원칙","확정 미지급 이월만 자동 포함 / 당월 신규 및 검토 필요 건은 사람이 확인"])
 
     style_workbook(wb, draft, info)
     wb.save(out)

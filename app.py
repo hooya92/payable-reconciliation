@@ -108,7 +108,7 @@ class App(tk.Tk):
 
     def _summary(self,counts):
         for w in self.summary.winfo_children(): w.destroy()
-        cards=[("자동 대사 완료",counts.get(Status.MATCHED,0)),("검토 필요",sum(v for k,v in counts.items() if k!=Status.MATCHED)),("입력 확인",len(self.issues)),("당월 신규 명세",len(self.new_items))]
+        cards=[("자동 대사 완료",counts.get(Status.MATCHED,0)),("검토 필요",sum(v for k,v in counts.items() if k!=Status.MATCHED)+len(self.new_items)),("입력 확인",len(self.issues)),("당월 신규 명세(검토)",len(self.new_items))]
         for i,(name,value) in enumerate(cards):
             box=tk.Frame(self.summary,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0)); self.summary.grid_columnconfigure(i,weight=1)
             tk.Label(box,text=name,font=("Segoe UI",10),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(13,2))
@@ -141,7 +141,7 @@ class App(tk.Tk):
             for x in self.results:
                 if x.status != Status.MATCHED:
                     self.detail.insert("", "end", values=(x.prior.source.owner or x.prior.source.file_name, x.prior.vendor_name, f"{int(x.prior.amount):,}", x.status.value, x.reason))
-            self.status_text.set(f"{p.label} 대사 완료 · 전월 명세 {run.prior_count:,}건 · 검토 필요 {exc:,}건 · 당월 신규 명세 {len(self.new_items):,}건")
+            self.status_text.set(f"{p.label} 대사 완료 · 전월 명세 {run.prior_count:,}건 · 전월 검토 {exc:,}건 · 당월 신규 검토 {len(self.new_items):,}건")
             self.export_btn.config(state="normal")
         except Exception as e: messagebox.showerror("대사 중단",str(e))
 
