@@ -12,6 +12,20 @@ from application.service import run_reconciliation
 
 BG="#F5F5F7"; CARD="#FFFFFF"; TEXT="#1D1D1F"; MUTED="#6E6E73"; ACCENT="#007AFF"; WARN="#B45309"; BORDER="#D2D2D7"; SOFT="#E8E8ED"
 
+def find_duplicate_files(prior_paths, douzone_paths):
+    seen={}; duplicates=[]
+    for kind, paths in (("전월 명세",prior_paths),("더존 Raw",douzone_paths)):
+        for path in paths:
+            h=hashlib.sha256()
+            with open(path,"rb") as f:
+                for chunk in iter(lambda:f.read(1024*1024),b""): h.update(chunk)
+            digest=h.hexdigest()
+            if digest in seen:
+                duplicates.append((seen[digest],(kind,Path(path).name)))
+            else:
+                seen[digest]=(kind,Path(path).name)
+    return duplicates
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__(); self.title("명세서 대사"); self.geometry("980x720"); self.minsize(880,650); self.configure(bg=BG)
@@ -19,7 +33,7 @@ class App(tk.Tk):
         self.year=tk.IntVar(value=today.year); self.month=tk.IntVar(value=today.month)
         self.prior_paths=[]; self.douzone_paths=[]; self.account_codes=tk.StringVar(value="25301")
         self.period_text=tk.StringVar(); self.status_text=tk.StringVar(value="대상 회계월과 파일을 확인한 뒤 대사를 시작하세요.")
-        self.results=[]; self.new_items=[]; self.issues=[]; self._build(); self._update_period()
+        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self._build(); self._update_period()
 
     def _build(self):
         s=ttk.Style(self); s.theme_use("clam")
@@ -37,7 +51,7 @@ class App(tk.Tk):
         tk.Label(controls,text="년",bg=CARD,fg=TEXT).pack(side="left",padx=(4,10))
         ttk.Spinbox(controls,from_=1,to=12,textvariable=self.month,width=4,command=self._update_period).pack(side="left")
         tk.Label(controls,text="월",bg=CARD,fg=TEXT).pack(side="left",padx=4)
-        self.year.trace_add("write",lambda *_:self._update_period()); self.month.trace_add("write",lambda *_:self._update_period())
+        self.year.trace_add("write",lambda *_:self._on_period_changed()); self.month.trace_add("write",lambda *_:self._on_period_changed())
         tk.Label(period,textvariable=self.period_text,font=("Segoe UI Semibold",12),bg=CARD,fg=ACCENT,justify="left").pack(side="left",padx=30)
 
         card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); card.pack(fill="x")
@@ -61,20 +75,35 @@ class App(tk.Tk):
         self.preflight=tk.Label(root,text="",font=("Segoe UI",10),bg=BG,fg=WARN,justify="left",anchor="w"); self.preflight.pack(fill="x",pady=(8,0))
         tk.Label(root,textvariable=self.status_text,font=("Segoe UI",10),bg=BG,fg=MUTED,anchor="w").pack(fill="x",pady=(8,0))
         self.detail=ttk.Treeview(root,columns=("owner","vendor","amount","status","reason"),show="headings",height=7)
-        for col,title,width in (("owner","담당자",110),("vendor","거래처",150),("amount","금액",110),("status","상태",120),("reason","사유",320)):
+        for col,title,width in (("owner","원본 명세",150),("vendor","거래처",150),("amount","금액",110),("status","상태",130),("reason","사유",300)):
             self.detail.heading(col,text=title); self.detail.column(col,width=width,anchor="w")
         self.detail.pack(fill="both",expand=True,pady=(10,0))
         tk.Label(root,text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",font=("Segoe UI",9),bg=BG,fg=MUTED).pack(anchor="w",pady=(18,0))
+        self.account_codes.trace_add("write",lambda *_:self._invalidate_results())
 
     def _update_period(self):
         try:
-            dup=self._duplicate_files()
-            if dup:
-                a,b=dup[0]
-                raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
             p=AccountingPeriod(int(self.year.get()),int(self.month.get())); prev=p.previous()
             self.period_text.set(f"{prev.label} 명세  →  {p.label} 전표\n※ Raw에서는 이 회계월만 추출하고, 개별 대사키에는 날짜를 쓰지 않습니다.")
-        except Exception: self.period_text.set("올바른 연/월을 선택해주세요.")
+        except Exception:
+            self.period_text.set("올바른 연/월을 선택해주세요.")
+
+    def _on_period_changed(self):
+        self._update_period()
+        self._invalidate_results()
+
+    def _invalidate_results(self):
+        if not hasattr(self,"export_btn"):
+            return
+        had_result=bool(self.results or self.new_items or self.issues or self.last_period)
+        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]
+        self.export_btn.config(state="disabled")
+        self._summary({})
+        self.preflight.config(text="")
+        for row in self.detail.get_children():
+            self.detail.delete(row)
+        if had_result:
+            self.status_text.set("입력 조건이 변경되었습니다. 다시 대사를 실행하세요.")
 
     def _file_row(self,parent,label,var,row):
         parent.grid_columnconfigure(1,weight=1)
@@ -84,23 +113,31 @@ class App(tk.Tk):
 
     def pick_priors(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
+        changed=False
         for p in paths:
             if p not in self.prior_paths:
-                self.prior_paths.append(p); self.prior_list.insert("end",Path(p).name)
+                self.prior_paths.append(p); self.prior_list.insert("end",Path(p).name); changed=True
+        if changed: self._invalidate_results()
 
     def pick_douzone(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
+        changed=False
         for p in paths:
             if p not in self.douzone_paths:
-                self.douzone_paths.append(p); self.douzone_list.insert("end",Path(p).name)
+                self.douzone_paths.append(p); self.douzone_list.insert("end",Path(p).name); changed=True
+        if changed: self._invalidate_results()
 
     def remove_douzone(self):
-        for i in reversed(self.douzone_list.curselection()):
+        selected=list(self.douzone_list.curselection())
+        for i in reversed(selected):
             self.douzone_list.delete(i); self.douzone_paths.pop(i)
+        if selected: self._invalidate_results()
 
     def remove_priors(self):
-        for i in reversed(self.prior_list.curselection()):
+        selected=list(self.prior_list.curselection())
+        for i in reversed(selected):
             self.prior_list.delete(i); self.prior_paths.pop(i)
+        if selected: self._invalidate_results()
 
     def pick(self,var):
         p=filedialog.askopenfilename(filetypes=[("Excel","*.xlsx *.xlsm")])
@@ -115,43 +152,46 @@ class App(tk.Tk):
             tk.Label(box,text=f"{value:,}",font=("Segoe UI Semibold",22),bg=CARD,fg=TEXT).pack(anchor="w",padx=16,pady=(0,13))
 
     def _duplicate_files(self):
-        seen={}; duplicates=[]
-        for kind, paths in (("전월 명세",self.prior_paths),("더존 Raw",self.douzone_paths)):
-            for path in paths:
-                h=hashlib.sha256()
-                with open(path,"rb") as f:
-                    for chunk in iter(lambda:f.read(1024*1024),b""): h.update(chunk)
-                digest=h.hexdigest()
-                if digest in seen:
-                    duplicates.append((seen[digest],(kind,Path(path).name)))
-                else: seen[digest]=(kind,Path(path).name)
-        return duplicates
+        return find_duplicate_files(self.prior_paths,self.douzone_paths)
 
     def run(self):
-        if not self.prior_paths or not self.douzone_paths: messagebox.showwarning("파일 필요","전월 명세서와 더존 Raw를 각각 1개 이상 추가해주세요."); return
+        if not self.prior_paths or not self.douzone_paths:
+            messagebox.showwarning("파일 필요","전월 명세서와 더존 Raw를 각각 1개 이상 추가해주세요."); return
+        self._invalidate_results()
+        self.status_text.set("사전검사 및 대사 실행 중...")
+        self.update_idletasks()
         try:
+            dup=self._duplicate_files()
+            if dup:
+                a,b=dup[0]
+                raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
-            run=run_reconciliation(self.prior_paths,self.douzone_paths,codes,p)
+            run=run_reconciliation(list(self.prior_paths),list(self.douzone_paths),codes,p)
             self.issues=run.issues; self.results=run.results; self.new_items=run.new_items
             counts=run.counts; self._summary(counts)
             exc=sum(v for k,v in counts.items() if k!=Status.MATCHED)
-            self.preflight.config(text=(f"⚠ 입력 형식 확인 {len(self.issues):,}건 — 해당 행은 자동대사에서 제외했습니다." if self.issues else "✓ 사전검사 통과 — 의심스러운 금액 형식 없음"),fg=(WARN if self.issues else "#2E7D32"))
+            self.preflight.config(text=(f"⚠ 입력 형식 확인 {len(self.issues):,}건 — 해당 행은 자동대사에서 제외했습니다." if self.issues else "✓ 사전검사 통과 — 자동 제외할 입력 이상 없음"),fg=(WARN if self.issues else "#2E7D32"))
             for row in self.detail.get_children(): self.detail.delete(row)
             for x in self.results:
                 if x.status != Status.MATCHED:
                     self.detail.insert("", "end", values=(x.prior.source.owner or x.prior.source.file_name, x.prior.vendor_name, f"{int(x.prior.amount):,}", x.status.value, x.reason))
+            self.last_period=p
+            self.last_source_paths=list(self.prior_paths)+list(self.douzone_paths)
             self.status_text.set(f"{p.label} 대사 완료 · 전월 명세 {run.prior_count:,}건 · 전월 검토 {exc:,}건 · 당월 신규 검토 {len(self.new_items):,}건")
             self.export_btn.config(state="normal")
-        except Exception as e: messagebox.showerror("대사 중단",str(e))
+        except Exception as e:
+            self.status_text.set("대사가 완료되지 않았습니다. 입력 내용을 확인해주세요.")
+            messagebox.showerror("대사 중단",str(e))
 
     def export(self):
-        if not self.results and not self.issues: return
-        p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
+        if self.last_period is None:
+            messagebox.showwarning("대사 필요","현재 입력 조건으로 대사를 먼저 실행해주세요."); return
+        p=self.last_period
         path=filedialog.asksaveasfilename(defaultextension=".xlsx",initialfile=f"{p.year}_{p.month:02d}_명세서_대사결과.xlsx",filetypes=[("Excel","*.xlsx")])
         if not path:return
         try:
-            write_result(path,self.results,self.new_items,self.issues,self.prior_paths+self.douzone_paths,p.label)
+            write_result(path,self.results,self.new_items,self.issues,self.last_source_paths,p.label)
             self.status_text.set(f"결과 저장 완료 · {Path(path).name}"); messagebox.showinfo("저장 완료","원본은 수정하지 않았습니다.\n확인필요/입력데이터확인 시트를 먼저 확인해주세요.")
         except Exception as e: messagebox.showerror("저장 실패",str(e))
 
