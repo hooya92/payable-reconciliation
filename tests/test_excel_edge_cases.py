@@ -122,4 +122,57 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"전표 표처럼 보이지만"):
                 read_douzone(p,{"25301"},AccountingPeriod(2026,8))
 
+    def test_grouped_statement_details_inherit_vendor_from_following_subtotal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"monthly.xlsx"; wb=Workbook(); ws=wb.active; ws.title="26.07"
+            ws.append(["거래처코드","거래처명","날짜","적요","금액"])
+            ws.append(["","","2026-07-31","7월 FMC사업부(주류) 용차료/유류비",64004897])
+            ws.append(["","","2026-07-31","7월 FMC사업부(일반) 용차료/유류비",19325426])
+            ws.append(["051330","(주)신일로지스시스템","소계","",83330323])
+            wb.save(p)
+            r=read_prior(p,"담당자",AccountingPeriod(2026,7))
+            self.assertEqual(len(r.items),2)
+            self.assertEqual([x.vendor_code for x in r.items],["051330","051330"])
+            self.assertEqual(sum(x.amount for x in r.items),83330323)
+            self.assertEqual(r.recognized_sheets,["26.07"])
+            self.assertEqual(len(r.issues),0)
+
+    def test_grouped_statement_subtotal_mismatch_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"bad_group.xlsx"; wb=Workbook(); ws=wb.active; ws.title="26.07"
+            ws.append(["거래처코드","거래처명","날짜","적요","금액"])
+            ws.append(["","","2026-07-31","운송비 A",100])
+            ws.append(["","","2026-07-31","운송비 B",200])
+            ws.append(["001234","가상물류","소계","",999])
+            wb.save(p)
+            r=read_prior(p,"",AccountingPeriod(2026,7))
+            self.assertEqual(len(r.items),0)
+            self.assertTrue(any("상세 합계" in x.reason for x in r.issues))
+
+    def test_monthly_workbook_reads_only_requested_statement_sheet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"multi_month.xlsx"; wb=Workbook(); july=wb.active; july.title="26.07"
+            july.append(["거래처코드","거래처명","날짜","적요","금액"])
+            july.append(["001001","7월업체","2026-07-31","7월 비용",100])
+            aug=wb.create_sheet("26.08")
+            aug.append(["거래처코드","거래처명","날짜","적요","금액"])
+            aug.append(["002002","8월업체","2026-08-31","8월 비용",200])
+            wb.save(p)
+            r=read_prior(p,"",AccountingPeriod(2026,7))
+            self.assertEqual(len(r.items),1)
+            self.assertEqual(r.items[0].vendor_code,"001001")
+            self.assertEqual(r.recognized_sheets,["26.07"])
+
+    def test_multiple_month_sheets_without_requested_month_are_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"multi_month.xlsx"; wb=Workbook(); july=wb.active; july.title="26.07"
+            july.append(["거래처코드","거래처명","날짜","적요","금액"])
+            july.append(["001001","7월업체","2026-07-31","7월 비용",100])
+            aug=wb.create_sheet("26.08")
+            aug.append(["거래처코드","거래처명","날짜","적요","금액"])
+            aug.append(["002002","8월업체","2026-08-31","8월 비용",200])
+            wb.save(p)
+            with self.assertRaisesRegex(ValueError,"2026년 9월 시트를 찾지 못했습니다"):
+                read_prior(p,"",AccountingPeriod(2026,9))
+
 if __name__=="__main__": unittest.main()
