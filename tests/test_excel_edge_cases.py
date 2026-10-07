@@ -1,0 +1,35 @@
+import tempfile
+import unittest
+from pathlib import Path
+from openpyxl import Workbook
+from adapters.excel.reader import read_douzone, read_prior
+from domain.period import AccountingPeriod
+
+class ExcelEdgeCaseTests(unittest.TestCase):
+    def test_prior_header_offset_subtotal_and_leading_zero_numeric_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"prior.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["보고서"]); ws.append([""]); ws.append(["거래처코드","거래처명","날짜","적요","금액"])
+            ws.append([51330,"가상물류","2026-07-31","7월 운송비",86000000]); ws["A4"].number_format="000000"
+            ws.append(["","소계","","",86000000]); wb.save(p)
+            r=read_prior(p,"담당자A")
+            self.assertEqual(len(r.items),1); self.assertEqual(r.items[0].vendor_code,"051330")
+
+    def test_douzone_duplicate_code_headers_and_target_month_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"raw.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["전표출력"]); ws.append(["기표일자","코드","계정과목명","코드","거래처명","적요","차변","대변"])
+            ws.append(["2026-07-31",25301,"미지급금-일반",51330,"가상물류","7월",100,0]); ws["D3"].number_format="000000"
+            ws.append(["2026-08-01",25301,"미지급금-일반",51330,"가상물류","8월",100,0]); ws["D4"].number_format="000000"
+            wb.save(p)
+            r=read_douzone(p,{"25301"},AccountingPeriod(2026,8))
+            self.assertEqual(len(r.items),1); self.assertEqual(r.items[0].vendor_code,"051330"); self.assertEqual(r.items[0].date,"2026-08-01")
+
+    def test_suspicious_amount_is_excluded_and_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"prior.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["거래처코드","거래처명","날짜","적요","금액"]); ws.append(["001234","가상상사","2026-07-31","비용","8600만원"]); wb.save(p)
+            r=read_prior(p)
+            self.assertEqual(len(r.items),0); self.assertEqual(len(r.issues),1)
+
+if __name__=="__main__": unittest.main()
