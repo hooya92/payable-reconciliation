@@ -1,5 +1,6 @@
 from __future__ import annotations
 import tkinter as tk
+import hashlib
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -69,6 +70,10 @@ class App(tk.Tk):
 
     def _update_period(self):
         try:
+            dup=self._duplicate_files()
+            if dup:
+                a,b=dup[0]
+                raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
             p=AccountingPeriod(int(self.year.get()),int(self.month.get())); prev=p.previous()
             self.period_text.set(f"{prev.label} 명세  →  {p.label} 전표\n※ Raw에서는 이 회계월만 추출하고, 개별 대사키에는 날짜를 쓰지 않습니다.")
         except Exception: self.period_text.set("올바른 연/월을 선택해주세요.")
@@ -110,6 +115,19 @@ class App(tk.Tk):
             box=tk.Frame(self.summary,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0)); self.summary.grid_columnconfigure(i,weight=1)
             tk.Label(box,text=name,font=("Segoe UI",10),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(13,2))
             tk.Label(box,text=f"{value:,}",font=("Segoe UI Semibold",22),bg=CARD,fg=TEXT).pack(anchor="w",padx=16,pady=(0,13))
+
+    def _duplicate_files(self):
+        seen={}; duplicates=[]
+        for kind, paths in (("전월 명세",self.prior_paths),("더존 Raw",self.douzone_paths)):
+            for path in paths:
+                h=hashlib.sha256()
+                with open(path,"rb") as f:
+                    for chunk in iter(lambda:f.read(1024*1024),b""): h.update(chunk)
+                digest=h.hexdigest()
+                if digest in seen:
+                    duplicates.append((seen[digest],(kind,Path(path).name)))
+                else: seen[digest]=(kind,Path(path).name)
+        return duplicates
 
     def run(self):
         if not self.prior_paths or not self.douzone_paths: messagebox.showwarning("파일 필요","전월 담당자 명세서와 더존 Raw를 각각 1개 이상 추가해주세요."); return
