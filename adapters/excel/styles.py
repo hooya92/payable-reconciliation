@@ -24,12 +24,12 @@ def _autofit_sheet(sheet):
         header=str(col[0].value or "")
         content_width=max((_display_width(cell.value) for cell in col),default=0)
         if any(key in header for key in ("적요","사유","참고","원본","거래처명")):
-            max_width=48
+            min_width,max_width=24,48
         elif any(key in header for key in ("코드","행","상태","구분")):
-            max_width=22
+            min_width,max_width=10,22
         else:
-            max_width=34
-        width=min(max(content_width+3,10),max_width)
+            min_width,max_width=10,34
+        width=min(max(content_width+3,min_width),max_width)
         sheet.column_dimensions[letter].width=width
         widths[letter]=width
 
