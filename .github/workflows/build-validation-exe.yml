@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: latest UI refresh
+# Release trigger: final distribution build 2026-10-08
 
 on:
   workflow_dispatch:
