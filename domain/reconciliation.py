@@ -33,7 +33,31 @@ def _single_edit_or_transposition(left: str, right: str) -> bool:
 
 
 def _text_typo(left: object, right: object) -> bool:
-    return _single_edit_or_transposition(normalize_text(left), normalize_text(right))
+    """Text typo hint is limited to letters/digits; punctuation differences stay strict mismatches."""
+    left=normalize_text(left); right=normalize_text(right)
+    if left == right or abs(len(left)-len(right)) > 1:
+        return False
+    if len(left) == len(right):
+        diff=[i for i,(a,b) in enumerate(zip(left,right)) if a != b]
+        if len(diff) == 1:
+            i=diff[0]
+            return left[i].isalnum() and right[i].isalnum()
+        return (
+            len(diff) == 2
+            and diff[1] == diff[0] + 1
+            and left[diff[0]] == right[diff[1]]
+            and left[diff[1]] == right[diff[0]]
+            and all(left[i].isalnum() and right[i].isalnum() for i in diff)
+        )
+
+    short,long=(left,right) if len(left)<len(right) else (right,left)
+    i=j=0
+    while i<len(short) and short[i] == long[j]:
+        i+=1; j+=1
+    extra=long[j] if j<len(long) else long[-1]
+    if not extra.isalnum():
+        return False
+    return short[i:] == long[j+1:]
 
 
 def _code_typo(left: object, right: object) -> bool:
