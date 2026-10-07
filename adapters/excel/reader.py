@@ -96,7 +96,7 @@ def _xls_contains_formula(path):
     return False
 
 
-def __load_workbook(path, **kwargs):
+def _load_workbook(path, **kwargs):
     path=Path(path)
     if path.suffix.lower()==".xls":
         if _xls_contains_formula(path):
