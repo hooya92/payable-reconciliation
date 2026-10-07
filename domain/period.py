@@ -14,6 +14,9 @@ class AccountingPeriod:
     def previous(self) -> "AccountingPeriod":
         return AccountingPeriod(self.year - 1, 12) if self.month == 1 else AccountingPeriod(self.year, self.month - 1)
 
+    def next(self) -> "AccountingPeriod":
+        return AccountingPeriod(self.year + 1, 1) if self.month == 12 else AccountingPeriod(self.year, self.month + 1)
+
     @property
     def label(self) -> str:
         return f"{self.year}년 {self.month}월"

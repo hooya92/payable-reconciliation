@@ -49,19 +49,46 @@ def _is_summary_label(v):
     return _header(v) in {"소계","합계","총계","전체합계"}
 
 
-def _sheet_matches_period(title, period):
-    """Recognize common monthly sheet names such as 26.07, 2026-07, 2026년 7월."""
-    if period is None:
-        return False
+def _period_from_sheet_title(title):
+    """Parse common monthly sheet names such as 26.07, 2026-07, 2026년 7월."""
     text=_text(title).strip()
-    year=str(period.year); yy=year[-2:]; month=str(period.month); mm=f"{period.month:02d}"
     patterns=(
-        rf"(?<!\d){re.escape(year)}[.\-_/]{re.escape(mm)}(?!\d)",
-        rf"(?<!\d){re.escape(yy)}[.\-_/]{re.escape(mm)}(?!\d)",
-        rf"(?<!\d){re.escape(year)}\s*년\s*0?{re.escape(month)}\s*월",
-        rf"(?<!\d){re.escape(yy)}\s*년\s*0?{re.escape(month)}\s*월",
+        r"(?<!\d)(20\d{2})[.\-_/](0?[1-9]|1[0-2])(?!\d)",
+        r"(?<!\d)(\d{2})[.\-_/](0?[1-9]|1[0-2])(?!\d)",
+        r"(?<!\d)(20\d{2})\s*년\s*(0?[1-9]|1[0-2])\s*월",
+        r"(?<!\d)(\d{2})\s*년\s*(0?[1-9]|1[0-2])\s*월",
     )
-    return any(re.search(pattern,text,re.IGNORECASE) for pattern in patterns)
+    for pattern in patterns:
+        m=re.search(pattern,text,re.IGNORECASE)
+        if not m:
+            continue
+        year=int(m.group(1)); month=int(m.group(2))
+        if year < 100:
+            year += 2000
+        return AccountingPeriod(year,month)
+    return None
+
+
+def _sheet_matches_period(title, period):
+    return period is not None and _period_from_sheet_title(title)==period
+
+
+def detect_statement_periods(path: str|Path) -> list[AccountingPeriod]:
+    """Return month periods from statement-like worksheet titles only."""
+    wb=load_workbook(path,read_only=True,data_only=False)
+    groups=[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")]
+    found=set()
+    try:
+        for ws in wb.worksheets:
+            hr,_vals=_header_row(ws,groups)
+            if not hr:
+                continue
+            period=_period_from_sheet_title(ws.title)
+            if period:
+                found.add(period)
+    finally:
+        wb.close()
+    return sorted(found)
 
 
 def _select_prior_sheets(wb, groups, period):
@@ -81,9 +108,14 @@ def _select_prior_sheets(wb, groups, period):
             raise ValueError(f"{period.label} 명세서 시트가 여러 개라 자동 선택할 수 없습니다: {names}")
         if len(full)>1:
             names=", ".join(x[0].title for x in full)
+            found=sorted({
+                p for p in (_period_from_sheet_title(x[0].title) for x in full) if p
+            })
+            found_text=", ".join(p.label for p in found) if found else names
             raise ValueError(
-                f"명세서 파일에 월별 데이터 시트가 여러 개 있지만 {period.label} 시트를 찾지 못했습니다. "
-                f"확인된 시트: {names}"
+                f"현재 대상 회계월은 {period.next().label}이므로 {period.label} 명세서가 필요합니다. "
+                f"선택한 파일에서 확인된 명세서 월: {found_text}. "
+                f"{period.label} 시트가 포함된 파일을 선택하거나 대상 회계월을 변경해주세요."
             )
 
     if len(full)==1:
