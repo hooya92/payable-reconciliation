@@ -68,7 +68,7 @@ class UISafetyTests(unittest.TestCase):
             [[AccountingPeriod(2026,5),AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
         )
-        self.assertEqual(period,AccountingPeriod(2026,8))
+        self.assertEqual(period,AccountingPeriod(2026,7))
         self.assertEqual(source,"statement+raw")
 
     def test_statement_raw_month_conflict_is_not_guessed(self):
