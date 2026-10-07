@@ -1,7 +1,7 @@
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
 PALETTE={"header":"1D1D1F","carry":"FFF4CC","new":"E8F5EE","subtotal":"F2F2F7","total":"E5E5EA"}
-AMOUNT_HEADERS={"금액","전월금액","더존차변","대변","차월 초안 금액"}
+AMOUNT_HEADERS={"금액","명세서금액","더존차변","대변","차월 초안 금액","차월 이월 초안 금액"}
 _THIN=Side(style="thin",color="E5E5EA")
 
 def style_workbook(wb, draft, info):
@@ -35,7 +35,7 @@ def style_workbook(wb, draft, info):
 
     for rr in range(2,draft.max_row+1):
         kind=draft.cell(rr,1).value
-        fill={"전월이월":PALETTE["carry"],"당월신규":PALETTE["new"],"소계":PALETTE["subtotal"],"전체합계":PALETTE["total"]}.get(kind)
+        fill={"전월이월":PALETTE["carry"],"미지급이월":PALETTE["carry"],"당월신규":PALETTE["new"],"소계":PALETTE["subtotal"],"전체합계":PALETTE["total"]}.get(kind)
         if fill:
             for cell in draft[rr]: cell.fill=PatternFill("solid",fgColor=fill)
         if kind in ("소계","전체합계"):

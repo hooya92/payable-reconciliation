@@ -44,12 +44,16 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             # Summary is a fixed golden answer for this adversarial fixture.
             summary=dict(wb["요약"].iter_rows(min_row=1,max_col=2,values_only=True))
             self.assertEqual(summary["대상 회계월"],"2026년 7월")
-            self.assertEqual(summary["확인 필요"],4)
-            self.assertEqual(summary["입력 형식 확인"],3)
-            self.assertEqual(summary["차월 초안"],0)
-            self.assertEqual(summary["차월 초안 금액"],0)
-            self.assertEqual(summary["당월 신규 명세 검토"],1)
+            self.assertEqual(summary["명세서 대사 대상"],7)
+            self.assertEqual(summary["자동 대사 완료"],3)
+            self.assertEqual(summary["검토 필요"],5)
+            self.assertEqual(summary["대사 검토 필요"],4)
+            self.assertEqual(summary["Raw 신규 대변 검토"],1)
+            self.assertEqual(summary["입력 데이터 확인"],3)
+            self.assertEqual(summary["차월 이월 초안"],0)
+            self.assertEqual(summary["차월 이월 초안 금액"],0)
             self.assertEqual(summary["초안 제외 검토건"],5)
+            self.assertEqual(summary["대사 기준"],"같은 회계월 명세서 ↔ 더존 Raw / 거래처코드+금액 중심")
 
             # Unique code+amount matches complete automatically; name/description differences are reference notes.
             completed=list(wb["자동대사완료"].iter_rows(min_row=2,values_only=True))
