@@ -36,8 +36,8 @@ class ReconcileTests(unittest.TestCase):
         self.assertTrue(all(x.status == Status.AMBIGUOUS for x in r))
 
     def test_date_is_never_a_match_key(self):
-        prior=p("051330","same",100); prior.date="2020-01-01"
-        line=j("051330","same",100); line.date="2026-08-31"
+        prior=PayableItem("051330","거래처","same",Decimal("100"),"2020-01-01")
+        line=JournalLine("051330","거래처","25301","미지급금-일반","same",Decimal("100"),Decimal("0"),"2026-08-31")
         self.assertEqual(reconcile([prior],[line])[0].status, Status.MATCHED)
 
     def test_partial_payment_is_not_auto_matched(self):
