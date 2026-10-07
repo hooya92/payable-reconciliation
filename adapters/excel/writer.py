@@ -59,4 +59,5 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID) for x in results)])
     info.append(["초안 원칙","확정 미지급 이월 + 당월 신규만 포함 / 검토 필요 건은 제외"])
 
-    style_workbook(wb,draft,info)\n    wb.save(out)
+    style_workbook(wb, draft, info)
+    wb.save(out)
