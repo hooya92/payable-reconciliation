@@ -18,7 +18,7 @@ class App(tk.Tk):
         super().__init__(); self.title("미지급금 대사"); self.geometry("980x720"); self.minsize(880,650); self.configure(bg=BG)
         today=date.today()
         self.year=tk.IntVar(value=today.year); self.month=tk.IntVar(value=today.month)
-        self.prior_path=tk.StringVar(); self.douzone_path=tk.StringVar(); self.account_codes=tk.StringVar(value="25301")
+        self.prior_paths=[]; self.douzone_path=tk.StringVar(); self.account_codes=tk.StringVar(value="25301")
         self.period_text=tk.StringVar(); self.status_text=tk.StringVar(value="대상 회계월과 파일을 확인한 뒤 대사를 시작하세요.")
         self.results=[]; self.new_items=[]; self.issues=[]; self._build(); self._update_period()
 
@@ -42,7 +42,11 @@ class App(tk.Tk):
         tk.Label(period,textvariable=self.period_text,font=("Segoe UI Semibold",12),bg=CARD,fg=ACCENT,justify="left").pack(side="left",padx=30)
 
         card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); card.pack(fill="x")
-        self._file_row(card,"전월 미지급 세부명세",self.prior_path,0); self._file_row(card,"더존 Raw (1개월~1년 등 임의 기간)",self.douzone_path,1)
+        tk.Label(card,text="전월 담당자 명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).grid(row=0,column=0,sticky="nw",padx=(22,12),pady=16)
+        self.prior_list=tk.Listbox(card,height=4,font=("Segoe UI",9),selectmode="extended"); self.prior_list.grid(row=0,column=1,sticky="ew",pady=16)
+        pf=tk.Frame(card,bg=CARD); pf.grid(row=0,column=2,padx=18,pady=16,sticky="n")
+        ttk.Button(pf,text="파일 추가",command=self.pick_priors).pack(fill="x"); ttk.Button(pf,text="선택 제거",command=self.remove_priors).pack(fill="x",pady=(6,0))
+        self._file_row(card,"더존 Raw (1개월~1년 등 임의 기간)",self.douzone_path,1)
         opt=tk.Frame(card,bg=CARD); opt.grid(row=2,column=0,columnspan=3,sticky="ew",padx=22,pady=(2,18))
         tk.Label(opt,text="미지급금 계정코드",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(side="left")
         ttk.Entry(opt,textvariable=self.account_codes,width=18).pack(side="left",padx=12)
@@ -54,6 +58,10 @@ class App(tk.Tk):
         self.summary=tk.Frame(root,bg=BG); self.summary.pack(fill="x",pady=(2,8)); self._summary({})
         self.preflight=tk.Label(root,text="",font=("Segoe UI",10),bg=BG,fg=WARN,justify="left",anchor="w"); self.preflight.pack(fill="x",pady=(8,0))
         tk.Label(root,textvariable=self.status_text,font=("Segoe UI",10),bg=BG,fg=MUTED,anchor="w").pack(fill="x",pady=(8,0))
+        self.detail=ttk.Treeview(root,columns=("owner","vendor","amount","status","reason"),show="headings",height=7)
+        for col,title,width in (("owner","담당자",110),("vendor","거래처",150),("amount","금액",110),("status","상태",120),("reason","사유",320)):
+            self.detail.heading(col,text=title); self.detail.column(col,width=width,anchor="w")
+        self.detail.pack(fill="both",expand=True,pady=(10,0))
         tk.Label(root,text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",font=("Segoe UI",9),bg=BG,fg=MUTED).pack(anchor="w",pady=(18,0))
 
     def _update_period(self):
@@ -68,6 +76,16 @@ class App(tk.Tk):
         ttk.Entry(parent,textvariable=var).grid(row=row,column=1,sticky="ew",pady=16)
         ttk.Button(parent,text="파일 선택",command=lambda:self.pick(var)).grid(row=row,column=2,padx=18,pady=16)
 
+    def pick_priors(self):
+        paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
+        for p in paths:
+            if p not in self.prior_paths:
+                self.prior_paths.append(p); self.prior_list.insert("end",Path(p).name)
+
+    def remove_priors(self):
+        for i in reversed(self.prior_list.curselection()):
+            self.prior_list.delete(i); self.prior_paths.pop(i)
+
     def pick(self,var):
         p=filedialog.askopenfilename(filetypes=[("Excel","*.xlsx *.xlsm")])
         if p: var.set(p)
@@ -81,16 +99,23 @@ class App(tk.Tk):
             tk.Label(box,text=f"{value:,}",font=("Segoe UI Semibold",22),bg=CARD,fg=TEXT).pack(anchor="w",padx=16,pady=(0,13))
 
     def run(self):
-        if not self.prior_path.get() or not self.douzone_path.get(): messagebox.showwarning("파일 필요","전월 명세서와 더존 전표출력 파일을 모두 선택해주세요."); return
+        if not self.prior_paths or not self.douzone_path.get(): messagebox.showwarning("파일 필요","전월 담당자 명세서를 1개 이상 추가하고 더존 Raw를 선택해주세요."); return
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
-            prior=read_prior(self.prior_path.get()); dz=read_douzone(self.douzone_path.get(),codes or None,p)
-            self.issues=prior.issues+dz.issues; self.results=reconcile(prior.items,dz.items); self.new_items=new_payables(dz.items)
+            prior_items=[]; prior_issues=[]
+            for path in self.prior_paths:
+                rr=read_prior(path,Path(path).stem); prior_items.extend(rr.items); prior_issues.extend(rr.issues)
+            dz=read_douzone(self.douzone_path.get(),codes or None,p)
+            self.issues=prior_issues+dz.issues; self.results=reconcile(prior_items,dz.items); self.new_items=new_payables(dz.items)
             counts=Counter(x.status for x in self.results); self._summary(counts)
             exc=sum(v for k,v in counts.items() if k!=Status.MATCHED)
             self.preflight.config(text=(f"⚠ 입력 형식 확인 {len(self.issues):,}건 — 해당 행은 자동대사에서 제외했습니다." if self.issues else "✓ 사전검사 통과 — 의심스러운 금액 형식 없음"),fg=(WARN if self.issues else "#2E7D32"))
-            self.status_text.set(f"{p.label} 대사 완료 · 전월 {len(prior.items):,}건 · 대사 예외 {exc:,}건 · 신규 {len(self.new_items):,}건")
+            for row in self.detail.get_children(): self.detail.delete(row)
+            for x in self.results:
+                if x.status != Status.MATCHED:
+                    self.detail.insert("", "end", values=(x.prior.source.owner or x.prior.source.file_name, x.prior.vendor_name, f"{int(x.prior.amount):,}", x.status.value, x.reason))
+            self.status_text.set(f"{p.label} 대사 완료 · 전월 {len(prior_items):,}건 · 대사 예외 {exc:,}건 · 신규 {len(self.new_items):,}건")
             self.export_btn.config(state="normal")
         except Exception as e: messagebox.showerror("대사 중단",str(e))
 
@@ -100,7 +125,7 @@ class App(tk.Tk):
         path=filedialog.asksaveasfilename(defaultextension=".xlsx",initialfile=f"{p.year}_{p.month:02d}_미지급금_대사결과.xlsx",filetypes=[("Excel","*.xlsx")])
         if not path:return
         try:
-            write_result(path,self.results,self.new_items,self.issues,[self.prior_path.get(),self.douzone_path.get()],p.label)
+            write_result(path,self.results,self.new_items,self.issues,self.prior_paths+[self.douzone_path.get()],p.label)
             self.status_text.set(f"결과 저장 완료 · {Path(path).name}"); messagebox.showinfo("저장 완료","원본은 수정하지 않았습니다.\n확인필요/입력데이터확인 시트를 먼저 확인해주세요.")
         except Exception as e: messagebox.showerror("저장 실패",str(e))
 
