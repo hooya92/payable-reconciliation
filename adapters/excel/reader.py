@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
+import re
 from openpyxl import load_workbook
 
 from domain.models import DataQuality, JournalLine, PayableItem, SourceRef
@@ -27,6 +28,17 @@ class ReadResult:
 
 
 def _text(v): return "" if v is None else str(v).strip()
+def _code_from_cell(cell):
+    """Preserve identifier leading zeroes when Excel stores a numeric code with a zero-only display format."""
+    value=cell.value
+    if value is None: return ""
+    if isinstance(value,(int,float)) and not isinstance(value,bool):
+        fmt=(cell.number_format or "").strip()
+        if re.fullmatch(r"0+",fmt):
+            if isinstance(value,float) and not value.is_integer():
+                return normalize_code(value)
+            return str(int(value)).zfill(len(fmt))
+    return normalize_code(value)
 def _header(v): return "".join(_text(v).lower().split())
 def _date(v):
     if isinstance(v, (datetime, date)): return v.strftime("%Y-%m-%d")
@@ -81,18 +93,18 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
         if missing:
             raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
         out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
-        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=True), start=hr+1):
-            raw_date=row[cols["date"]-1] if cols["date"] else None
+        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
+            raw_date=row[cols["date"]-1].value if cols["date"] else None
             if period:
                 parsed_date=parse_date(raw_date)
                 if parsed_date is None:
                     out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
                 if not period.contains(parsed_date): continue
-            ac=normalize_code(row[cols["account_code"]-1]) if cols["account_code"] else ""
-            an=_text(row[cols["account_name"]-1]) if cols["account_name"] else ""
+            ac=_code_from_cell(row[cols["account_code"]-1]) if cols["account_code"] else ""
+            an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
             if wanted and ac not in wanted: continue
             if not wanted and an and "미지급" not in an: continue
-            d=parse_amount(row[cols["debit"]-1]); cr=parse_amount(row[cols["credit"]-1])
+            d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
             bad=[("차변",d),("대변",cr)]
             suspicious=False
             for field,x in bad:
@@ -101,7 +113,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
             if suspicious: continue
             debit=d.value or 0; credit=cr.value or 0
             if debit==0 and credit==0: continue
-            code=normalize_code(row[cols["vendor_code"]-1])
+            code=_code_from_cell(row[cols["vendor_code"]-1])
             if not code:
                 out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); continue
             out.items.append(JournalLine(code,_text(row[cols["vendor_name"]-1]),ac,an,
