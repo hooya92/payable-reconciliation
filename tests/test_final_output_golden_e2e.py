@@ -104,9 +104,8 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
                 self.assertIsNotNone(color)
                 self.assertTrue(color.rgb.endswith("FFD966"))
 
-            for sheet_name in ("요약","차월명세서 초안","자동대사완료"):
-                self.assertIsNone(wb[sheet_name].sheet_properties.tabColor)
-
+            self.assertTrue(wb["요약"].sheet_properties.tabColor.rgb.endswith("2F75B5"))
+            self.assertTrue(wb["차월명세서 초안"].sheet_properties.tabColor.rgb.endswith("A5A5A5"))
             completed_sheet=wb["자동대사완료"]
             self.assertIsNotNone(completed_sheet.sheet_properties.tabColor)
             self.assertTrue(completed_sheet.sheet_properties.tabColor.rgb.endswith("70AD47"))
