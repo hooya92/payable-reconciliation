@@ -42,7 +42,8 @@ class ReconcileTests(unittest.TestCase):
 
     def test_partial_payment_is_not_auto_matched(self):
         r=reconcile([p("051330","A",100)],[j("051330","A",40)])
-        self.assertEqual(r[0].status, Status.UNPAID)
+        self.assertEqual(r[0].status, Status.AMBIGUOUS)
+        self.assertEqual(r[0].rule, "POSSIBLE_PARTIAL")
 
     def test_duplicate_prior_with_insufficient_debits_is_ambiguous(self):
         r=reconcile([p("051330","A",100),p("051330","A",100)],[j("051330","A",100)])
