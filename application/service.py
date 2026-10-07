@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adapters.excel.reader import read_douzone, read_prior
+from domain.models import Status
 from domain.period import AccountingPeriod
 from domain.reconciliation import new_payables, reconcile
 
@@ -18,6 +19,8 @@ class ReconciliationRun:
 
 
 def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
+    if not account_codes:
+        raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
     prior_items=[]; prior_issues=[]
     for path in prior_paths:
         rr=read_prior(path,Path(path).stem)
@@ -42,6 +45,12 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
 
     issues=prior_issues+dz_issues
     results=reconcile(prior_items,journal_items)
+    if dz_issues:
+        for result in results:
+            if result.status==Status.UNPAID:
+                result.status=Status.RAW_INPUT_INCOMPLETE
+                result.reason="더존 대상월/계정 데이터에 자동 제외된 행이 있어 지급 여부를 확정할 수 없음"
+                result.rule="RAW_INPUT_INCOMPLETE"
     fresh=new_payables(journal_items)
     counts=Counter(x.status for x in results)
     return ReconciliationRun(period,len(prior_items),results,fresh,issues,counts)

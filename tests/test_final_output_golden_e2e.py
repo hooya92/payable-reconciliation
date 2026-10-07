@@ -46,10 +46,10 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             self.assertEqual(summary["대상 회계월"],"2026년 8월")
             self.assertEqual(summary["확인 필요"],6)
             self.assertEqual(summary["입력 형식 확인"],3)
-            self.assertEqual(summary["차월 초안"],1)
-            self.assertEqual(summary["차월 초안 금액"],660000)
+            self.assertEqual(summary["차월 초안"],0)
+            self.assertEqual(summary["차월 초안 금액"],0)
             self.assertEqual(summary["당월 신규 명세 검토"],1)
-            self.assertEqual(summary["초안 제외 검토건"],6)
+            self.assertEqual(summary["초안 제외 검토건"],7)
 
             # Only the exact match may appear as automatically completed.
             completed=list(wb["자동대사완료"].iter_rows(min_row=2,values_only=True))
@@ -69,22 +69,14 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             self.assertEqual(sum(row[0]=="전월명세" for row in input_issues),1)
             self.assertEqual(sum(row[0]=="더존" for row in input_issues),2)
 
-            # Draft contains only the definitely unpaid carry-forward.
+            # Raw input issues mean absence of a debit is not trustworthy enough
+            # to auto-carry an item into the next-month draft.
             draft_rows=list(wb["차월명세서 초안"].iter_rows(min_row=2,values_only=True))
-            detail=[row for row in draft_rows if row[0]=="전월이월"]
-            self.assertEqual(len(detail),1)
-            self.assertEqual(detail[0][1],"001006")
-            self.assertEqual(detail[0][4],"장기 이월 임차료")
-            self.assertEqual(detail[0][5],660000)
-            self.assertFalse(any(row[0]=="당월신규" for row in draft_rows))
-            self.assertFalse(any(row[1]=="002001" for row in draft_rows))
-
-            subtotal=[row for row in draft_rows if row[0]=="소계"]
-            total=[row for row in draft_rows if row[0]=="전체합계"]
-            self.assertEqual(len(subtotal),1)
-            self.assertEqual(subtotal[0][5],660000)
-            self.assertEqual(len(total),1)
-            self.assertEqual(total[0][5],660000)
+            self.assertEqual(draft_rows,[])
+            unpaid_review=[row for row in review if row[6]=="001006"]
+            self.assertEqual(len(unpaid_review),1)
+            self.assertEqual(unpaid_review[0][0],"더존 입력 확인 필요")
+            self.assertIn("지급 여부를 확정할 수 없음",unpaid_review[0][1])
 
             # Current-month new item is visible but explicitly withheld from the draft.
             current=list(wb["당월신규명세"].iter_rows(min_row=2,values_only=True))

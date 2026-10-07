@@ -84,36 +84,34 @@ def _douzone_columns(vals):
 
 
 def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: AccountingPeriod|None=None) -> ReadResult:
+    wanted={normalize_code(x) for x in (account_codes or set()) if x}
+    if not wanted:
+        raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
     wb=load_workbook(path,read_only=True,data_only=True)
-    out=ReadResult(); wanted={normalize_code(x) for x in (account_codes or set()) if x}
+    out=ReadResult()
     try:
         for ws in wb.worksheets:
             hr, vals=_header_row(ws,[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")])
             if not hr: continue
             cols=_douzone_columns(vals)
-            needed=["vendor_code","vendor_name","description","debit","credit"]
+            needed=["vendor_code","vendor_name","description","debit","credit","account_code"]
             if period: needed.append("date")
-            needed.append("account_code" if wanted else "account_name")
             missing=[x for x in needed if not cols[x]]
             if missing:
                 raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
             out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
             for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
+                ac=_code_from_cell(row[cols["account_code"]-1])
+                if ac not in wanted:
+                    continue
+                an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
+
                 raw_date=row[cols["date"]-1].value if cols["date"] else None
                 if period:
                     parsed_date=parse_date(raw_date)
                     if parsed_date is None:
                         out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
                     if not period.contains(parsed_date): continue
-
-                ac=_code_from_cell(row[cols["account_code"]-1]) if cols["account_code"] else ""
-                an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
-                if wanted:
-                    if ac not in wanted: continue
-                else:
-                    if not an:
-                        out.issues.append(InputIssue("더존",ws.title,r,"계정과목명","", "계정과목명이 없어 미지급금 전표인지 확인할 수 없음")); continue
-                    if "미지급" not in an: continue
 
                 d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
                 suspicious=False

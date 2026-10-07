@@ -51,6 +51,14 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             self.assertEqual(len(r.items),0)
             self.assertTrue(any("0 이하" in x.reason for x in r.issues))
 
+    def test_douzone_requires_explicit_account_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"raw.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명","거래처코드","거래처명","적요","차변","대변"])
+            ws.append(["2026-08-01","25301","미지급금-일반","001234","가상상사","유류비",100000,0]); wb.save(p)
+            with self.assertRaises(ValueError):
+                read_douzone(p,set(),AccountingPeriod(2026,8))
+
     def test_douzone_missing_account_identifier_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"raw.xlsx"; wb=Workbook(); ws=wb.active

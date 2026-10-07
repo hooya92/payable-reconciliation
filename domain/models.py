@@ -10,6 +10,7 @@ class Status(str, Enum):
     UNPAID = "지급 확인 안 됨"
     AMBIGUOUS = "중복/분할·합산 확인"
     VENDOR_MISMATCH = "거래처 오류 의심"
+    RAW_INPUT_INCOMPLETE = "더존 입력 확인 필요"
     INVALID_INPUT = "입력 데이터 확인"
 
 
