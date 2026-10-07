@@ -42,7 +42,7 @@ class App(tk.Tk):
         tk.Label(period,textvariable=self.period_text,font=("Segoe UI Semibold",12),bg=CARD,fg=ACCENT,justify="left").pack(side="left",padx=30)
 
         card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); card.pack(fill="x")
-        self._file_row(card,"전월 미지급 세부명세",self.prior_path,0); self._file_row(card,"당월 더존 전표출력",self.douzone_path,1)
+        self._file_row(card,"전월 미지급 세부명세",self.prior_path,0); self._file_row(card,"더존 Raw (1개월~1년 등 임의 기간)",self.douzone_path,1)
         opt=tk.Frame(card,bg=CARD); opt.grid(row=2,column=0,columnspan=3,sticky="ew",padx=22,pady=(2,18))
         tk.Label(opt,text="미지급금 계정코드",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(side="left")
         ttk.Entry(opt,textvariable=self.account_codes,width=18).pack(side="left",padx=12)
@@ -59,7 +59,7 @@ class App(tk.Tk):
     def _update_period(self):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get())); prev=p.previous()
-            self.period_text.set(f"{prev.label} 명세  →  {p.label} 전표\n※ 날짜가 아니라 회계월 범위만 안내합니다.")
+            self.period_text.set(f"{prev.label} 명세  →  {p.label} 전표\n※ Raw에서는 이 회계월만 추출하고, 개별 대사키에는 날짜를 쓰지 않습니다.")
         except Exception: self.period_text.set("올바른 연/월을 선택해주세요.")
 
     def _file_row(self,parent,label,var,row):
@@ -85,7 +85,7 @@ class App(tk.Tk):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
-            prior=read_prior(self.prior_path.get()); dz=read_douzone(self.douzone_path.get(),codes or None)
+            prior=read_prior(self.prior_path.get()); dz=read_douzone(self.douzone_path.get(),codes or None,p)
             self.issues=prior.issues+dz.issues; self.results=reconcile(prior.items,dz.items); self.new_items=new_payables(dz.items)
             counts=Counter(x.status for x in self.results); self._summary(counts)
             exc=sum(v for k,v in counts.items() if k!=Status.MATCHED)
