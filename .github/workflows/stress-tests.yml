@@ -1,0 +1,27 @@
+name: Large Raw Stress Test
+on:
+  workflow_dispatch:
+    inputs:
+      raw_noise:
+        description: "Synthetic Raw noise rows"
+        required: true
+        default: "50000"
+        type: choice
+        options:
+          - "50000"
+          - "100000"
+          - "300000"
+jobs:
+  stress:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUN_STRESS: "1"
+      STRESS_RAW_NOISE: ${{ inputs.raw_noise }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - run: python -m unittest tests.test_large_raw_stress -v
