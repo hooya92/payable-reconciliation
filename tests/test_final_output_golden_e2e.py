@@ -98,12 +98,10 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             self.assertEqual(current[0][6],880000)
             self.assertIn("차월 초안 자동포함 안 함",current[0][7])
 
-            # Sheets that require a human check are highlighted with yellow tabs.
-            for sheet_name in ("확인필요","입력데이터확인","당월신규명세"):
-                color=wb[sheet_name].sheet_properties.tabColor
-                self.assertIsNotNone(color)
-                self.assertTrue(color.rgb.endswith("FFD966"))
-
+            # Sheet-tab colors mirror each sheet's visual meaning.
+            self.assertTrue(wb["확인필요"].sheet_properties.tabColor.rgb.endswith("FFD966"))
+            self.assertTrue(wb["입력데이터확인"].sheet_properties.tabColor.rgb.endswith("E74C3C"))
+            self.assertTrue(wb["당월신규명세"].sheet_properties.tabColor.rgb.endswith("8E44AD"))
             self.assertTrue(wb["요약"].sheet_properties.tabColor.rgb.endswith("2F75B5"))
             self.assertTrue(wb["차월명세서 초안"].sheet_properties.tabColor.rgb.endswith("A5A5A5"))
             completed_sheet=wb["자동대사완료"]

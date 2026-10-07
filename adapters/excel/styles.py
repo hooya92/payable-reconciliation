@@ -202,12 +202,12 @@ def style_workbook(wb, draft, info):
 
     if "입력데이터확인" in wb.sheetnames:
         issue=wb["입력데이터확인"]
-        issue.sheet_properties.tabColor=PALETTE["yellow"]
+        issue.sheet_properties.tabColor="E74C3C"
         _style_issue_sheet(issue)
 
     if "당월신규명세" in wb.sheetnames:
         new_sheet=wb["당월신규명세"]
-        new_sheet.sheet_properties.tabColor=PALETTE["yellow"]
+        new_sheet.sheet_properties.tabColor="8E44AD"
         _style_new_sheet(new_sheet)
 
     if "자동대사완료" in wb.sheetnames:
