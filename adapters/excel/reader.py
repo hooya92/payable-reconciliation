@@ -81,7 +81,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
         if missing:
             raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
         out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
-        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=True), start=hr+1)
+        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=True), start=hr+1):
             raw_date=row[cols["date"]-1] if cols["date"] else None
             if period:
                 parsed_date=parse_date(raw_date)
