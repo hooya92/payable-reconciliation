@@ -43,6 +43,8 @@ def _header(v): return "".join(_text(v).lower().split())
 def _date(v):
     if isinstance(v, (datetime, date)): return v.strftime("%Y-%m-%d")
     return _text(v)
+def _is_summary_label(v):
+    return _header(v) in {"소계","합계","총계","전체합계"}
 
 
 def _header_row(ws, required_groups, max_rows=30):
@@ -84,69 +86,115 @@ def _douzone_columns(vals):
 def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: AccountingPeriod|None=None) -> ReadResult:
     wb=load_workbook(path,read_only=True,data_only=True)
     out=ReadResult(); wanted={normalize_code(x) for x in (account_codes or set()) if x}
-    for ws in wb.worksheets:
-        hr, vals=_header_row(ws,[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")])
-        if not hr: continue
-        cols=_douzone_columns(vals)
-        needed=("vendor_code","vendor_name","description","debit","credit")
-        missing=[x for x in needed if not cols[x]]
-        if missing:
-            raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
-        out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
-        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
-            raw_date=row[cols["date"]-1].value if cols["date"] else None
-            if period:
-                parsed_date=parse_date(raw_date)
-                if parsed_date is None:
-                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
-                if not period.contains(parsed_date): continue
-            ac=_code_from_cell(row[cols["account_code"]-1]) if cols["account_code"] else ""
-            an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
-            if wanted and ac not in wanted: continue
-            if not wanted and an and "미지급" not in an: continue
-            d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
-            bad=[("차변",d),("대변",cr)]
-            suspicious=False
-            for field,x in bad:
-                if x.quality==DataQuality.SUSPICIOUS:
-                    out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason)); suspicious=True
-            if suspicious: continue
-            debit=d.value or 0; credit=cr.value or 0
-            if debit==0 and credit==0: continue
-            code=_code_from_cell(row[cols["vendor_code"]-1])
-            if not code:
-                out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); continue
-            out.items.append(JournalLine(code,_text(row[cols["vendor_name"]-1]),ac,an,
-                _text(row[cols["description"]-1].value),debit,credit,
-                _date(raw_date) if cols["date"] else "",r))
-    wb.close()
+    try:
+        for ws in wb.worksheets:
+            hr, vals=_header_row(ws,[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")])
+            if not hr: continue
+            cols=_douzone_columns(vals)
+            needed=["vendor_code","vendor_name","description","debit","credit"]
+            if period: needed.append("date")
+            needed.append("account_code" if wanted else "account_name")
+            missing=[x for x in needed if not cols[x]]
+            if missing:
+                raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
+            out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
+            for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
+                raw_date=row[cols["date"]-1].value if cols["date"] else None
+                if period:
+                    parsed_date=parse_date(raw_date)
+                    if parsed_date is None:
+                        out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
+                    if not period.contains(parsed_date): continue
+
+                ac=_code_from_cell(row[cols["account_code"]-1]) if cols["account_code"] else ""
+                an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
+                if wanted:
+                    if ac not in wanted: continue
+                else:
+                    if not an:
+                        out.issues.append(InputIssue("더존",ws.title,r,"계정과목명","", "계정과목명이 없어 미지급금 전표인지 확인할 수 없음")); continue
+                    if "미지급" not in an: continue
+
+                d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
+                suspicious=False
+                for field,x in (("차변",d),("대변",cr)):
+                    if x.quality==DataQuality.SUSPICIOUS:
+                        out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason)); suspicious=True
+                if suspicious: continue
+
+                debit=d.value or 0; credit=cr.value or 0
+                if debit==0 and credit==0: continue
+                if debit < 0 or credit < 0:
+                    out.issues.append(InputIssue("더존",ws.title,r,"차변/대변",
+                        f"{debit}/{credit}","음수 전표는 수정·역분개 가능성이 있어 자동 처리하지 않음")); continue
+                if debit > 0 and credit > 0:
+                    out.issues.append(InputIssue("더존",ws.title,r,"차변/대변",
+                        f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음")); continue
+
+                code=_code_from_cell(row[cols["vendor_code"]-1])
+                vendor_name=_text(row[cols["vendor_name"]-1].value)
+                desc=_text(row[cols["description"]-1].value)
+                row_invalid=False
+                if not code:
+                    out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); row_invalid=True
+                if not vendor_name:
+                    out.issues.append(InputIssue("더존",ws.title,r,"거래처명","", "거래처명 없음")); row_invalid=True
+                if not desc:
+                    out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음")); row_invalid=True
+                if row_invalid: continue
+
+                out.items.append(JournalLine(code,vendor_name,ac,an,desc,debit,credit,
+                    _date(raw_date) if cols["date"] else "",r))
+    finally:
+        wb.close()
     if not out.items and not out.issues: raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
     return out
 
 
 def read_prior(path: str|Path, owner: str = "") -> ReadResult:
     wb=load_workbook(path,read_only=True,data_only=True); out=ReadResult()
-    for ws in wb.worksheets:
-        hr,vals=_header_row(ws,[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")])
-        if not hr: continue
-        cols={
-            "vendor_code":_first(vals,"거래처코드","거래처 코드","코드"),
-            "vendor_name":_first(vals,"거래처명","거래처","업체명"),
-            "date":_first(vals,"날짜","일자","기표일자"),
-            "description":_first(vals,"적요","내역","내용"),
-            "amount":_first(vals,"금액","미지급금","잔액")}
-        out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
-        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
-            code=_code_from_cell(row[cols["vendor_code"]-1])
-            desc=_text(row[cols["description"]-1].value)
-            a=parse_amount(row[cols["amount"]-1].value)
-            if not code and not desc and (a.value or 0)==0: continue  # subtotal/blank
-            if a.quality==DataQuality.SUSPICIOUS:
-                out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,a.reason)); continue
-            if not code or not desc or (a.value or 0)<=0:
-                continue
-            out.items.append(PayableItem(code,_text(row[cols["vendor_name"]-1].value),desc,a.value,
-                _date(row[cols["date"]-1].value) if cols["date"] else "",r, SourceRef(Path(path).name, ws.title, r, owner)))
-    wb.close()
+    try:
+        for ws in wb.worksheets:
+            hr,vals=_header_row(ws,[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")])
+            if not hr: continue
+            cols={
+                "vendor_code":_first(vals,"거래처코드","거래처 코드","코드"),
+                "vendor_name":_first(vals,"거래처명","거래처","업체명"),
+                "date":_first(vals,"날짜","일자","기표일자"),
+                "description":_first(vals,"적요","내역","내용"),
+                "amount":_first(vals,"금액","미지급금","잔액")}
+            required=("vendor_code","vendor_name","description","amount")
+            missing=[x for x in required if not cols[x]]
+            if missing:
+                raise ValueError("전월 명세서 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
+            out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
+            for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
+                code=_code_from_cell(row[cols["vendor_code"]-1])
+                vendor_name=_text(row[cols["vendor_name"]-1].value)
+                desc=_text(row[cols["description"]-1].value)
+                a=parse_amount(row[cols["amount"]-1].value)
+
+                if not code and not vendor_name and not desc and (a.value or 0)==0:
+                    continue
+                if not code and not desc and _is_summary_label(vendor_name):
+                    continue
+                if a.quality==DataQuality.SUSPICIOUS:
+                    out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,a.reason)); continue
+
+                row_invalid=False
+                if not code:
+                    out.issues.append(InputIssue("전월명세",ws.title,r,"거래처코드","", "거래처코드 없음")); row_invalid=True
+                if not vendor_name:
+                    out.issues.append(InputIssue("전월명세",ws.title,r,"거래처명","", "거래처명 없음")); row_invalid=True
+                if not desc:
+                    out.issues.append(InputIssue("전월명세",ws.title,r,"적요","", "적요 없음")); row_invalid=True
+                if (a.value or 0) <= 0:
+                    out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,"금액이 0 이하라 자동 대사하지 않음")); row_invalid=True
+                if row_invalid: continue
+
+                out.items.append(PayableItem(code,vendor_name,desc,a.value,
+                    _date(row[cols["date"]-1].value) if cols["date"] else "",r, SourceRef(Path(path).name, ws.title, r, owner)))
+    finally:
+        wb.close()
     if not out.items and not out.issues: raise ValueError("전월 명세서에서 대사할 항목을 찾지 못했습니다.")
     return out
