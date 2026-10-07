@@ -12,6 +12,15 @@ def style_workbook(wb, draft, info):
             cell.fill=PatternFill("solid",fgColor=PALETTE["header"])
             cell.alignment=Alignment(vertical="center",horizontal="center")
         sheet.freeze_panes="A2"
+        sheet.auto_filter.ref=sheet.dimensions
+        sheet.sheet_properties.pageSetUpPr.fitToPage=True
+        sheet.page_setup.fitToWidth=1
+        sheet.page_setup.fitToHeight=0
+        sheet.page_margins.left=0.25
+        sheet.page_margins.right=0.25
+        sheet.page_margins.top=0.5
+        sheet.page_margins.bottom=0.5
+        sheet.oddFooter.center.text="페이지 &P / &N"
         for row in sheet.iter_rows(min_row=2):
             for cell in row:
                 cell.alignment=Alignment(vertical="top",wrap_text=True)
@@ -31,8 +40,17 @@ def style_workbook(wb, draft, info):
             for cell in draft[rr]: cell.fill=PatternFill("solid",fgColor=fill)
         if kind in ("소계","전체합계"):
             for cell in draft[rr]: cell.font=Font(bold=True)
+    draft.sheet_view.showGridLines=False
+    draft.page_setup.orientation="landscape"
+    draft.print_title_rows="1:1"
     draft.column_dimensions["E"].width=36
     draft.column_dimensions["G"].width=22
     draft.column_dimensions["H"].width=28
+    info.freeze_panes=None
+    info.auto_filter.ref=None
+    info.row_dimensions[1].height=24
+    for rr in range(1,info.max_row+1):
+        info.cell(rr,1).font=Font(bold=True)
+        info.cell(rr,2).alignment=Alignment(vertical="center",wrap_text=True)
     info.column_dimensions["A"].width=22
     info.column_dimensions["B"].width=58
