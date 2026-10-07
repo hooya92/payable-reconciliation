@@ -27,6 +27,14 @@ class NormalizedAmount:
 
 
 @dataclass(frozen=True)
+class SourceRef:
+    file_name: str = ""
+    sheet: str = ""
+    row: int = 0
+    owner: str = ""
+
+
+@dataclass(frozen=True)
 class PayableItem:
     vendor_code: str
     vendor_name: str
@@ -34,6 +42,7 @@ class PayableItem:
     amount: Decimal
     date: str = ""
     row_number: int = 0
+    source: SourceRef = field(default_factory=SourceRef)
 
 
 @dataclass(frozen=True)
