@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from collections import Counter
 
-from app import App, changed_snapshot_paths, completion_detail, infer_period_from_inputs, reconciliation_breakdown, snapshot_file_digests, suggest_reconciliation_period
+from app import App, changed_snapshot_paths, completion_detail, infer_period_from_inputs, period_alignment_evidence, reconciliation_breakdown, snapshot_file_digests, suggest_reconciliation_period
 from domain.models import Status
 from domain.period import AccountingPeriod
 
@@ -70,6 +70,22 @@ class UISafetyTests(unittest.TestCase):
         )
         self.assertEqual(period,AccountingPeriod(2026,7))
         self.assertEqual(source,"statement+raw")
+
+    def test_period_evidence_rejects_coincidental_raw_month_noise(self):
+        from openpyxl import Workbook
+        with tempfile.TemporaryDirectory() as tmp:
+            prior=Path(tmp)/"prior.xlsx"; wb=Workbook(); ws=wb.active; ws.title="26.07"
+            ws.append(["거래처코드","거래처명","날짜","적요","금액"])
+            ws.append(["001001","가상A","2026-07-31","7월 비용",100]); wb.save(prior)
+
+            raw=Path(tmp)/"raw.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명","거래처코드","거래처명","적요","차변","대변"])
+            ws.append(["2026-07-31","25301","미지급금-일반","099999","기간외","잡음",999,0])
+            ws.append(["2026-08-03","25301","미지급금-일반","001001","가상A","7월 비용",100,0])
+            wb.save(raw)
+
+            exact,shared=period_alignment_evidence([prior],[raw],{"25301"},AccountingPeriod(2026,7))
+            self.assertEqual((exact,shared),(0,0))
 
     def test_statement_raw_month_conflict_is_not_guessed(self):
         period,source=infer_period_from_inputs(

@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods
+from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods, read_douzone, read_prior
 from adapters.excel.writer import write_result
 from domain.models import Status
 from domain.period import AccountingPeriod
@@ -100,24 +100,47 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
 
 
 def infer_period_from_inputs(statement_period_groups, raw_period_groups):
-    """Infer the reconciliation month from the same month present in statement and Raw."""
+    """Infer the target month without falling back to an older coincidental overlap."""
     statement_groups=[set(group) for group in statement_period_groups if group]
     raw_groups=[set(group) for group in raw_period_groups if group]
 
     statement_common=set.intersection(*statement_groups) if statement_groups else set()
     raw_periods=set().union(*raw_groups) if raw_groups else set()
 
-    if statement_common and raw_periods:
-        paired=sorted(statement_common & raw_periods)
-        if paired:
-            return paired[-1],"statement+raw"
-        return None,"conflict"
-
     if statement_common:
-        return max(statement_common),"statement"
+        target=max(statement_common)
+        if raw_periods:
+            return (target,"statement+raw") if target in raw_periods else (None,"conflict")
+        return target,"statement"
     if raw_periods:
         return max(raw_periods),"raw"
     return None,"unknown"
+
+
+def period_alignment_evidence(prior_paths, douzone_paths, account_codes, period):
+    """Return (exact code+amount matches, shared vendor codes) for a candidate month."""
+    prior_pairs=Counter()
+    raw_pairs=Counter()
+    prior_codes=set()
+    raw_codes=set()
+    try:
+        for path in prior_paths:
+            rr=read_prior(path,Path(path).stem,period)
+            for item in rr.items:
+                prior_pairs[(item.vendor_code,item.amount)]+=1
+                prior_codes.add(item.vendor_code)
+        for path in douzone_paths:
+            rr=read_douzone(path,account_codes or None,period)
+            for item in rr.items:
+                if item.debit>0:
+                    raw_pairs[(item.vendor_code,item.debit)]+=1
+                    raw_codes.add(item.vendor_code)
+    except Exception:
+        return 0,0
+
+    exact=sum(min(count,raw_pairs.get(key,0)) for key,count in prior_pairs.items())
+    shared_codes=len(prior_codes & raw_codes)
+    return exact,shared_codes
 
 
 class App(ctk.CTk):
@@ -237,7 +260,7 @@ class App(ctk.CTk):
         tk.Label(root,text="명세서 대사",font=("Segoe UI Semibold",30),bg=BG,fg=TEXT).pack(anchor="w")
         tk.Label(
             root,
-            text="명세서서와 더존 전표를 자동 대사하고, 사람이 확인할 항목만 남깁니다.",
+            text="명세서와 더존 전표를 자동 대사하고, 사람이 확인할 항목만 남깁니다.",
             font=("Segoe UI",11),
             bg=BG,
             fg=MUTED,
@@ -287,7 +310,7 @@ class App(ctk.CTk):
 
         prior_label=tk.Frame(card,bg=CARD)
         prior_label.grid(row=1,column=0,sticky="nw",padx=(22,12),pady=14)
-        tk.Label(prior_label,text="명세서서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
+        tk.Label(prior_label,text="명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
         tk.Label(prior_label,textvariable=self.prior_count_text,font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w",pady=(3,0))
         self.prior_list=tk.Listbox(
             card,height=3,font=("Segoe UI",9),selectmode="extended",
@@ -332,7 +355,7 @@ class App(ctk.CTk):
 
         tk.Label(
             card,
-            text="명세서서는 선택 회계월의 전월 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
+            text="명세서는 대상 회계월과 같은 월의 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
             font=("Segoe UI",9),
             bg=CARD,
             fg=MUTED,
@@ -472,8 +495,8 @@ class App(ctk.CTk):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             self.period_text.set(
-                f"{p.previous().label} 명세서  →  {p.label} 더존 전표\n"
-                "Raw는 선택 회계월로 필터링하고, 명세서서 시트는 자동 선택합니다."
+                f"{p.label} 명세서  ↔  {p.label} 더존 전표\n"
+                "명세서와 Raw에서 같은 회계월을 자동 감지합니다."
             )
         except Exception:
             self.period_text.set("올바른 연/월을 선택해주세요.")
@@ -557,6 +580,20 @@ class App(ctk.CTk):
                 return False
             return None
 
+        if source=="statement+raw" and self.prior_paths and self.douzone_paths:
+            exact,shared_codes=period_alignment_evidence(
+                self.prior_paths,self.douzone_paths,codes,suggested
+            )
+            if exact==0 and shared_codes==0:
+                if show_banner:
+                    self._set_banner(
+                        "warning",
+                        "회계월 자동 설정 보류",
+                        f"{suggested.label}이 양쪽 파일에 존재하지만 명세서와 Raw의 거래처코드가 하나도 겹치지 않습니다. "
+                        "오래된 테스트 파일이나 다른 회계월 파일인지 확인해주세요."
+                    )
+                return False
+
         current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
         if suggested!=current:
             # Set both variables without leaving a stale result behind.
@@ -595,7 +632,7 @@ class App(ctk.CTk):
                     self.prior_list.insert("end",Path(p).name)
                     added_prior=True
                     if requested_kind!="prior":
-                        moved.append(f"{Path(p).name} → 명세서서")
+                        moved.append(f"{Path(p).name} → 명세서")
             elif kind=="douzone":
                 if p not in self.douzone_paths:
                     self.douzone_paths.append(p)
@@ -741,7 +778,7 @@ class App(ctk.CTk):
 
     def run(self):
         if not self.prior_paths or not self.douzone_paths:
-            messagebox.showwarning("파일 필요","명세서서와 더존 Raw를 각각 1개 이상 추가해주세요.")
+            messagebox.showwarning("파일 필요","명세서와 더존 Raw를 각각 1개 이상 추가해주세요.")
             return
         self._invalidate_results()
         sync_state=self._maybe_align_period_from_inputs(show_banner=False)
