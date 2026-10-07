@@ -81,18 +81,18 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
         if missing:
             raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
         out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
-        for r in range(hr+1,ws.max_row+1):
-            raw_date=ws.cell(r,cols["date"]).value if cols["date"] else None
+        for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=True), start=hr+1)
+            raw_date=row[cols["date"]-1] if cols["date"] else None
             if period:
                 parsed_date=parse_date(raw_date)
                 if parsed_date is None:
                     out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
                 if not period.contains(parsed_date): continue
-            ac=normalize_code(ws.cell(r,cols["account_code"]).value) if cols["account_code"] else ""
-            an=_text(ws.cell(r,cols["account_name"]).value) if cols["account_name"] else ""
+            ac=normalize_code(row[cols["account_code"]-1]) if cols["account_code"] else ""
+            an=_text(row[cols["account_name"]-1]) if cols["account_name"] else ""
             if wanted and ac not in wanted: continue
             if not wanted and an and "미지급" not in an: continue
-            d=parse_amount(ws.cell(r,cols["debit"]).value); cr=parse_amount(ws.cell(r,cols["credit"]).value)
+            d=parse_amount(row[cols["debit"]-1]); cr=parse_amount(row[cols["credit"]-1])
             bad=[("차변",d),("대변",cr)]
             suspicious=False
             for field,x in bad:
@@ -101,11 +101,11 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
             if suspicious: continue
             debit=d.value or 0; credit=cr.value or 0
             if debit==0 and credit==0: continue
-            code=normalize_code(ws.cell(r,cols["vendor_code"]).value)
+            code=normalize_code(row[cols["vendor_code"]-1])
             if not code:
                 out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); continue
-            out.items.append(JournalLine(code,_text(ws.cell(r,cols["vendor_name"]).value),ac,an,
-                _text(ws.cell(r,cols["description"]).value),debit,credit,
+            out.items.append(JournalLine(code,_text(row[cols["vendor_name"]-1]),ac,an,
+                _text(row[cols["description"]-1]),debit,credit,
                 _date(raw_date) if cols["date"] else "",r))
     wb.close()
     if not out.items and not out.issues: raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
@@ -125,15 +125,15 @@ def read_prior(path: str|Path, owner: str = "") -> ReadResult:
             "amount":_first(vals,"금액","미지급금","잔액")}
         out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
         for r in range(hr+1,ws.max_row+1):
-            code=normalize_code(ws.cell(r,cols["vendor_code"]).value)
-            desc=_text(ws.cell(r,cols["description"]).value)
+            code=normalize_code(row[cols["vendor_code"]-1])
+            desc=_text(row[cols["description"]-1])
             a=parse_amount(ws.cell(r,cols["amount"]).value)
             if not code and not desc and (a.value or 0)==0: continue  # subtotal/blank
             if a.quality==DataQuality.SUSPICIOUS:
                 out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,a.reason)); continue
             if not code or not desc or (a.value or 0)<=0:
                 continue
-            out.items.append(PayableItem(code,_text(ws.cell(r,cols["vendor_name"]).value),desc,a.value,
+            out.items.append(PayableItem(code,_text(row[cols["vendor_name"]-1]),desc,a.value,
                 _date(ws.cell(r,cols["date"]).value) if cols["date"] else "",r, SourceRef(Path(path).name, ws.title, r, owner)))
     wb.close()
     if not out.items and not out.issues: raise ValueError("전월 명세서에서 대사할 항목을 찾지 못했습니다.")
