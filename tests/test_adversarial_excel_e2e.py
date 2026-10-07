@@ -25,6 +25,10 @@ class AdversarialExcelE2ETests(unittest.TestCase):
             self.assertEqual(counts[Status.MATCHED],expected["AUTO_MATCH"])
             self.assertEqual(counts[Status.DESCRIPTION_MISMATCH],expected["DESCRIPTION_MISMATCH"])
             self.assertEqual(counts[Status.VENDOR_NAME_MISMATCH],expected["VENDOR_NAME_MISMATCH"])
+            self.assertEqual(
+                sum(x.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" for x in results),
+                expected["AUTO_MATCH_WITH_NOTE"],
+            )
             self.assertEqual(counts[Status.VENDOR_MISMATCH],expected["VENDOR_MISMATCH"])
             self.assertEqual(counts[Status.UNPAID],expected["UNPAID"])
             self.assertEqual(

@@ -8,7 +8,7 @@ SEED=20261007
 def build(out_dir="synthetic_data", prior_count=2400, raw_noise=7200):
     rng=Random(SEED); root=Path(out_dir); root.mkdir(parents=True,exist_ok=True)
     owners=["담당자A","담당자B","담당자C","담당자D","담당자E","담당자F"]
-    priors=[[] for _ in owners]; raw=[]; expected={"MATCHED":0,"DESCRIPTION_MISMATCH":0,"UNPAID":0,"VENDOR_MISMATCH":0}
+    priors=[[] for _ in owners]; raw=[]; expected={"MATCHED":0,"MATCHED_WITH_NOTE":0,"DESCRIPTION_MISMATCH":0,"UNPAID":0,"VENDOR_MISMATCH":0}
     for i in range(prior_count):
         code=f"{1000+i:06d}"; vendor=f"가상거래처{i:04d}"; desc=f"7월 가상운송비 {i:04d}"; amount=100000+(i*7919)%90000000
         priors[i%len(owners)].append((code,vendor,"2026-07-31",desc,amount))
@@ -18,7 +18,7 @@ def build(out_dir="synthetic_data", prior_count=2400, raw_noise=7200):
         elif kind==1:
             expected["UNPAID"]+=1
         elif kind==2:
-            raw.append(("2026-08-10","25301","미지급금-일반",code,vendor,desc+" 적요변경",amount,0)); expected["DESCRIPTION_MISMATCH"]+=1
+            raw.append(("2026-08-10","25301","미지급금-일반",code,vendor,desc+" 적요변경",amount,0)); expected["MATCHED"]+=1; expected["MATCHED_WITH_NOTE"]+=1
         else:
             raw.append(("2026-08-10","25301","미지급금-일반",code,vendor,desc,amount,0)); expected["MATCHED"]+=1
     # Current-month new credits.
