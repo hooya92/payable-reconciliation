@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
+from adapters.excel.reader import detect_statement_periods
 from adapters.excel.writer import write_result
 from domain.models import Status
 from domain.period import AccountingPeriod
@@ -81,6 +82,20 @@ def completion_detail(period, prior_count, counts, new_count=0, issue_count=0):
         f"{period.label} · 전월 명세 {prior_count:,}건 처리 · "
         f"자동 대사 {b['matched']:,}건 · 검토 필요 {b['review']:,}건 · 입력 확인 {b['issues']:,}건"
     )
+
+
+def suggest_reconciliation_period(current_period, statement_period_groups):
+    """Suggest a target accounting month only when all detected statement files share a month."""
+    groups=[set(group) for group in statement_period_groups if group]
+    if not groups:
+        return None
+    expected=current_period.previous()
+    if all(expected in group for group in groups):
+        return None
+    common=set.intersection(*groups)
+    if not common:
+        return None
+    return max(common).next()
 
 
 class App(tk.Tk):
@@ -417,6 +432,8 @@ class App(tk.Tk):
             )
         except Exception:
             self.period_text.set("올바른 연/월을 선택해주세요.")
+        if hasattr(self,"prior_count_text"):
+            self._refresh_file_counts()
 
     def _on_period_changed(self):
         self._update_period()
@@ -445,12 +462,75 @@ class App(tk.Tk):
             self._set_banner("idle","대사 전","대상 회계월과 파일을 선택한 뒤 대사를 시작하세요.")
 
     def _refresh_file_counts(self):
-        self.prior_count_text.set(
-            f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
-        )
+        try:
+            needed=AccountingPeriod(int(self.year.get()),int(self.month.get())).previous().label
+            prior_state=f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
+            self.prior_count_text.set(f"필요: {needed} · {prior_state}")
+        except Exception:
+            self.prior_count_text.set(
+                f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
+            )
         self.raw_count_text.set(
             f"{len(self.douzone_paths)}개 파일 선택" if self.douzone_paths else "선택된 파일 없음"
         )
+
+    def _maybe_align_period_to_statement_files(self):
+        try:
+            current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
+        except Exception:
+            return
+
+        detected=[]
+        lines=[]
+        for path in self.prior_paths:
+            try:
+                periods=detect_statement_periods(path)
+            except Exception:
+                continue
+            if periods:
+                detected.append(periods)
+                lines.append(f"{Path(path).name}: " + ", ".join(p.label for p in periods))
+
+        if not detected:
+            return
+
+        suggested=suggest_reconciliation_period(current,detected)
+        expected=current.previous()
+        if suggested is None:
+            if not all(expected in periods for periods in detected):
+                self._set_banner(
+                    "warning",
+                    "명세서 월 확인 필요",
+                    f"현재 {current.label} 대사에는 {expected.label} 명세서가 필요합니다. 선택한 파일들의 월이 서로 달라 자동 설정하지 않았습니다."
+                )
+            return
+
+        suggested_statement=suggested.previous()
+        details="\n".join(lines)
+        change=messagebox.askyesno(
+            "회계월 자동 설정",
+            f"현재 대상 회계월은 {current.label}입니다.\n"
+            f"→ 필요한 전월 명세서: {expected.label}\n\n"
+            f"선택한 파일에서 확인된 월별 시트:\n{details}\n\n"
+            f"공통으로 확인된 최신 명세서는 {suggested_statement.label}입니다.\n"
+            f"대상 회계월을 {suggested.label}로 자동 변경할까요?\n\n"
+            "[예] 자동 변경   [아니오] 현재 회계월 유지"
+        )
+        if change:
+            self.year.set(suggested.year)
+            self.month.set(suggested.month)
+            self._update_period()
+            self._set_banner(
+                "idle",
+                "회계월 자동 설정",
+                f"{suggested_statement.label} 명세서에 맞춰 대상 회계월을 {suggested.label}로 변경했습니다."
+            )
+        else:
+            self._set_banner(
+                "warning",
+                "명세서 월 확인",
+                f"현재 {current.label} 대사에는 {expected.label} 명세서가 필요합니다."
+            )
 
     def pick_priors(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
@@ -463,6 +543,7 @@ class App(tk.Tk):
         if changed:
             self._refresh_file_counts()
             self._invalidate_results()
+            self._maybe_align_period_to_statement_files()
 
     def pick_douzone(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
