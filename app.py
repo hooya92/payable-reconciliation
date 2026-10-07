@@ -1,6 +1,7 @@
 from __future__ import annotations
 import tkinter as tk
 import hashlib
+from collections import Counter
 from datetime import date
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
@@ -10,7 +11,24 @@ from domain.models import Status
 from domain.period import AccountingPeriod
 from application.service import run_reconciliation
 
-BG="#F5F5F7"; CARD="#FFFFFF"; TEXT="#1D1D1F"; MUTED="#6E6E73"; ACCENT="#007AFF"; WARN="#B45309"; BORDER="#D2D2D7"; SOFT="#E8E8ED"
+BG="#F5F5F7"
+CARD="#FFFFFF"
+TEXT="#1D1D1F"
+MUTED="#6E6E73"
+ACCENT="#007AFF"
+ACCENT_HOVER="#0066CC"
+GREEN="#1F7A4D"
+GREEN_BG="#EFF8F3"
+WARN="#A15C00"
+WARN_BG="#FFF7E8"
+RED="#B42318"
+RED_BG="#FFF1F0"
+BORDER="#E5E5EA"
+BORDER_STRONG="#D2D2D7"
+SOFT="#F2F2F7"
+LIST_BG="#FAFAFC"
+SELECT_BG="#DDEBFF"
+
 
 def file_digest(path):
     h=hashlib.sha256()
@@ -19,8 +37,10 @@ def file_digest(path):
             h.update(chunk)
     return h.hexdigest()
 
+
 def snapshot_file_digests(paths):
     return {str(Path(path).resolve()):file_digest(path) for path in paths}
+
 
 def changed_snapshot_paths(snapshot):
     changed=[]
@@ -29,6 +49,7 @@ def changed_snapshot_paths(snapshot):
         if not p.exists() or file_digest(p)!=digest:
             changed.append(p.name)
     return changed
+
 
 def find_duplicate_files(prior_paths, douzone_paths, digests=None):
     seen={}; duplicates=[]
@@ -42,21 +63,122 @@ def find_duplicate_files(prior_paths, douzone_paths, digests=None):
                 seen[digest]=(kind,Path(path).name)
     return duplicates
 
+
+def reconciliation_breakdown(counts, new_count=0, issue_count=0):
+    matched=counts.get(Status.MATCHED,0)
+    review=sum(v for k,v in counts.items() if k!=Status.MATCHED)+new_count
+    return {
+        "matched":matched,
+        "review":review,
+        "issues":issue_count,
+        "new":new_count,
+    }
+
+
+def completion_detail(period, prior_count, counts, new_count=0, issue_count=0):
+    b=reconciliation_breakdown(counts,new_count,issue_count)
+    return (
+        f"{period.label} · 전월 명세 {prior_count:,}건 처리 · "
+        f"자동 대사 {b['matched']:,}건 · 검토 필요 {b['review']:,}건 · 입력 확인 {b['issues']:,}건"
+    )
+
+
 class App(tk.Tk):
     def __init__(self):
-        super().__init__(); self.title("명세서 대사"); self.geometry("980x720"); self.minsize(880,650); self.configure(bg=BG)
+        super().__init__()
+        self.title("명세서 대사")
+        self.geometry("1120x780")
+        self.minsize(900,650)
+        self.configure(bg=BG)
+
         today=date.today()
-        self.year=tk.IntVar(value=today.year); self.month=tk.IntVar(value=today.month)
-        self.prior_paths=[]; self.douzone_paths=[]; self.account_codes=tk.StringVar(value="25301")
+        self.year=tk.IntVar(value=today.year)
+        self.month=tk.IntVar(value=today.month)
+        self.prior_paths=[]
+        self.douzone_paths=[]
+        self.account_codes=tk.StringVar(value="25301")
         self.period_text=tk.StringVar()
-        self.status_text=tk.StringVar(value="대상 회계월과 파일을 확인한 뒤 대사를 시작하세요.")
-        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self.last_source_digests={}; self._build(); self._update_period()
+        self.status_text=tk.StringVar(value="대상 회계월과 파일을 선택한 뒤 대사를 시작하세요.")
+        self.prior_count_text=tk.StringVar(value="선택된 파일 없음")
+        self.raw_count_text=tk.StringVar(value="선택된 파일 없음")
+        self.detail_hint_text=tk.StringVar(value="대사를 실행하면 검토가 필요한 항목을 여기에 보여줍니다.")
+
+        self.results=[]
+        self.new_items=[]
+        self.issues=[]
+        self.last_period=None
+        self.last_source_paths=[]
+        self.last_source_digests={}
+        self.result_view="review"
+
+        self._build()
+        self._update_period()
 
     def _build(self):
-        s=ttk.Style(self); s.theme_use("clam")
-        s.configure("TButton",font=("Segoe UI",10),padding=(14,9),background="#FFFFFF",bordercolor=BORDER); s.map("TButton",background=[("active",SOFT)]); s.configure("TEntry",padding=8,fieldbackground="#FFFFFF",bordercolor=BORDER)
-        s.configure("Accent.TButton",font=("Segoe UI Semibold",10),padding=(18,10),foreground="white",background=ACCENT,bordercolor=ACCENT); s.map("Accent.TButton",background=[("active","#0066CC")])
-        shell=tk.Frame(self,bg=BG); shell.pack(fill="both",expand=True)
+        s=ttk.Style(self)
+        s.theme_use("clam")
+        s.configure(
+            "TButton",
+            font=("Segoe UI",10),
+            padding=(14,9),
+            background=CARD,
+            foreground=TEXT,
+            bordercolor=BORDER_STRONG,
+            relief="flat",
+        )
+        s.map("TButton",background=[("active",SOFT)],foreground=[("disabled","#A1A1A6")])
+        s.configure("TEntry",padding=8,fieldbackground=CARD,bordercolor=BORDER_STRONG)
+        s.configure(
+            "Accent.TButton",
+            font=("Segoe UI Semibold",10),
+            padding=(20,11),
+            foreground="white",
+            background=ACCENT,
+            bordercolor=ACCENT,
+            relief="flat",
+        )
+        s.map("Accent.TButton",background=[("active",ACCENT_HOVER),("disabled","#9DC7F5")])
+        s.configure(
+            "Segment.TButton",
+            font=("Segoe UI Semibold",9),
+            padding=(13,7),
+            foreground=MUTED,
+            background=SOFT,
+            bordercolor=BORDER,
+            relief="flat",
+        )
+        s.map("Segment.TButton",background=[("active","#EAEAEE")])
+        s.configure(
+            "SegmentActive.TButton",
+            font=("Segoe UI Semibold",9),
+            padding=(13,7),
+            foreground=TEXT,
+            background=CARD,
+            bordercolor=BORDER_STRONG,
+            relief="flat",
+        )
+        s.configure(
+            "Treeview",
+            font=("Segoe UI",9),
+            rowheight=34,
+            background=CARD,
+            fieldbackground=CARD,
+            foreground=TEXT,
+            borderwidth=0,
+        )
+        s.map("Treeview",background=[("selected",SELECT_BG)],foreground=[("selected",TEXT)])
+        s.configure(
+            "Treeview.Heading",
+            font=("Segoe UI Semibold",9),
+            padding=(8,8),
+            background=SOFT,
+            foreground=MUTED,
+            bordercolor=BORDER,
+            relief="flat",
+        )
+
+        shell=tk.Frame(self,bg=BG)
+        shell.pack(fill="both",expand=True)
         self.scroll_canvas=tk.Canvas(shell,bg=BG,highlightthickness=0,borderwidth=0)
         scroll=ttk.Scrollbar(shell,orient="vertical",command=self.scroll_canvas.yview)
         self.scroll_canvas.configure(yscrollcommand=scroll.set)
@@ -65,59 +187,196 @@ class App(tk.Tk):
 
         scroll_body=tk.Frame(self.scroll_canvas,bg=BG)
         self.scroll_window=self.scroll_canvas.create_window((0,0),window=scroll_body,anchor="nw")
-        root=tk.Frame(scroll_body,bg=BG); root.pack(fill="both",expand=True,padx=44,pady=30)
+        self.root_content=tk.Frame(scroll_body,bg=BG)
+        self.root_content.pack(fill="both",expand=True,padx=44,pady=(30,38))
+        root=self.root_content
 
         scroll_body.bind("<Configure>",lambda _e:self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all")))
-        self.scroll_canvas.bind("<Configure>",lambda e:self.scroll_canvas.itemconfigure(self.scroll_window,width=e.width))
+        self.scroll_canvas.bind("<Configure>",self._on_canvas_configure)
         self.bind_all("<MouseWheel>",self._on_mousewheel,add="+")
         self.bind_all("<Button-4>",self._on_mousewheel,add="+")
         self.bind_all("<Button-5>",self._on_mousewheel,add="+")
 
-        tk.Label(root,text="명세서 대사",font=("Segoe UI Semibold",28),bg=BG,fg=TEXT).pack(anchor="w")
-        tk.Label(root,text="전월 명세서와 더존 전표를 대사해 차월 명세서 초안을 만들고, 확인이 필요한 항목만 보여줍니다.",font=("Segoe UI",11),bg=BG,fg=MUTED).pack(anchor="w",pady=(4,18))
+        tk.Label(root,text="명세서 대사",font=("Segoe UI Semibold",30),bg=BG,fg=TEXT).pack(anchor="w")
+        tk.Label(
+            root,
+            text="전월 명세서와 더존 전표를 자동 대사하고, 사람이 확인할 항목만 남깁니다.",
+            font=("Segoe UI",11),
+            bg=BG,
+            fg=MUTED,
+        ).pack(anchor="w",pady=(5,22))
 
-        period=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER); period.pack(fill="x",pady=(0,12))
-        left=tk.Frame(period,bg=CARD); left.pack(side="left",padx=22,pady=16)
+        period=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        period.pack(fill="x",pady=(0,14))
+        left=tk.Frame(period,bg=CARD)
+        left.pack(side="left",padx=22,pady=18)
         tk.Label(left,text="대상 회계월",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
-        controls=tk.Frame(left,bg=CARD); controls.pack(anchor="w",pady=(7,0))
+        controls=tk.Frame(left,bg=CARD)
+        controls.pack(anchor="w",pady=(8,0))
         ttk.Spinbox(controls,from_=2020,to=2100,textvariable=self.year,width=7,command=self._update_period).pack(side="left")
-        tk.Label(controls,text="년",bg=CARD,fg=TEXT).pack(side="left",padx=(4,10))
+        tk.Label(controls,text="년",bg=CARD,fg=MUTED).pack(side="left",padx=(5,12))
         ttk.Spinbox(controls,from_=1,to=12,textvariable=self.month,width=4,command=self._update_period).pack(side="left")
-        tk.Label(controls,text="월",bg=CARD,fg=TEXT).pack(side="left",padx=4)
-        self.year.trace_add("write",lambda *_:self._on_period_changed()); self.month.trace_add("write",lambda *_:self._on_period_changed())
-        tk.Label(period,textvariable=self.period_text,font=("Segoe UI Semibold",12),bg=CARD,fg=ACCENT,justify="left").pack(side="left",padx=30)
+        tk.Label(controls,text="월",bg=CARD,fg=MUTED).pack(side="left",padx=(5,0))
+        self.year.trace_add("write",lambda *_:self._on_period_changed())
+        self.month.trace_add("write",lambda *_:self._on_period_changed())
+        tk.Label(
+            period,
+            textvariable=self.period_text,
+            font=("Segoe UI Semibold",11),
+            bg=CARD,
+            fg=ACCENT,
+            justify="left",
+        ).pack(side="left",padx=(38,20))
 
-        card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); card.pack(fill="x")
-        tk.Label(card,text="전월 명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).grid(row=0,column=0,sticky="nw",padx=(22,12),pady=16)
-        self.prior_list=tk.Listbox(card,height=4,font=("Segoe UI",9),selectmode="extended"); self.prior_list.grid(row=0,column=1,sticky="ew",pady=16)
-        pf=tk.Frame(card,bg=CARD); pf.grid(row=0,column=2,padx=18,pady=16,sticky="n")
-        ttk.Button(pf,text="파일 추가",command=self.pick_priors).pack(fill="x"); ttk.Button(pf,text="선택 제거",command=self.remove_priors).pack(fill="x",pady=(6,0))
-        tk.Label(card,text="더존 Raw (여러 파일 가능)",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).grid(row=1,column=0,sticky="nw",padx=(22,12),pady=16)
-        self.douzone_list=tk.Listbox(card,height=4,font=("Segoe UI",9),selectmode="extended"); self.douzone_list.grid(row=1,column=1,sticky="ew",pady=16)
-        df=tk.Frame(card,bg=CARD); df.grid(row=1,column=2,padx=18,pady=16,sticky="n")
-        ttk.Button(df,text="파일 추가",command=self.pick_douzone).pack(fill="x"); ttk.Button(df,text="선택 제거",command=self.remove_douzone).pack(fill="x",pady=(6,0))
-        opt=tk.Frame(card,bg=CARD); opt.grid(row=2,column=0,columnspan=3,sticky="ew",padx=22,pady=(2,8))
-        tk.Label(opt,text="미지급금 계정코드",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(side="left")
-        ttk.Entry(opt,textvariable=self.account_codes,width=18).pack(side="left",padx=12)
-        tk.Label(opt,text="여러 개면 쉼표로 구분",font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(side="left")
-        note=tk.Frame(card,bg=CARD); note.grid(row=3,column=0,columnspan=3,sticky="ew",padx=22,pady=(0,16))
-        tk.Label(note,text="※ 전월 명세서는 선택 회계월의 전월 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w")
+        card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        card.pack(fill="x")
+        card.grid_columnconfigure(0,minsize=165)
+        card.grid_columnconfigure(1,weight=1)
+        card.grid_columnconfigure(2,minsize=130)
 
-        actions=tk.Frame(root,bg=BG); actions.pack(fill="x",pady=16)
-        ttk.Button(actions,text="사전검사 + 대사 시작",style="Accent.TButton",command=self.run).pack(side="left")
-        self.export_btn=ttk.Button(actions,text="결과 Excel 저장",command=self.export,state="disabled"); self.export_btn.pack(side="left",padx=10)
-        self.summary=tk.Frame(root,bg=BG); self.summary.pack(fill="x",pady=(2,8)); self._summary({})
-        self.preflight=tk.Label(root,text="",font=("Segoe UI",10),bg=BG,fg=WARN,justify="left",anchor="w"); self.preflight.pack(fill="x",pady=(8,0))
-        tk.Label(root,textvariable=self.status_text,font=("Segoe UI",10),bg=BG,fg=MUTED,anchor="w").pack(fill="x",pady=(8,0))
-        self.detail=ttk.Treeview(root,columns=("owner","vendor","amount","status","reason"),show="headings",height=7)
-        for col,title,width in (("owner","원본 명세",150),("vendor","거래처",150),("amount","금액",110),("status","상태",130),("reason","사유",300)):
-            self.detail.heading(col,text=title); self.detail.column(col,width=width,anchor="w")
-        self.detail.pack(fill="both",expand=True,pady=(10,0))
-        tk.Label(root,text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",font=("Segoe UI",9),bg=BG,fg=MUTED).pack(anchor="w",pady=(18,0))
+        header=tk.Frame(card,bg=CARD)
+        header.grid(row=0,column=0,columnspan=3,sticky="ew",padx=22,pady=(18,8))
+        tk.Label(header,text="입력 파일",font=("Segoe UI Semibold",13),bg=CARD,fg=TEXT).pack(side="left")
+        tk.Label(
+            header,
+            text="  원본은 수정하지 않고 읽기만 합니다.",
+            font=("Segoe UI",9),
+            bg=CARD,
+            fg=MUTED,
+        ).pack(side="left",pady=(2,0))
+
+        prior_label=tk.Frame(card,bg=CARD)
+        prior_label.grid(row=1,column=0,sticky="nw",padx=(22,12),pady=14)
+        tk.Label(prior_label,text="전월 명세서",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
+        tk.Label(prior_label,textvariable=self.prior_count_text,font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w",pady=(3,0))
+        self.prior_list=tk.Listbox(
+            card,height=3,font=("Segoe UI",9),selectmode="extended",
+            bg=LIST_BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
+            relief="flat",highlightthickness=1,highlightbackground=BORDER,highlightcolor=ACCENT,
+        )
+        self.prior_list.grid(row=1,column=1,sticky="ew",pady=14)
+        pf=tk.Frame(card,bg=CARD)
+        pf.grid(row=1,column=2,padx=18,pady=14,sticky="n")
+        ttk.Button(pf,text="파일 추가",command=self.pick_priors).pack(fill="x")
+        ttk.Button(pf,text="선택 제거",command=self.remove_priors).pack(fill="x",pady=(6,0))
+
+        divider=tk.Frame(card,bg=BORDER,height=1)
+        divider.grid(row=2,column=0,columnspan=3,sticky="ew",padx=22)
+
+        raw_label=tk.Frame(card,bg=CARD)
+        raw_label.grid(row=3,column=0,sticky="nw",padx=(22,12),pady=14)
+        tk.Label(raw_label,text="더존 Raw",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
+        tk.Label(raw_label,textvariable=self.raw_count_text,font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(anchor="w",pady=(3,0))
+        self.douzone_list=tk.Listbox(
+            card,height=3,font=("Segoe UI",9),selectmode="extended",
+            bg=LIST_BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
+            relief="flat",highlightthickness=1,highlightbackground=BORDER,highlightcolor=ACCENT,
+        )
+        self.douzone_list.grid(row=3,column=1,sticky="ew",pady=14)
+        df=tk.Frame(card,bg=CARD)
+        df.grid(row=3,column=2,padx=18,pady=14,sticky="n")
+        ttk.Button(df,text="파일 추가",command=self.pick_douzone).pack(fill="x")
+        ttk.Button(df,text="선택 제거",command=self.remove_douzone).pack(fill="x",pady=(6,0))
+
+        options=tk.Frame(card,bg=CARD)
+        options.grid(row=4,column=0,columnspan=3,sticky="ew",padx=22,pady=(4,10))
+        tk.Label(options,text="미지급금 계정코드",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(side="left")
+        ttk.Entry(options,textvariable=self.account_codes,width=16).pack(side="left",padx=(12,8))
+        tk.Label(options,text="여러 개면 쉼표로 구분",font=("Segoe UI",9),bg=CARD,fg=MUTED).pack(side="left")
+
+        tk.Label(
+            card,
+            text="전월 명세서는 선택 회계월의 전월 시트를 자동 선택합니다. 명세서 행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
+            font=("Segoe UI",9),
+            bg=CARD,
+            fg=MUTED,
+        ).grid(row=5,column=0,columnspan=3,sticky="w",padx=22,pady=(0,18))
+
+        actions=tk.Frame(root,bg=BG)
+        actions.pack(fill="x",pady=(16,12))
+        ttk.Button(actions,text="대사 시작",style="Accent.TButton",command=self.run).pack(side="left")
+        self.export_btn=ttk.Button(actions,text="결과 Excel 저장",command=self.export,state="disabled")
+        self.export_btn.pack(side="left",padx=(10,0))
+
+        self.banner=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        self.banner.pack(fill="x",pady=(0,14))
+        banner_text=tk.Frame(self.banner,bg=CARD)
+        banner_text.pack(fill="x",padx=18,pady=13)
+        self.banner_title=tk.Label(
+            banner_text,text="대사 전",font=("Segoe UI Semibold",11),bg=CARD,fg=TEXT
+        )
+        self.banner_title.pack(anchor="w")
+        self.banner_detail=tk.Label(
+            banner_text,textvariable=self.status_text,font=("Segoe UI",9),bg=CARD,fg=MUTED
+        )
+        self.banner_detail.pack(anchor="w",pady=(3,0))
+
+        self.summary=tk.Frame(root,bg=BG)
+        self.summary.pack(fill="x",pady=(0,14))
+        self._summary({})
+
+        self.preflight=tk.Label(
+            root,text="",font=("Segoe UI",9),bg=BG,fg=WARN,justify="left",anchor="w"
+        )
+        self.preflight.pack(fill="x",pady=(0,10))
+
+        result_card=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+        result_card.pack(fill="both",expand=True)
+
+        result_header=tk.Frame(result_card,bg=CARD)
+        result_header.pack(fill="x",padx=18,pady=(17,10))
+        tk.Label(result_header,text="결과 상세",font=("Segoe UI Semibold",13),bg=CARD,fg=TEXT).pack(side="left")
+        self.matched_view_btn=ttk.Button(
+            result_header,text="자동 대사 0",style="Segment.TButton",
+            command=lambda:self._set_result_view("matched")
+        )
+        self.matched_view_btn.pack(side="right")
+        self.review_view_btn=ttk.Button(
+            result_header,text="검토 필요 0",style="SegmentActive.TButton",
+            command=lambda:self._set_result_view("review")
+        )
+        self.review_view_btn.pack(side="right",padx=(0,6))
+
+        tk.Label(
+            result_card,textvariable=self.detail_hint_text,font=("Segoe UI",9),
+            bg=CARD,fg=MUTED,anchor="w"
+        ).pack(fill="x",padx=18,pady=(0,9))
+
+        table_wrap=tk.Frame(result_card,bg=BORDER)
+        table_wrap.pack(fill="both",expand=True,padx=18,pady=(0,18))
+        self.detail=ttk.Treeview(
+            table_wrap,
+            columns=("owner","vendor","amount","status","reason"),
+            show="headings",
+            height=8,
+        )
+        columns=(
+            ("owner","원본 명세",165),
+            ("vendor","거래처",170),
+            ("amount","금액",120),
+            ("status","상태",140),
+            ("reason","사유 / 참고",420),
+        )
+        for col,title,width in columns:
+            self.detail.heading(col,text=title)
+            self.detail.column(col,width=width,anchor="w")
+        self.detail.tag_configure("matched",foreground=GREEN)
+        self.detail.pack(fill="both",expand=True,padx=1,pady=1)
+
+        tk.Label(
+            root,
+            text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",
+            font=("Segoe UI",9),bg=BG,fg=MUTED,
+        ).pack(anchor="w",pady=(14,0))
+
         self.account_codes.trace_add("write",lambda *_:self._invalidate_results())
 
+    def _on_canvas_configure(self,event):
+        self.scroll_canvas.itemconfigure(self.scroll_window,width=event.width)
+        side=max(32,(event.width-1240)//2)
+        self.root_content.pack_configure(padx=side)
+
     def _on_mousewheel(self,event):
-        # File lists and the result table keep their own wheel behavior.
         if isinstance(event.widget,(tk.Listbox,ttk.Treeview)):
             return
         if getattr(event,"num",None)==4:
@@ -131,10 +390,31 @@ class App(tk.Tk):
             steps=-1 if delta>0 else 1
         self.scroll_canvas.yview_scroll(steps,"units")
 
+    def _set_banner(self,kind,title,detail):
+        palette={
+            "idle":(CARD,TEXT,MUTED,BORDER),
+            "running":("#F2F7FF",ACCENT,MUTED,"#CFE2FF"),
+            "success":(GREEN_BG,GREEN,MUTED,"#CFE8D9"),
+            "warning":(WARN_BG,WARN,MUTED,"#F2D7A6"),
+            "error":(RED_BG,RED,MUTED,"#F3C7C2"),
+        }
+        bg,title_fg,detail_fg,border=palette[kind]
+        self.banner.configure(bg=bg,highlightbackground=border)
+        for child in self.banner.winfo_children():
+            child.configure(bg=bg)
+            for sub in child.winfo_children():
+                sub.configure(bg=bg)
+        self.banner_title.configure(text=title,fg=title_fg)
+        self.banner_detail.configure(fg=detail_fg)
+        self.status_text.set(detail)
+
     def _update_period(self):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
-            self.period_text.set(f"{p.previous().label} 명세서  →  {p.label} 더존 전표\n※ Raw는 선택 회계월로 필터링하고, 전월 명세서 시트는 자동 선택합니다.")
+            self.period_text.set(
+                f"{p.previous().label} 명세서  →  {p.label} 더존 전표\n"
+                "Raw는 선택 회계월로 필터링하고, 전월 명세서 시트는 자동 선택합니다."
+            )
         except Exception:
             self.period_text.set("올바른 연/월을 선택해주세요.")
 
@@ -146,69 +426,150 @@ class App(tk.Tk):
         if not hasattr(self,"export_btn"):
             return
         had_result=bool(self.results or self.new_items or self.issues or self.last_period)
-        self.results=[]; self.new_items=[]; self.issues=[]; self.last_period=None; self.last_source_paths=[]; self.last_source_digests={}
+        self.results=[]
+        self.new_items=[]
+        self.issues=[]
+        self.last_period=None
+        self.last_source_paths=[]
+        self.last_source_digests={}
         self.export_btn.config(state="disabled")
         self._summary({})
         self.preflight.config(text="")
-        for row in self.detail.get_children():
-            self.detail.delete(row)
+        self._clear_detail()
+        self.result_view="review"
+        self._update_view_buttons()
+        self.detail_hint_text.set("대사를 실행하면 검토가 필요한 항목을 여기에 보여줍니다.")
         if had_result:
-            self.status_text.set("입력 조건이 변경되었습니다. 다시 대사를 실행하세요.")
+            self._set_banner("warning","입력 조건 변경","입력 조건이 변경되었습니다. 다시 대사를 실행하세요.")
+        else:
+            self._set_banner("idle","대사 전","대상 회계월과 파일을 선택한 뒤 대사를 시작하세요.")
 
-    def _file_row(self,parent,label,var,row):
-        parent.grid_columnconfigure(1,weight=1)
-        tk.Label(parent,text=label,font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).grid(row=row,column=0,sticky="w",padx=(22,12),pady=16)
-        ttk.Entry(parent,textvariable=var).grid(row=row,column=1,sticky="ew",pady=16)
-        ttk.Button(parent,text="파일 선택",command=lambda:self.pick(var)).grid(row=row,column=2,padx=18,pady=16)
+    def _refresh_file_counts(self):
+        self.prior_count_text.set(
+            f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
+        )
+        self.raw_count_text.set(
+            f"{len(self.douzone_paths)}개 파일 선택" if self.douzone_paths else "선택된 파일 없음"
+        )
 
     def pick_priors(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
         changed=False
         for p in paths:
             if p not in self.prior_paths:
-                self.prior_paths.append(p); self.prior_list.insert("end",Path(p).name); changed=True
-        if changed: self._invalidate_results()
+                self.prior_paths.append(p)
+                self.prior_list.insert("end",Path(p).name)
+                changed=True
+        if changed:
+            self._refresh_file_counts()
+            self._invalidate_results()
 
     def pick_douzone(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
         changed=False
         for p in paths:
             if p not in self.douzone_paths:
-                self.douzone_paths.append(p); self.douzone_list.insert("end",Path(p).name); changed=True
-        if changed: self._invalidate_results()
+                self.douzone_paths.append(p)
+                self.douzone_list.insert("end",Path(p).name)
+                changed=True
+        if changed:
+            self._refresh_file_counts()
+            self._invalidate_results()
 
     def remove_douzone(self):
         selected=list(self.douzone_list.curselection())
         for i in reversed(selected):
-            self.douzone_list.delete(i); self.douzone_paths.pop(i)
-        if selected: self._invalidate_results()
+            self.douzone_list.delete(i)
+            self.douzone_paths.pop(i)
+        if selected:
+            self._refresh_file_counts()
+            self._invalidate_results()
 
     def remove_priors(self):
         selected=list(self.prior_list.curselection())
         for i in reversed(selected):
-            self.prior_list.delete(i); self.prior_paths.pop(i)
-        if selected: self._invalidate_results()
-
-    def pick(self,var):
-        p=filedialog.askopenfilename(filetypes=[("Excel","*.xlsx *.xlsm")])
-        if p: var.set(p)
+            self.prior_list.delete(i)
+            self.prior_paths.pop(i)
+        if selected:
+            self._refresh_file_counts()
+            self._invalidate_results()
 
     def _summary(self,counts):
-        for w in self.summary.winfo_children(): w.destroy()
-        cards=[("자동 대사 완료",counts.get(Status.MATCHED,0)),("검토 필요",sum(v for k,v in counts.items() if k!=Status.MATCHED)+len(self.new_items)),("입력 확인",len(self.issues)),("당월 신규 명세(검토)",len(self.new_items))]
-        for i,(name,value) in enumerate(cards):
-            box=tk.Frame(self.summary,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0)); self.summary.grid_columnconfigure(i,weight=1)
-            tk.Label(box,text=name,font=("Segoe UI",10),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(13,2))
-            tk.Label(box,text=f"{value:,}",font=("Segoe UI Semibold",22),bg=CARD,fg=TEXT).pack(anchor="w",padx=16,pady=(0,13))
+        for w in self.summary.winfo_children():
+            w.destroy()
+        b=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
+        cards=[
+            ("자동 대사 완료",b["matched"],GREEN,"코드·금액 기준 자동 처리"),
+            ("검토 필요",b["review"],WARN,"사람이 확인할 항목"),
+            ("입력 확인",b["issues"],RED,"자동 처리에서 제외"),
+            ("당월 신규 명세",b["new"],ACCENT,"현재는 검토 대상으로 유지"),
+        ]
+        for i,(name,value,color,sub) in enumerate(cards):
+            box=tk.Frame(self.summary,bg=CARD,highlightthickness=1,highlightbackground=BORDER)
+            box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0))
+            self.summary.grid_columnconfigure(i,weight=1)
+            tk.Label(box,text=name,font=("Segoe UI Semibold",9),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(13,0))
+            tk.Label(box,text=f"{value:,}",font=("Segoe UI Semibold",24),bg=CARD,fg=color).pack(anchor="w",padx=16,pady=(2,0))
+            tk.Label(box,text=sub,font=("Segoe UI",8),bg=CARD,fg=MUTED).pack(anchor="w",padx=16,pady=(1,13))
+        self._update_view_buttons()
 
-    def _duplicate_files(self):
-        return find_duplicate_files(self.prior_paths,self.douzone_paths)
+    def _clear_detail(self):
+        for row in self.detail.get_children():
+            self.detail.delete(row)
+
+    def _set_result_view(self,mode):
+        self.result_view=mode
+        self._update_view_buttons()
+        self._refresh_detail()
+
+    def _update_view_buttons(self):
+        if not hasattr(self,"review_view_btn"):
+            return
+        matched=sum(1 for x in self.results if x.status==Status.MATCHED)
+        review=sum(1 for x in self.results if x.status!=Status.MATCHED)
+        self.review_view_btn.configure(
+            text=f"검토 필요 {review:,}",
+            style="SegmentActive.TButton" if self.result_view=="review" else "Segment.TButton",
+        )
+        self.matched_view_btn.configure(
+            text=f"자동 대사 {matched:,}",
+            style="SegmentActive.TButton" if self.result_view=="matched" else "Segment.TButton",
+        )
+
+    def _refresh_detail(self):
+        self._clear_detail()
+        if self.result_view=="matched":
+            rows=[x for x in self.results if x.status==Status.MATCHED]
+            self.detail_hint_text.set(
+                "자동 대사된 항목입니다. 이름·적요 차이가 있었던 경우에도 참고 사유를 함께 남깁니다."
+                if rows else "자동 대사된 항목이 없습니다."
+            )
+        else:
+            rows=[x for x in self.results if x.status!=Status.MATCHED]
+            self.detail_hint_text.set(
+                "사람이 확인해야 하는 전월 명세 항목만 표시합니다."
+                if rows else "검토할 전월 명세 항목이 없습니다."
+            )
+        for x in rows:
+            tag="matched" if x.status==Status.MATCHED else ""
+            self.detail.insert(
+                "","end",
+                values=(
+                    x.prior.source.owner or x.prior.source.file_name,
+                    x.prior.vendor_name,
+                    f"{int(x.prior.amount):,}",
+                    x.status.value,
+                    x.reason,
+                ),
+                tags=(tag,) if tag else (),
+            )
 
     def run(self):
         if not self.prior_paths or not self.douzone_paths:
-            messagebox.showwarning("파일 필요","전월 명세서와 더존 Raw를 각각 1개 이상 추가해주세요."); return
+            messagebox.showwarning("파일 필요","전월 명세서와 더존 Raw를 각각 1개 이상 추가해주세요.")
+            return
         self._invalidate_results()
-        self.status_text.set("사전검사 및 대사 실행 중...")
+        self._set_banner("running","대사 중","사전검사와 자동 대사를 진행하고 있습니다...")
         self.update_idletasks()
         try:
             source_paths=list(self.prior_paths)+list(self.douzone_paths)
@@ -217,43 +578,86 @@ class App(tk.Tk):
             if dup:
                 a,b=dup[0]
                 raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
+
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
             run=run_reconciliation(list(self.prior_paths),list(self.douzone_paths),codes,p)
+
             after_digests=snapshot_file_digests(source_paths)
             if before_digests != after_digests:
                 raise ValueError("대사 실행 중 입력 Excel이 변경되었습니다. 파일 저장이 끝난 뒤 다시 실행해주세요.")
-            self.issues=run.issues; self.results=run.results; self.new_items=run.new_items
-            counts=run.counts; self._summary(counts)
-            exc=sum(v for k,v in counts.items() if k!=Status.MATCHED)
-            self.preflight.config(text=(f"⚠ 입력 형식 확인 {len(self.issues):,}건 — 해당 행은 자동대사에서 제외했습니다." if self.issues else "✓ 사전검사 통과 — 자동 제외할 입력 이상 없음"),fg=(WARN if self.issues else "#2E7D32"))
-            for row in self.detail.get_children(): self.detail.delete(row)
-            for x in self.results:
-                if x.status != Status.MATCHED:
-                    self.detail.insert("", "end", values=(x.prior.source.owner or x.prior.source.file_name, x.prior.vendor_name, f"{int(x.prior.amount):,}", x.status.value, x.reason))
+
+            self.issues=run.issues
+            self.results=run.results
+            self.new_items=run.new_items
+            counts=run.counts
+            self._summary(counts)
+
+            breakdown=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
+            self.preflight.config(
+                text=(
+                    f"입력 확인 {len(self.issues):,}건 · 해당 행은 자동 대사에서 제외했습니다."
+                    if self.issues else
+                    "사전검사 통과 · 자동 제외된 입력 이상이 없습니다."
+                ),
+                fg=(WARN if self.issues else GREEN),
+            )
+
+            self.result_view="review" if any(x.status!=Status.MATCHED for x in self.results) else "matched"
+            self._update_view_buttons()
+            self._refresh_detail()
+
             self.last_period=p
             self.last_source_paths=source_paths
             self.last_source_digests=after_digests
-            self.status_text.set(f"{p.label} 대사 완료 · 전월 명세 {run.prior_count:,}건 · 전월 검토 {exc:,}건 · 당월 신규 검토 {len(self.new_items):,}건")
+
+            detail=completion_detail(
+                p,run.prior_count,counts,len(self.new_items),len(self.issues)
+            )
+            if breakdown["review"] or breakdown["issues"]:
+                self._set_banner("success","대사 완료 · 확인 항목 있음",detail)
+            else:
+                self._set_banner("success","대사 완료",detail)
             self.export_btn.config(state="normal")
         except Exception as e:
-            self.status_text.set("대사가 완료되지 않았습니다. 입력 내용을 확인해주세요.")
+            self._set_banner("error","대사 중단","입력 내용을 확인한 뒤 다시 실행해주세요.")
             messagebox.showerror("대사 중단",str(e))
 
     def export(self):
         if self.last_period is None:
-            messagebox.showwarning("대사 필요","현재 입력 조건으로 대사를 먼저 실행해주세요."); return
+            messagebox.showwarning("대사 필요","현재 입력 조건으로 대사를 먼저 실행해주세요.")
+            return
         changed=changed_snapshot_paths(self.last_source_digests)
         if changed:
             self._invalidate_results()
-            messagebox.showwarning("입력 파일 변경","대사 후 입력 Excel이 변경되거나 사라졌습니다: "+", ".join(changed)+"\n다시 대사를 실행해주세요.")
+            messagebox.showwarning(
+                "입력 파일 변경",
+                "대사 후 입력 Excel이 변경되거나 사라졌습니다: "
+                +", ".join(changed)+"\n다시 대사를 실행해주세요."
+            )
             return
+
         p=self.last_period
-        path=filedialog.asksaveasfilename(defaultextension=".xlsx",initialfile=f"{p.year}_{p.month:02d}_명세서_대사결과.xlsx",filetypes=[("Excel","*.xlsx")])
-        if not path:return
+        path=filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            initialfile=f"{p.year}_{p.month:02d}_명세서_대사결과.xlsx",
+            filetypes=[("Excel","*.xlsx")],
+        )
+        if not path:
+            return
         try:
             write_result(path,self.results,self.new_items,self.issues,self.last_source_paths,p.label)
-            self.status_text.set(f"결과 저장 완료 · {Path(path).name}"); messagebox.showinfo("저장 완료","원본은 수정하지 않았습니다.\n확인필요/입력데이터확인 시트를 먼저 확인해주세요.")
-        except Exception as e: messagebox.showerror("저장 실패",str(e))
+            self._set_banner(
+                "success","결과 저장 완료",
+                f"{Path(path).name} · 원본 Excel은 수정하지 않았습니다."
+            )
+            messagebox.showinfo(
+                "저장 완료",
+                "원본은 수정하지 않았습니다.\n확인필요/입력데이터확인 시트를 먼저 확인해주세요."
+            )
+        except Exception as e:
+            messagebox.showerror("저장 실패",str(e))
 
-if __name__=="__main__": App().mainloop()
+
+if __name__=="__main__":
+    App().mainloop()
