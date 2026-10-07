@@ -147,8 +147,8 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("명세서 대사")
-        self.geometry("1240x900")
-        self.minsize(1040,740)
+        self.geometry("1280x920")
+        self.minsize(1080,760)
         self.configure(fg_color=BG)
 
         today=date.today()
@@ -180,8 +180,8 @@ class App(ctk.CTk):
         s.theme_use("clam")
         s.configure(
             "Treeview",
-            font=("Segoe UI",11),
-            rowheight=40,
+            font=("Segoe UI",12),
+            rowheight=42,
             background=CARD,
             fieldbackground=CARD,
             foreground=TEXT,
@@ -190,8 +190,8 @@ class App(ctk.CTk):
         s.map("Treeview",background=[("selected",SELECT_BG)],foreground=[("selected",TEXT)])
         s.configure(
             "Treeview.Heading",
-            font=("Segoe UI Semibold",10),
-            padding=(10,10),
+            font=("Segoe UI Semibold",11),
+            padding=(11,11),
             background="#F6F7F9",
             foreground=MUTED,
             bordercolor=BORDER,
@@ -230,23 +230,23 @@ class App(ctk.CTk):
         hero.grid_columnconfigure(0,weight=1)
 
         ctk.CTkLabel(
-            hero,text="명세서 대사",font=("Segoe UI Semibold",31),
+            hero,text="명세서 대사",font=("Segoe UI Semibold",34),
             text_color=TEXT,anchor="w"
-        ).grid(row=0,column=0,sticky="sw",padx=(22,0),pady=(21,0))
+        ).grid(row=0,column=0,sticky="sw",padx=(22,0),pady=(24,0))
         ctk.CTkLabel(
             hero,text="명세서와 더존 전표를 같은 회계월 기준으로 빠르게 대사합니다.",
-            font=("Segoe UI",12),text_color=MUTED,anchor="w"
-        ).grid(row=1,column=0,sticky="nw",padx=(22,0),pady=(2,20))
+            font=("Segoe UI",13),text_color=MUTED,anchor="w"
+        ).grid(row=1,column=0,sticky="nw",padx=(22,0),pady=(3,24))
 
         local_badge=ctk.CTkFrame(
             hero,fg_color="#F3F5F8",corner_radius=18
         )
         local_badge.grid(row=0,column=1,rowspan=2,sticky="e",padx=22)
         ctk.CTkLabel(
-            local_badge,text="●",font=("Segoe UI",13),text_color="#34C759"
+            local_badge,text="●",font=("Segoe UI",14),text_color="#34C759"
         ).pack(side="left",padx=(14,7),pady=9)
         ctk.CTkLabel(
-            local_badge,text="LOCAL · READ ONLY",font=("Segoe UI Semibold",10),
+            local_badge,text="LOCAL · READ ONLY",font=("Segoe UI Semibold",11),
             text_color="#667085"
         ).pack(side="left",padx=(0,14),pady=9)
 
@@ -263,10 +263,10 @@ class App(ctk.CTk):
         title_row=ctk.CTkFrame(period_left,fg_color="transparent")
         title_row.pack(anchor="w")
         ctk.CTkLabel(
-            title_row,text="▣",font=("Segoe UI",14),text_color="#7890BB"
+            title_row,text="▣",font=("Segoe UI",16),text_color="#7890BB"
         ).pack(side="left",padx=(0,7))
         ctk.CTkLabel(
-            title_row,text="대상 회계월",font=("Segoe UI Semibold",12),
+            title_row,text="대상 회계월",font=("Segoe UI Semibold",14),
             text_color=TEXT
         ).pack(side="left")
 
@@ -274,24 +274,24 @@ class App(ctk.CTk):
         badge_row.pack(anchor="w",pady=(8,0))
         ctk.CTkLabel(
             badge_row,textvariable=self.period_badge_text,
-            font=("Segoe UI Semibold",21),text_color=TEXT,
+            font=("Segoe UI Semibold",25),text_color=TEXT,
             fg_color="#F1F3F7",corner_radius=13,padx=16,pady=8
         ).pack(side="left")
         ctk.CTkLabel(
             badge_row,text="●  파일에서 자동 감지",
-            font=("Segoe UI Semibold",10),text_color="#1F8F46",
+            font=("Segoe UI Semibold",12),text_color="#1F8F46",
             fg_color="#EAF8EE",corner_radius=13,padx=12,pady=7
         ).pack(side="left",padx=(10,0))
 
         divider=ctk.CTkFrame(period,width=1,height=54,fg_color="#E7E9EE",corner_radius=0)
         divider.grid(row=0,column=1,sticky="w",pady=20)
         ctk.CTkLabel(
-            period,text="ⓘ",font=("Segoe UI Semibold",22),
+            period,text="ⓘ",font=("Segoe UI Semibold",26),
             text_color=ACCENT
         ).grid(row=0,column=2,padx=(22,10))
         ctk.CTkLabel(
             period,textvariable=self.period_text,
-            font=("Segoe UI Semibold",12),text_color=ACCENT,
+            font=("Segoe UI Semibold",14),text_color=ACCENT,
             justify="left",anchor="w"
         ).grid(row=0,column=3,sticky="w",padx=(0,24),pady=20)
         period.grid_columnconfigure(3,weight=1)
@@ -309,37 +309,37 @@ class App(ctk.CTk):
         header=ctk.CTkFrame(card,fg_color="transparent")
         header.grid(row=0,column=0,columnspan=3,sticky="ew",padx=22,pady=(18,8))
         ctk.CTkLabel(
-            header,text="▤",font=("Segoe UI",15),text_color="#7890BB"
+            header,text="▤",font=("Segoe UI",17),text_color="#7890BB"
         ).pack(side="left",padx=(0,8))
         ctk.CTkLabel(
-            header,text="입력 파일",font=("Segoe UI Semibold",16),
+            header,text="입력 파일",font=("Segoe UI Semibold",18),
             text_color=TEXT
         ).pack(side="left")
         ctk.CTkLabel(
             header,text="첨부 파일을 읽기만 하고 수정하지 않습니다.",
-            font=("Segoe UI",10),text_color=MUTED
+            font=("Segoe UI",12),text_color=MUTED
         ).pack(side="left",padx=(12,0),pady=(2,0))
 
         def add_file_row(row,title,count_var,add_command,remove_command):
             label=ctk.CTkFrame(card,fg_color="transparent")
             label.grid(row=row,column=0,sticky="nw",padx=(22,12),pady=12)
             ctk.CTkLabel(
-                label,text=title,font=("Segoe UI Semibold",12),
+                label,text=title,font=("Segoe UI Semibold",14),
                 text_color=TEXT,anchor="w"
             ).pack(anchor="w")
             ctk.CTkLabel(
-                label,textvariable=count_var,font=("Segoe UI",9),
+                label,textvariable=count_var,font=("Segoe UI",10),
                 text_color=MUTED,anchor="w"
             ).pack(anchor="w",pady=(3,0))
 
             file_box=ctk.CTkFrame(
                 card,fg_color="#FAFBFD",border_width=1,border_color="#DFE3EA",
-                corner_radius=13,height=48
+                corner_radius=13,height=52
             )
             file_box.grid(row=row,column=1,sticky="ew",pady=10)
             file_box.grid_propagate(False)
             lb=tk.Listbox(
-                file_box,height=1,font=("Segoe UI",11),selectmode="extended",
+                file_box,height=1,font=("Segoe UI",12),selectmode="extended",
                 bg="#FAFBFD",fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
                 relief="flat",highlightthickness=0,borderwidth=0,
                 activestyle="none"
@@ -349,14 +349,14 @@ class App(ctk.CTk):
             actions=ctk.CTkFrame(card,fg_color="transparent")
             actions.grid(row=row,column=2,padx=(14,18),pady=10,sticky="e")
             ctk.CTkButton(
-                actions,text="＋  파일 추가",command=add_command,width=112,height=38,
+                actions,text="＋  파일 추가",command=add_command,width=124,height=42,
                 corner_radius=11,fg_color="#EEF5FF",hover_color="#E4EFFF",
-                text_color=ACCENT,font=("Segoe UI Semibold",10)
+                text_color=ACCENT,font=("Segoe UI Semibold",12)
             ).pack(side="left")
             ctk.CTkButton(
-                actions,text="첨부 제거",command=remove_command,width=104,height=38,
+                actions,text="첨부 제거",command=remove_command,width=116,height=42,
                 corner_radius=11,fg_color="#F6F7F9",hover_color="#ECEEF2",
-                text_color="#667085",font=("Segoe UI Semibold",10),
+                text_color="#667085",font=("Segoe UI Semibold",12),
                 border_width=1,border_color="#E2E5EA"
             ).pack(side="left",padx=(8,0))
             return lb
@@ -371,32 +371,43 @@ class App(ctk.CTk):
         options=ctk.CTkFrame(card,fg_color="#F7F8FA",corner_radius=14)
         options.grid(row=3,column=0,columnspan=3,sticky="ew",padx=22,pady=(8,12))
         ctk.CTkLabel(
-            options,text="미지급금 계정코드",font=("Segoe UI Semibold",11),
+            options,text="미지급금 계정코드",font=("Segoe UI Semibold",13),
             text_color=TEXT
         ).pack(side="left",padx=(14,10),pady=10)
         ctk.CTkEntry(
-            options,textvariable=self.account_codes,width=160,height=34,
+            options,textvariable=self.account_codes,width=170,height=38,
             corner_radius=9,fg_color=CARD,border_color="#D6DAE2",
-            text_color=TEXT,font=("Segoe UI",11)
+            text_color=TEXT,font=("Segoe UI",12)
         ).pack(side="left",pady=8)
         ctk.CTkLabel(
-            options,text="│  여러 개면 쉼표로 구분",font=("Segoe UI",10),
+            options,text="│  여러 개면 쉼표로 구분",font=("Segoe UI",12),
             text_color=MUTED
         ).pack(side="left",padx=(10,0))
+
+        guide=ctk.CTkFrame(card,fg_color="#F4F6F9",corner_radius=12)
+        guide.grid(row=4,column=0,columnspan=3,sticky="ew",padx=22,pady=(0,14))
+        ctk.CTkLabel(
+            guide,text="ⓘ",font=("Segoe UI Semibold",16),text_color=ACCENT
+        ).pack(side="left",padx=(12,8),pady=9)
+        ctk.CTkLabel(
+            guide,
+            text="명세서는 대상 회계월과 같은 월의 시트를 자동 선택합니다.  ·  행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
+            font=("Segoe UI",11),text_color="#667085",anchor="w"
+        ).pack(side="left",fill="x",expand=True,padx=(0,12),pady=9)
 
         # Primary actions
         actions=ctk.CTkFrame(root,fg_color="transparent")
         actions.pack(fill="x",pady=(14,10))
         ctk.CTkButton(
-            actions,text="▶   대사 시작",command=self.run,width=160,height=48,
+            actions,text="▶   대사 시작",command=self.run,width=178,height=52,
             corner_radius=13,fg_color=ACCENT,hover_color=ACCENT_HOVER,
-            text_color="white",font=("Segoe UI Semibold",12)
+            text_color="white",font=("Segoe UI Semibold",14)
         ).pack(side="left")
         self.export_btn=ctk.CTkButton(
             actions,text="▤   결과 Excel 저장",command=self.export,state="disabled",
-            width=170,height=48,corner_radius=13,fg_color=CARD,hover_color="#F8F9FB",
+            width=190,height=52,corner_radius=13,fg_color=CARD,hover_color="#F8F9FB",
             text_color=TEXT,border_width=1,border_color="#D9DDE5",
-            font=("Segoe UI Semibold",11)
+            font=("Segoe UI Semibold",13)
         )
         self.export_btn.pack(side="left",padx=(10,0))
 
@@ -408,19 +419,19 @@ class App(ctk.CTk):
         banner_inner=ctk.CTkFrame(self.banner,fg_color="transparent")
         banner_inner.pack(fill="x",padx=18,pady=13)
         self.banner_icon=ctk.CTkLabel(
-            banner_inner,text="●",font=("Segoe UI Semibold",17),
+            banner_inner,text="●",font=("Segoe UI Semibold",20),
             text_color=GREEN
         )
         self.banner_icon.pack(side="left",padx=(0,10))
         banner_text=ctk.CTkFrame(banner_inner,fg_color="transparent")
         banner_text.pack(side="left",fill="x",expand=True)
         self.banner_title=ctk.CTkLabel(
-            banner_text,text="대사 전",font=("Segoe UI Semibold",13),
+            banner_text,text="대사 전",font=("Segoe UI Semibold",17),
             text_color=TEXT,anchor="w"
         )
         self.banner_title.pack(anchor="w")
         self.banner_detail=ctk.CTkLabel(
-            banner_text,textvariable=self.status_text,font=("Segoe UI",10),
+            banner_text,textvariable=self.status_text,font=("Segoe UI",12),
             text_color=MUTED,anchor="w"
         )
         self.banner_detail.pack(fill="x",pady=(2,0))
@@ -445,17 +456,17 @@ class App(ctk.CTk):
         result_header=ctk.CTkFrame(result_card,fg_color="transparent")
         result_header.pack(fill="x",padx=18,pady=(16,8))
         ctk.CTkLabel(
-            result_header,text="☷",font=("Segoe UI",15),text_color="#7890BB"
+            result_header,text="☷",font=("Segoe UI",17),text_color="#7890BB"
         ).pack(side="left",padx=(0,8))
         ctk.CTkLabel(
-            result_header,text="결과 상세",font=("Segoe UI Semibold",15),
+            result_header,text="결과 상세",font=("Segoe UI Semibold",17),
             text_color=TEXT
         ).pack(side="left")
 
         self.matched_view_btn=ctk.CTkButton(
             result_header,text="자동 대사 0",command=lambda:self._set_result_view("matched"),
             width=105,height=31,corner_radius=12,fg_color="#F3F4F7",hover_color="#ECEEF2",
-            text_color=MUTED,font=("Segoe UI Semibold",9)
+            text_color=MUTED,font=("Segoe UI Semibold",10)
         )
         self.matched_view_btn.pack(side="right")
         self.review_view_btn=ctk.CTkButton(
@@ -467,12 +478,12 @@ class App(ctk.CTk):
         self.all_view_btn=ctk.CTkButton(
             result_header,text="전체",command=lambda:self._set_result_view("all"),
             width=74,height=31,corner_radius=12,fg_color=ACCENT,hover_color=ACCENT_HOVER,
-            text_color="white",font=("Segoe UI Semibold",9)
+            text_color="white",font=("Segoe UI Semibold",10)
         )
         self.all_view_btn.pack(side="right",padx=(0,6))
 
         ctk.CTkLabel(
-            result_card,textvariable=self.detail_hint_text,font=("Segoe UI",10),
+            result_card,textvariable=self.detail_hint_text,font=("Segoe UI",11),
             text_color=MUTED,anchor="w"
         ).pack(fill="x",padx=18,pady=(0,8))
 
@@ -504,7 +515,7 @@ class App(ctk.CTk):
         ctk.CTkLabel(
             footer,
             text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",
-            font=("Segoe UI",9),text_color=MUTED
+            font=("Segoe UI",10),text_color=MUTED
         ).pack(padx=12,pady=6)
 
         self.account_codes.trace_add("write",lambda *_:self._on_account_code_changed())
@@ -774,33 +785,34 @@ class App(ctk.CTk):
         b=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
         cards=[
             ("자동 대사 완료",b["matched"],"#EAF8EE",GREEN,"✓"),
-            ("검토 필요",b["review"],"#FFF6DF",WARN,"!"),
-            ("입력 확인",b["issues"],"#EDF4FF",ACCENT,"▤"),
-            ("Raw 신규",b["new"],"#F5EEFF","#7A4ED6","+"),
+            ("검토 필요",b["review"],"#FFF4D8","#E58A00","!"),
+            ("입력 확인",b["issues"],"#EAF3FF",ACCENT,"▤"),
+            ("Raw 신규",b["new"],"#F4EAFE","#7A4ED6","+"),
         ]
         for i,(name,value,bg,color,icon) in enumerate(cards):
             box=ctk.CTkFrame(
                 self.summary,fg_color=bg,border_width=1,border_color=BORDER,
-                corner_radius=17,height=84
+                corner_radius=18,height=108
             )
-            box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 7,0))
+            box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 8,0))
             box.grid_propagate(False)
             self.summary.grid_columnconfigure(i,weight=1)
 
             icon_box=ctk.CTkLabel(
-                box,text=icon,font=("Segoe UI Semibold",15),
-                text_color=color,fg_color=CARD,width=38,height=38,
-                corner_radius=19
+                box,text=icon,font=("Segoe UI Semibold",19),
+                text_color=color,fg_color=CARD,width=48,height=48,
+                corner_radius=24
             )
-            icon_box.pack(side="left",padx=(13,10),pady=14)
+            icon_box.pack(side="left",padx=(16,13),pady=18)
+
             body=ctk.CTkFrame(box,fg_color="transparent")
-            body.pack(side="left",fill="both",expand=True,pady=11)
+            body.pack(side="left",fill="both",expand=True,pady=(15,12))
             ctk.CTkLabel(
-                body,text=name,font=("Segoe UI",9),
-                text_color=MUTED,anchor="w"
+                body,text=name,font=("Segoe UI Semibold",14),
+                text_color="#344054",anchor="w"
             ).pack(anchor="w")
             ctk.CTkLabel(
-                body,text=f"{value:,}건",font=("Segoe UI Semibold",22),
+                body,text=f"{value:,}건",font=("Segoe UI Semibold",30),
                 text_color=TEXT,anchor="w"
             ).pack(anchor="w",pady=(1,0))
         self._update_view_buttons()
