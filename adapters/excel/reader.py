@@ -5,8 +5,13 @@ from pathlib import Path
 import re
 import struct
 
-import xlrd
-from xlrd import compdoc
+try:
+    import xlrd
+    from xlrd import compdoc
+except ImportError:
+    xlrd=None
+    compdoc=None
+
 from openpyxl import load_workbook as _openpyxl_load_workbook
 
 from domain.models import DataQuality, JournalLine, PayableItem, SourceRef
@@ -71,6 +76,11 @@ class _XlsWorkbook:
 
 
 def _xls_contains_formula(path):
+    if xlrd is None or compdoc is None:
+        raise ValueError(
+            "구형 .xls 파일 지원 모듈(xlrd)이 설치되어 있지 않습니다. "
+            "프로젝트 폴더에서 'python -m pip install -r requirements.txt'를 실행해주세요."
+        )
     raw=Path(path).read_bytes()
     try:
         if raw[:8]==compdoc.SIGNATURE:
@@ -99,6 +109,11 @@ def _xls_contains_formula(path):
 def _load_workbook(path, **kwargs):
     path=Path(path)
     if path.suffix.lower()==".xls":
+        if xlrd is None:
+            raise ValueError(
+                "구형 .xls 파일 지원 모듈(xlrd)이 설치되어 있지 않습니다. "
+                "프로젝트 폴더에서 'python -m pip install -r requirements.txt'를 실행해주세요."
+            )
         if _xls_contains_formula(path):
             raise ValueError(
                 "구형 .xls 파일에 수식 셀이 포함되어 있습니다. "
