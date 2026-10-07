@@ -1,8 +1,8 @@
 from pathlib import Path
 from typing import Iterable
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from domain.models import Status
+from adapters.excel.styles import style_workbook
 
 
 def write_result(path, results, new_items, issues, source_paths:Iterable, period_label:str):
