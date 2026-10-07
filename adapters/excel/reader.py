@@ -182,6 +182,48 @@ def _douzone_columns(vals):
     }
 
 
+def classify_excel_input(path: str|Path) -> str:
+    """Classify an Excel input structurally as 'prior', 'douzone', 'ambiguous', or 'unknown'."""
+    wb=load_workbook(path,read_only=True,data_only=False)
+    prior_groups=[
+        ("거래처코드","거래처 코드","코드"),
+        ("거래처명","거래처","업체명"),
+        ("적요","내역","내용"),
+        ("금액","미지급금","잔액"),
+    ]
+    douzone_groups=[
+        ("거래처명","거래처 명"),
+        ("적요","적요명"),
+        ("차변","차변금액","차변 금액"),
+        ("대변","대변금액","대변 금액"),
+    ]
+    prior_found=False
+    douzone_found=False
+    try:
+        for ws in wb.worksheets:
+            phr,pvals=_header_row(ws,prior_groups)
+            if phr:
+                prior_found=True
+
+            dhr,dvals=_header_row(ws,douzone_groups)
+            if dhr:
+                cols=_douzone_columns(dvals)
+                # A real Douzone journal must have both account and vendor identifiers.
+                if cols["account_code"] and cols["vendor_code"]:
+                    douzone_found=True
+
+            if prior_found and douzone_found:
+                return "ambiguous"
+    finally:
+        wb.close()
+
+    if douzone_found:
+        return "douzone"
+    if prior_found:
+        return "prior"
+    return "unknown"
+
+
 def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: AccountingPeriod|None=None) -> ReadResult:
     wanted={normalize_code(x) for x in (account_codes or set()) if x}
     if not wanted:

@@ -2,10 +2,29 @@ import tempfile
 import unittest
 from pathlib import Path
 from openpyxl import Workbook
-from adapters.excel.reader import detect_statement_periods, read_douzone, read_prior
+from adapters.excel.reader import classify_excel_input, detect_statement_periods, read_douzone, read_prior
 from domain.period import AccountingPeriod
 
 class ExcelEdgeCaseTests(unittest.TestCase):
+    def test_input_classifier_distinguishes_prior_and_douzone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prior=Path(tmp)/"prior.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["거래처코드","거래처명","날짜","적요","금액"])
+            ws.append(["001001","가상업체","2026-07-31","유류비",100]); wb.save(prior)
+
+            raw=Path(tmp)/"raw.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명","거래처코드","거래처명","적요","차변","대변"])
+            ws.append(["2026-08-01","25301","미지급금-일반","001001","가상업체","유류비",100,0]); wb.save(raw)
+
+            self.assertEqual(classify_excel_input(prior),"prior")
+            self.assertEqual(classify_excel_input(raw),"douzone")
+
+    def test_input_classifier_rejects_unknown_shape(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"unknown.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["이름","메모"]); ws.append(["가상","테스트"]); wb.save(p)
+            self.assertEqual(classify_excel_input(p),"unknown")
+
     def test_prior_header_offset_subtotal_and_leading_zero_numeric_code(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"prior.xlsx"; wb=Workbook(); ws=wb.active

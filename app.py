@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from adapters.excel.reader import detect_statement_periods
+from adapters.excel.reader import classify_excel_input, detect_statement_periods
 from adapters.excel.writer import write_result
 from domain.models import Status
 from domain.period import AccountingPeriod
@@ -551,30 +551,65 @@ class App(ctk.CTk):
                 f"현재 {current.label} 대사에는 {expected.label} 명세서가 필요합니다."
             )
 
-    def pick_priors(self):
-        paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
-        changed=False
+    def _add_classified_files(self,paths,requested_kind):
+        added_prior=False
+        added_raw=False
+        moved=[]
+        rejected=[]
         for p in paths:
-            if p not in self.prior_paths:
-                self.prior_paths.append(p)
-                self.prior_list.insert("end",Path(p).name)
-                changed=True
-        if changed:
+            try:
+                kind=classify_excel_input(p)
+            except Exception as e:
+                rejected.append(f"{Path(p).name}: 파일을 읽지 못함 ({e})")
+                continue
+
+            if kind=="prior":
+                if p not in self.prior_paths:
+                    self.prior_paths.append(p)
+                    self.prior_list.insert("end",Path(p).name)
+                    added_prior=True
+                    if requested_kind!="prior":
+                        moved.append(f"{Path(p).name} → 전월 명세서")
+            elif kind=="douzone":
+                if p not in self.douzone_paths:
+                    self.douzone_paths.append(p)
+                    self.douzone_list.insert("end",Path(p).name)
+                    added_raw=True
+                    if requested_kind!="douzone":
+                        moved.append(f"{Path(p).name} → 더존 Raw")
+            elif kind=="ambiguous":
+                rejected.append(f"{Path(p).name}: 명세서와 더존 구조가 함께 보여 자동 분류하지 않음")
+            else:
+                rejected.append(f"{Path(p).name}: 명세서/더존 Raw 구조를 식별하지 못함")
+
+        if added_prior or added_raw:
             self._refresh_file_counts()
             self._invalidate_results()
+        if added_prior:
             self._maybe_align_period_to_statement_files()
+
+        if moved:
+            self._set_banner(
+                "idle",
+                "파일 자동 분류",
+                "잘못된 칸에 선택한 파일을 구조를 확인해 자동으로 옮겼습니다: " + " · ".join(moved)
+            )
+        if rejected:
+            messagebox.showwarning(
+                "파일 자동 분류 확인",
+                "다음 파일은 안전하게 자동 분류할 수 없어 추가하지 않았습니다.\n\n"
+                + "\n".join(rejected)
+            )
+
+    def pick_priors(self):
+        paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
+        if paths:
+            self._add_classified_files(paths,"prior")
 
     def pick_douzone(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
-        changed=False
-        for p in paths:
-            if p not in self.douzone_paths:
-                self.douzone_paths.append(p)
-                self.douzone_list.insert("end",Path(p).name)
-                changed=True
-        if changed:
-            self._refresh_file_counts()
-            self._invalidate_results()
+        if paths:
+            self._add_classified_files(paths,"douzone")
 
     def remove_douzone(self):
         selected=list(self.douzone_list.curselection())
