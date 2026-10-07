@@ -1,8 +1,8 @@
 import unittest
 from decimal import Decimal
 
-from models import JournalLine, PayableItem, Status
-from reconciliation import reconcile
+from domain.models import JournalLine, PayableItem, Status
+from domain.reconciliation import reconcile
 
 
 def p(code, desc, amount):
