@@ -100,27 +100,27 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
 
 
 def infer_period_from_inputs(statement_period_groups, raw_period_groups):
-    """Choose a target month only when file signals are consistent enough to trust."""
+    """Infer the reconciliation month from actual statement tabs and Raw journal dates.
+
+    When both sides expose month information, prefer the latest exact pair:
+    statement month M + Raw month M+1. Never guess across a conflicting pair.
+    """
     statement_groups=[set(group) for group in statement_period_groups if group]
     raw_groups=[set(group) for group in raw_period_groups if group]
 
-    statement_target=None
-    if statement_groups:
-        common=set.intersection(*statement_groups)
-        if common:
-            statement_target=max(common).next()
-
+    statement_common=set.intersection(*statement_groups) if statement_groups else set()
     raw_periods=set().union(*raw_groups) if raw_groups else set()
-    raw_latest=max(raw_periods) if raw_periods else None
 
-    if statement_target is not None and raw_periods:
-        if statement_target in raw_periods:
-            return statement_target,"statement+raw"
+    if statement_common and raw_periods:
+        paired=sorted(s.next() for s in statement_common if s.next() in raw_periods)
+        if paired:
+            return paired[-1],"statement+raw"
         return None,"conflict"
-    if statement_target is not None:
-        return statement_target,"statement"
-    if raw_latest is not None:
-        return raw_latest,"raw"
+
+    if statement_common:
+        return max(statement_common).next(),"statement"
+    if raw_periods:
+        return max(raw_periods),"raw"
     return None,"unknown"
 
 
@@ -254,10 +254,13 @@ class App(ctk.CTk):
         tk.Label(left,text="대상 회계월",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
         controls=tk.Frame(left,bg=CARD)
         controls.pack(anchor="w",pady=(8,0))
-        ttk.Spinbox(controls,from_=2020,to=2100,textvariable=self.year,width=7,command=self._update_period).pack(side="left")
+        self.year_spin=ttk.Spinbox(controls,from_=2020,to=2100,textvariable=self.year,width=7,state="readonly")
+        self.year_spin.pack(side="left")
         tk.Label(controls,text="년",bg=CARD,fg=MUTED).pack(side="left",padx=(5,12))
-        ttk.Spinbox(controls,from_=1,to=12,textvariable=self.month,width=4,command=self._update_period).pack(side="left")
-        tk.Label(controls,text="월",bg=CARD,fg=MUTED).pack(side="left",padx=(5,0))
+        self.month_spin=ttk.Spinbox(controls,from_=1,to=12,textvariable=self.month,width=4,state="readonly")
+        self.month_spin.pack(side="left")
+        tk.Label(controls,text="월",bg=CARD,fg=MUTED).pack(side="left",padx=(5,10))
+        tk.Label(controls,text="파일에서 자동 감지",font=("Segoe UI Semibold",9),bg=CARD,fg=GREEN).pack(side="left")
         self.year.trace_add("write",lambda *_:self._on_period_changed())
         self.month.trace_add("write",lambda *_:self._on_period_changed())
         tk.Label(
@@ -429,7 +432,12 @@ class App(ctk.CTk):
             font=("Segoe UI",9),bg=BG,fg=MUTED,
         ).pack(anchor="w",pady=(14,0))
 
-        self.account_codes.trace_add("write",lambda *_:self._invalidate_results())
+        self.account_codes.trace_add("write",lambda *_:self._on_account_code_changed())
+
+    def _on_account_code_changed(self):
+        self._invalidate_results()
+        if self.prior_paths or self.douzone_paths:
+            self.after_idle(lambda:self._maybe_align_period_from_inputs())
 
     def _on_canvas_configure(self,event):
         self.scroll_canvas.itemconfigure(self.scroll_window,width=event.width)
@@ -515,55 +523,61 @@ class App(ctk.CTk):
             f"{len(self.douzone_paths)}개 파일 선택" if self.douzone_paths else "선택된 파일 없음"
         )
 
-    def _maybe_align_period_from_inputs(self):
-        try:
-            current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
-        except Exception:
-            return
-
+    def _maybe_align_period_from_inputs(self, show_banner=True):
         statement_groups=[]
+        statement_labels=[]
         for path in self.prior_paths:
             try:
                 periods=detect_statement_periods(path)
             except Exception:
-                continue
+                periods=[]
             if periods:
                 statement_groups.append(periods)
+                statement_labels.extend(periods)
 
         codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
         raw_groups=[]
+        raw_labels=[]
         for path in self.douzone_paths:
             try:
                 periods=detect_douzone_periods(path,codes)
             except Exception:
-                continue
+                periods=[]
             if periods:
                 raw_groups.append(periods)
+                raw_labels.extend(periods)
 
         suggested,source=infer_period_from_inputs(statement_groups,raw_groups)
         if suggested is None:
             if source=="conflict":
-                self._set_banner(
-                    "warning",
-                    "회계월 자동 설정 보류",
-                    "명세서 월과 더존 Raw 전표월이 서로 맞지 않아 자동으로 바꾸지 않았습니다. 파일 구성을 확인해주세요."
-                )
-            return
+                if show_banner:
+                    statement_text=", ".join(p.label for p in sorted(set(statement_labels))) or "감지 안 됨"
+                    raw_text=", ".join(p.label for p in sorted(set(raw_labels))) or "감지 안 됨"
+                    self._set_banner(
+                        "warning",
+                        "회계월 자동 설정 보류",
+                        f"명세서 월({statement_text})과 더존 Raw 월({raw_text})에서 전월→당월 조합을 찾지 못했습니다."
+                    )
+                return False
+            return None
 
+        current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
         if suggested!=current:
+            # Set both variables without leaving a stale result behind.
             self.year.set(suggested.year)
             self.month.set(suggested.month)
             self._update_period()
 
-        if source=="statement+raw":
-            detail=f"명세서와 더존 Raw의 월을 함께 확인해 대상 회계월을 {suggested.label}로 설정했습니다."
-        elif source=="statement":
-            detail=f"명세서의 최신 월별 시트를 기준으로 대상 회계월을 {suggested.label}로 설정했습니다."
-        else:
-            detail=f"더존 Raw의 최신 미지급금 전표월을 기준으로 대상 회계월을 {suggested.label}로 설정했습니다."
-
-        self._refresh_file_counts()
-        self._set_banner("idle","회계월 자동 설정",detail)
+        if show_banner:
+            if source=="statement+raw":
+                detail=f"{suggested.previous().label} 명세서 + {suggested.label} 더존 Raw를 확인해 대상 회계월을 자동 설정했습니다."
+            elif source=="statement":
+                detail=f"명세서 월을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
+            else:
+                detail=f"더존 Raw의 미지급금 전표월을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
+            self._refresh_file_counts()
+            self._set_banner("idle","회계월 자동 설정",detail)
+        return True
 
     def _add_classified_files(self,paths,requested_kind):
         """Add selected Excel files to the structurally correct input bucket."""
@@ -637,6 +651,7 @@ class App(ctk.CTk):
         if selected:
             self._refresh_file_counts()
             self._invalidate_results()
+            self._maybe_align_period_from_inputs()
 
     def remove_priors(self):
         selected=list(self.prior_list.curselection())
@@ -646,6 +661,7 @@ class App(ctk.CTk):
         if selected:
             self._refresh_file_counts()
             self._invalidate_results()
+            self._maybe_align_period_from_inputs()
 
     def _summary(self,counts):
         for w in self.summary.winfo_children():
@@ -732,6 +748,14 @@ class App(ctk.CTk):
             messagebox.showwarning("파일 필요","전월 명세서와 더존 Raw를 각각 1개 이상 추가해주세요.")
             return
         self._invalidate_results()
+        sync_state=self._maybe_align_period_from_inputs(show_banner=False)
+        if sync_state is False:
+            self._set_banner("error","대사 중단","명세서 월과 더존 Raw 월이 서로 맞지 않습니다.")
+            messagebox.showerror(
+                "회계월 확인",
+                "명세서와 더존 Raw에서 서로 연결되는 전월→당월 조합을 찾지 못했습니다.\n파일의 월을 확인해주세요."
+            )
+            return
         self._set_banner("running","대사 중","사전검사와 자동 대사를 진행하고 있습니다...")
         self.update_idletasks()
         try:
