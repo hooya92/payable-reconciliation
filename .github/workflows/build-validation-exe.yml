@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: same-month reconciliation + workbook summary
+# Release trigger: latest UI refresh
 
 on:
   workflow_dispatch:
