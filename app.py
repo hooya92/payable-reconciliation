@@ -465,20 +465,20 @@ class App(ctk.CTk):
 
         self.matched_view_btn=ctk.CTkButton(
             result_header,text="자동 대사 0",command=lambda:self._set_result_view("matched"),
-            width=105,height=31,corner_radius=12,fg_color="#F3F4F7",hover_color="#ECEEF2",
-            text_color=MUTED,font=("Segoe UI Semibold",10)
+            width=132,height=40,corner_radius=14,fg_color="#F3F4F7",hover_color="#ECEEF2",
+            text_color=MUTED,font=("Segoe UI Semibold",12)
         )
         self.matched_view_btn.pack(side="right")
         self.review_view_btn=ctk.CTkButton(
             result_header,text="검토 필요 0",command=lambda:self._set_result_view("review"),
-            width=105,height=31,corner_radius=12,fg_color="#F3F4F7",hover_color="#ECEEF2",
-            text_color=MUTED,font=("Segoe UI Semibold",9)
+            width=132,height=40,corner_radius=14,fg_color="#F3F4F7",hover_color="#ECEEF2",
+            text_color=MUTED,font=("Segoe UI Semibold",12)
         )
         self.review_view_btn.pack(side="right",padx=(0,6))
         self.all_view_btn=ctk.CTkButton(
             result_header,text="전체",command=lambda:self._set_result_view("all"),
-            width=74,height=31,corner_radius=12,fg_color=ACCENT,hover_color=ACCENT_HOVER,
-            text_color="white",font=("Segoe UI Semibold",10)
+            width=96,height=40,corner_radius=14,fg_color=ACCENT,hover_color=ACCENT_HOVER,
+            text_color="white",font=("Segoe UI Semibold",12)
         )
         self.all_view_btn.pack(side="right",padx=(0,6))
 
@@ -792,27 +792,27 @@ class App(ctk.CTk):
         for i,(name,value,bg,color,icon) in enumerate(cards):
             box=ctk.CTkFrame(
                 self.summary,fg_color=bg,border_width=1,border_color=BORDER,
-                corner_radius=18,height=108
+                corner_radius=17,height=88
             )
             box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 8,0))
             box.grid_propagate(False)
             self.summary.grid_columnconfigure(i,weight=1)
 
             icon_box=ctk.CTkLabel(
-                box,text=icon,font=("Segoe UI Semibold",19),
-                text_color=color,fg_color=CARD,width=48,height=48,
-                corner_radius=24
+                box,text=icon,font=("Segoe UI Semibold",16),
+                text_color=color,fg_color=CARD,width=40,height=40,
+                corner_radius=20
             )
-            icon_box.pack(side="left",padx=(16,13),pady=18)
+            icon_box.pack(side="left",padx=(14,10),pady=15)
 
             body=ctk.CTkFrame(box,fg_color="transparent")
-            body.pack(side="left",fill="both",expand=True,pady=(15,12))
+            body.pack(side="left",fill="both",expand=True,pady=(12,10))
             ctk.CTkLabel(
-                body,text=name,font=("Segoe UI Semibold",14),
+                body,text=name,font=("Segoe UI Semibold",12),
                 text_color="#344054",anchor="w"
             ).pack(anchor="w")
             ctk.CTkLabel(
-                body,text=f"{value:,}건",font=("Segoe UI Semibold",30),
+                body,text=f"{value:,}건",font=("Segoe UI Semibold",24),
                 text_color=TEXT,anchor="w"
             ).pack(anchor="w",pady=(1,0))
         self._update_view_buttons()
