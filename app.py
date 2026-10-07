@@ -96,7 +96,7 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
     common=set.intersection(*groups)
     if not common:
         return None
-    return max(common).next()
+    return max(common)
 
 
 def infer_period_from_inputs(statement_period_groups, raw_period_groups):
@@ -112,13 +112,13 @@ def infer_period_from_inputs(statement_period_groups, raw_period_groups):
     raw_periods=set().union(*raw_groups) if raw_groups else set()
 
     if statement_common and raw_periods:
-        paired=sorted(s.next() for s in statement_common if s.next() in raw_periods)
+        paired=sorted(statement_common & raw_periods)
         if paired:
             return paired[-1],"statement+raw"
         return None,"conflict"
 
     if statement_common:
-        return max(statement_common).next(),"statement"
+        return max(statement_common),"statement"
     if raw_periods:
         return max(raw_periods),"raw"
     return None,"unknown"
@@ -556,7 +556,7 @@ class App(ctk.CTk):
                     self._set_banner(
                         "warning",
                         "회계월 자동 설정 보류",
-                        f"명세서 월({statement_text})과 더존 Raw 월({raw_text})에서 전월→당월 조합을 찾지 못했습니다."
+                        f"명세서 월({statement_text})과 더존 Raw 월({raw_text})에서 같은 회계월을 찾지 못했습니다."
                     )
                 return False
             return None
@@ -570,7 +570,7 @@ class App(ctk.CTk):
 
         if show_banner:
             if source=="statement+raw":
-                detail=f"{suggested.previous().label} 명세서 + {suggested.label} 더존 Raw를 확인해 대상 회계월을 자동 설정했습니다."
+                detail=f"{suggested.label} 명세서 + {suggested.label} 더존 Raw를 확인해 대상 회계월을 자동 설정했습니다."
             elif source=="statement":
                 detail=f"명세서 월을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
             else:
@@ -753,7 +753,7 @@ class App(ctk.CTk):
             self._set_banner("error","대사 중단","명세서 월과 더존 Raw 월이 서로 맞지 않습니다.")
             messagebox.showerror(
                 "회계월 확인",
-                "명세서와 더존 Raw에서 서로 연결되는 전월→당월 조합을 찾지 못했습니다.\n파일의 월을 확인해주세요."
+                "명세서와 더존 Raw에서 서로 연결되는 같은 회계월을 찾지 못했습니다.\n파일의 월을 확인해주세요."
             )
             return
         self._set_banner("running","대사 중","사전검사와 자동 대사를 진행하고 있습니다...")
