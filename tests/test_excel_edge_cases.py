@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from openpyxl import Workbook
-from adapters.excel.reader import classify_excel_input, detect_statement_periods, read_douzone, read_prior
+from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods, read_douzone, read_prior
 from domain.period import AccountingPeriod
 
 class ExcelEdgeCaseTests(unittest.TestCase):
@@ -34,6 +34,19 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             r=read_prior(p,"담당자A")
             self.assertEqual(len(r.items),1); self.assertEqual(r.items[0].vendor_code,"051330")
             self.assertEqual(len(r.issues),0)
+
+    def test_detect_douzone_periods_for_target_account(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"raw_months.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명","거래처코드","거래처명","적요","차변","대변"])
+            ws.append(["2026-07-31","25301","미지급금-일반","001001","가상A","7월",100,0])
+            ws.append(["2026-08-03","25301","미지급금-일반","001002","가상B","8월",200,0])
+            ws.append(["2026-09-01","99999","기타","001003","가상C","9월 타계정",300,0])
+            wb.save(p)
+            self.assertEqual(
+                detect_douzone_periods(p,{"25301"}),
+                [AccountingPeriod(2026,7),AccountingPeriod(2026,8)],
+            )
 
     def test_douzone_duplicate_code_headers_and_target_month_only(self):
         with tempfile.TemporaryDirectory() as tmp:

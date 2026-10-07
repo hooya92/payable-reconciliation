@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from collections import Counter
 
-from app import App, changed_snapshot_paths, completion_detail, reconciliation_breakdown, snapshot_file_digests, suggest_reconciliation_period
+from app import App, changed_snapshot_paths, completion_detail, infer_period_from_inputs, reconciliation_breakdown, snapshot_file_digests, suggest_reconciliation_period
 from domain.models import Status
 from domain.period import AccountingPeriod
 
@@ -46,6 +46,30 @@ class UISafetyTests(unittest.TestCase):
             [[AccountingPeriod(2026,7)],[AccountingPeriod(2026,8)]],
         )
         self.assertIsNone(suggested)
+
+    def test_raw_month_can_drive_accounting_month_when_statement_has_no_month_tab(self):
+        period,source=infer_period_from_inputs(
+            [],
+            [[AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
+        )
+        self.assertEqual(period,AccountingPeriod(2026,8))
+        self.assertEqual(source,"raw")
+
+    def test_statement_and_raw_agreement_drives_accounting_month(self):
+        period,source=infer_period_from_inputs(
+            [[AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
+            [[AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
+        )
+        self.assertEqual(period,AccountingPeriod(2026,8))
+        self.assertEqual(source,"statement+raw")
+
+    def test_statement_raw_month_conflict_is_not_guessed(self):
+        period,source=infer_period_from_inputs(
+            [[AccountingPeriod(2026,8)]],
+            [[AccountingPeriod(2026,8)]],
+        )
+        self.assertIsNone(period)
+        self.assertEqual(source,"conflict")
 
     def test_source_snapshot_detects_file_change(self):
         with tempfile.TemporaryDirectory() as tmp:

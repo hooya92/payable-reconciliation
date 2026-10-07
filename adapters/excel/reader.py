@@ -182,6 +182,36 @@ def _douzone_columns(vals):
     }
 
 
+def detect_douzone_periods(path: str|Path, account_codes:set[str]|None=None) -> list[AccountingPeriod]:
+    """Detect months that actually contain rows for the selected account code(s) in a Douzone Raw file."""
+    wanted={normalize_code(x) for x in (account_codes or set()) if x}
+    wb=load_workbook(path,read_only=True,data_only=False)
+    groups=[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")]
+    found=set()
+    try:
+        for ws in wb.worksheets:
+            hr,vals=_header_row(ws,groups)
+            if not hr:
+                continue
+            cols=_douzone_columns(vals)
+            if not cols["date"] or not cols["account_code"]:
+                continue
+            for row in ws.iter_rows(min_row=hr+1,values_only=False):
+                account_cell=row[cols["account_code"]-1]
+                date_cell=row[cols["date"]-1]
+                if _is_formula(account_cell) or _is_formula(date_cell):
+                    continue
+                ac=_code_from_cell(account_cell)
+                if wanted and ac not in wanted:
+                    continue
+                parsed=parse_date(date_cell.value)
+                if parsed is not None:
+                    found.add(AccountingPeriod(parsed.year,parsed.month))
+    finally:
+        wb.close()
+    return sorted(found)
+
+
 def classify_excel_input(path: str|Path) -> str:
     """Classify an Excel input structurally as 'prior', 'douzone', 'ambiguous', or 'unknown'."""
     wb=load_workbook(path,read_only=True,data_only=False)

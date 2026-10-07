@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from adapters.excel.reader import classify_excel_input, detect_statement_periods
+from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods
 from adapters.excel.writer import write_result
 from domain.models import Status
 from domain.period import AccountingPeriod
@@ -97,6 +97,31 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
     if not common:
         return None
     return max(common).next()
+
+
+def infer_period_from_inputs(statement_period_groups, raw_period_groups):
+    """Choose a target month only when file signals are consistent enough to trust."""
+    statement_groups=[set(group) for group in statement_period_groups if group]
+    raw_groups=[set(group) for group in raw_period_groups if group]
+
+    statement_target=None
+    if statement_groups:
+        common=set.intersection(*statement_groups)
+        if common:
+            statement_target=max(common).next()
+
+    raw_periods=set().union(*raw_groups) if raw_groups else set()
+    raw_latest=max(raw_periods) if raw_periods else None
+
+    if statement_target is not None and raw_periods:
+        if statement_target in raw_periods:
+            return statement_target,"statement+raw"
+        return None,"conflict"
+    if statement_target is not None:
+        return statement_target,"statement"
+    if raw_latest is not None:
+        return raw_latest,"raw"
+    return None,"unknown"
 
 
 class App(ctk.CTk):
@@ -490,56 +515,55 @@ class App(ctk.CTk):
             f"{len(self.douzone_paths)}개 파일 선택" if self.douzone_paths else "선택된 파일 없음"
         )
 
-    def _maybe_align_period_to_statement_files(self):
+    def _maybe_align_period_from_inputs(self):
         try:
             current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
         except Exception:
             return
 
-        detected=[]
-        lines=[]
+        statement_groups=[]
         for path in self.prior_paths:
             try:
                 periods=detect_statement_periods(path)
             except Exception:
                 continue
             if periods:
-                detected.append(periods)
-                lines.append(f"{Path(path).name}: " + ", ".join(p.label for p in periods))
+                statement_groups.append(periods)
 
-        if not detected:
-            return
+        codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
+        raw_groups=[]
+        for path in self.douzone_paths:
+            try:
+                periods=detect_douzone_periods(path,codes)
+            except Exception:
+                continue
+            if periods:
+                raw_groups.append(periods)
 
-        suggested=suggest_reconciliation_period(current,detected)
+        suggested,source=infer_period_from_inputs(statement_groups,raw_groups)
         if suggested is None:
-            self._set_banner(
-                "warning",
-                "명세서 월 확인 필요",
-                "선택한 명세서 파일들의 월별 시트가 서로 달라 회계월을 자동 설정하지 않았습니다."
-            )
+            if source=="conflict":
+                self._set_banner(
+                    "warning",
+                    "회계월 자동 설정 보류",
+                    "명세서 월과 더존 Raw 전표월이 서로 맞지 않아 자동으로 바꾸지 않았습니다. 파일 구성을 확인해주세요."
+                )
             return
 
-        statement_period=suggested.previous()
-        if suggested==current:
-            self._refresh_file_counts()
-            self._set_banner(
-                "idle",
-                "회계월 확인",
-                f"{statement_period.label} 명세서를 기준으로 대상 회계월은 {suggested.label}입니다."
-            )
-            return
+        if suggested!=current:
+            self.year.set(suggested.year)
+            self.month.set(suggested.month)
+            self._update_period()
 
-        # Monthly statement tabs are the strongest signal for the reconciliation month.
-        # Set it automatically; the user can still change the spinboxes afterward for a historical rerun.
-        self.year.set(suggested.year)
-        self.month.set(suggested.month)
-        self._update_period()
+        if source=="statement+raw":
+            detail=f"명세서와 더존 Raw의 월을 함께 확인해 대상 회계월을 {suggested.label}로 설정했습니다."
+        elif source=="statement":
+            detail=f"명세서의 최신 월별 시트를 기준으로 대상 회계월을 {suggested.label}로 설정했습니다."
+        else:
+            detail=f"더존 Raw의 최신 미지급금 전표월을 기준으로 대상 회계월을 {suggested.label}로 설정했습니다."
+
         self._refresh_file_counts()
-        self._set_banner(
-            "idle",
-            "회계월 자동 설정",
-            f"파일의 최신 공통 명세서 월 {statement_period.label}을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
-        )
+        self._set_banner("idle","회계월 자동 설정",detail)
 
     def _add_classified_files(self,paths,requested_kind):
         """Add selected Excel files to the structurally correct input bucket."""
@@ -578,8 +602,8 @@ class App(ctk.CTk):
             self._refresh_file_counts()
             self._invalidate_results()
 
-        if added_prior:
-            self._maybe_align_period_to_statement_files()
+        if added_prior or added_raw:
+            self._maybe_align_period_from_inputs()
 
         if moved:
             self._set_banner(
