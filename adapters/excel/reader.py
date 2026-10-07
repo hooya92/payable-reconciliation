@@ -4,7 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 from openpyxl import load_workbook
 
-from domain.models import DataQuality, JournalLine, PayableItem
+from domain.models import DataQuality, JournalLine, PayableItem, SourceRef
 from domain.normalization import normalize_code, parse_amount
 from domain.period import AccountingPeriod, parse_date
 
@@ -112,7 +112,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
     return out
 
 
-def read_prior(path: str|Path) -> ReadResult:
+def read_prior(path: str|Path, owner: str = "") -> ReadResult:
     wb=load_workbook(path,read_only=True,data_only=True); out=ReadResult()
     for ws in wb.worksheets:
         hr,vals=_header_row(ws,[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")])
@@ -134,7 +134,7 @@ def read_prior(path: str|Path) -> ReadResult:
             if not code or not desc or (a.value or 0)<=0:
                 continue
             out.items.append(PayableItem(code,_text(ws.cell(r,cols["vendor_name"]).value),desc,a.value,
-                _date(ws.cell(r,cols["date"]).value) if cols["date"] else "",r))
+                _date(ws.cell(r,cols["date"]).value) if cols["date"] else "",r, SourceRef(Path(path).name, ws.title, r, owner)))
     wb.close()
     if not out.items and not out.issues: raise ValueError("전월 명세서에서 대사할 항목을 찾지 못했습니다.")
     return out
