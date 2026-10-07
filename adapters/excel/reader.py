@@ -3,11 +3,114 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 import re
-from openpyxl import load_workbook
+import struct
+
+import xlrd
+from xlrd import compdoc
+from openpyxl import load_workbook as _openpyxl_load_workbook
 
 from domain.models import DataQuality, JournalLine, PayableItem, SourceRef
 from domain.normalization import normalize_code, parse_amount
 from domain.period import AccountingPeriod, parse_date
+
+
+class _XlsCell:
+    def __init__(self, book, sheet, rowx, colx):
+        if rowx >= sheet.nrows or colx >= sheet.ncols:
+            self.value=None
+            self.data_type="n"
+            self.number_format="General"
+            return
+
+        cell=sheet.cell(rowx,colx)
+        value=cell.value
+        if cell.ctype==xlrd.XL_CELL_DATE:
+            value=xlrd.xldate_as_datetime(value,book.datemode)
+        elif cell.ctype==xlrd.XL_CELL_BOOLEAN:
+            value=bool(value)
+        elif cell.ctype in (xlrd.XL_CELL_EMPTY,xlrd.XL_CELL_BLANK):
+            value=None
+
+        self.value=value
+        self.data_type="s" if cell.ctype==xlrd.XL_CELL_TEXT else "n"
+        self.number_format="General"
+        if cell.xf_index is not None and 0 <= cell.xf_index < len(book.xf_list):
+            xf=book.xf_list[cell.xf_index]
+            fmt=book.format_map.get(xf.format_key)
+            if fmt is not None:
+                self.number_format=fmt.format_str or "General"
+
+
+class _XlsSheet:
+    def __init__(self, book, sheet):
+        self._book=book
+        self._sheet=sheet
+        self.title=sheet.name
+        self.max_row=sheet.nrows
+        self.max_column=sheet.ncols
+
+    def cell(self, row, column):
+        return _XlsCell(self._book,self._sheet,row-1,column-1)
+
+    def iter_rows(self, min_row=1, values_only=False):
+        for rowx in range(max(min_row-1,0),self.max_row):
+            cells=tuple(self.cell(rowx+1,colx+1) for colx in range(self.max_column))
+            if values_only:
+                yield tuple(cell.value for cell in cells)
+            else:
+                yield cells
+
+
+class _XlsWorkbook:
+    def __init__(self, book):
+        self._book=book
+        self.worksheets=[_XlsSheet(book,book.sheet_by_index(i)) for i in range(book.nsheets)]
+
+    def close(self):
+        self._book.release_resources()
+
+
+def _xls_contains_formula(path):
+    raw=Path(path).read_bytes()
+    try:
+        if raw[:8]==compdoc.SIGNATURE:
+            doc=compdoc.CompDoc(raw)
+            stream=doc.get_named_stream("Workbook") or doc.get_named_stream("Book")
+        else:
+            stream=raw
+    except Exception as exc:
+        raise ValueError(f"구형 .xls 파일 구조를 읽을 수 없습니다: {exc}") from exc
+
+    if not stream:
+        raise ValueError("구형 .xls 파일에서 Workbook 스트림을 찾지 못했습니다.")
+
+    pos=0
+    while pos+4 <= len(stream):
+        opcode,length=struct.unpack("<HH",stream[pos:pos+4])
+        end=pos+4+length
+        if end>len(stream):
+            raise ValueError("구형 .xls 파일의 BIFF 레코드가 손상되어 안전하게 읽을 수 없습니다.")
+        if opcode==0x0006:  # BIFF FORMULA record
+            return True
+        pos=end
+    return False
+
+
+def __load_workbook(path, **kwargs):
+    path=Path(path)
+    if path.suffix.lower()==".xls":
+        if _xls_contains_formula(path):
+            raise ValueError(
+                "구형 .xls 파일에 수식 셀이 포함되어 있습니다. "
+                "계산 캐시값을 정상 데이터로 오인하지 않도록 자동 처리를 중단합니다. "
+                "Excel에서 값이 확정된 .xlsx로 다시 저장한 뒤 선택해주세요."
+            )
+        try:
+            book=xlrd.open_workbook(str(path),formatting_info=True,on_demand=False)
+        except Exception as exc:
+            raise ValueError(f"구형 .xls 파일을 읽을 수 없습니다: {exc}") from exc
+        return _XlsWorkbook(book)
+    return _openpyxl_load_workbook(path,**kwargs)
 
 
 @dataclass(frozen=True)
@@ -93,7 +196,7 @@ def _sheet_matches_period(title, period):
 
 def detect_statement_periods(path: str|Path) -> list[AccountingPeriod]:
     """Return month periods from statement-like worksheet titles only."""
-    wb=load_workbook(path,read_only=True,data_only=False)
+    wb=_load_workbook(path,read_only=True,data_only=False)
     groups=[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")]
     found=set()
     try:
@@ -203,7 +306,7 @@ def _douzone_columns(vals):
 def detect_douzone_periods(path: str|Path, account_codes:set[str]|None=None) -> list[AccountingPeriod]:
     """Detect months that actually contain rows for the selected account code(s) in a Douzone Raw file."""
     wanted={normalize_code(x) for x in (account_codes or set()) if x}
-    wb=load_workbook(path,read_only=True,data_only=False)
+    wb=_load_workbook(path,read_only=True,data_only=False)
     groups=DOUZONE_REQUIRED_GROUPS
     found=set()
     try:
@@ -232,7 +335,7 @@ def detect_douzone_periods(path: str|Path, account_codes:set[str]|None=None) -> 
 
 def classify_excel_input(path: str|Path) -> str:
     """Classify an Excel input structurally as 'prior', 'douzone', 'ambiguous', or 'unknown'."""
-    wb=load_workbook(path,read_only=True,data_only=False)
+    wb=_load_workbook(path,read_only=True,data_only=False)
     prior_groups=[
         ("거래처코드","거래처 코드","코드"),
         ("거래처명","거래처","업체명"),
@@ -271,7 +374,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
     wanted={normalize_code(x) for x in (account_codes or set()) if x}
     if not wanted:
         raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
-    wb=load_workbook(path,read_only=True,data_only=False)
+    wb=_load_workbook(path,read_only=True,data_only=False)
     out=ReadResult()
     groups=DOUZONE_REQUIRED_GROUPS
     try:
@@ -359,7 +462,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
 
 
 def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=None) -> ReadResult:
-    wb=load_workbook(path,read_only=True,data_only=False); out=ReadResult()
+    wb=_load_workbook(path,read_only=True,data_only=False); out=ReadResult()
     groups=[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")]
     try:
         selected=_select_prior_sheets(wb,groups,period)

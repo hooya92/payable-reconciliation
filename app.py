@@ -741,12 +741,12 @@ class App(ctk.CTk):
             )
 
     def pick_priors(self):
-        paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
+        paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm *.xls")])
         if paths:
             self._add_classified_files(paths,"prior")
 
     def pick_douzone(self):
-        paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
+        paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm *.xls")])
         if paths:
             self._add_classified_files(paths,"douzone")
 

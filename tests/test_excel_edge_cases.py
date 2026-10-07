@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from openpyxl import Workbook
+import xlwt
 from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods, read_douzone, read_prior
 from domain.period import AccountingPeriod
 
@@ -18,6 +19,47 @@ class ExcelEdgeCaseTests(unittest.TestCase):
 
             self.assertEqual(classify_excel_input(prior),"prior")
             self.assertEqual(classify_excel_input(raw),"douzone")
+
+    def test_legacy_xls_douzone_raw_is_supported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"전표출력.xls"
+            wb=xlwt.Workbook(); ws=wb.add_sheet("전표출력")
+            headers=["결의일","결의No","순번","기표일자","기표번호","구분",
+                     "코드","계정과목명","코드","거래처명","적요","차변","대변"]
+            for col,value in enumerate(headers):
+                ws.write(0,col,value)
+            row=["2026-07-15",1,1,"2026-07-15",1,"일반",
+                 "25301","미지급금-일반","051330","가상물류","7월 운송비",1250000,0]
+            for col,value in enumerate(row):
+                ws.write(1,col,value)
+            wb.save(str(p))
+
+            self.assertEqual(classify_excel_input(p),"douzone")
+            self.assertEqual(detect_douzone_periods(p,{"25301"}),[AccountingPeriod(2026,7)])
+            result=read_douzone(p,{"25301"},AccountingPeriod(2026,7))
+            self.assertEqual(len(result.items),1)
+            self.assertEqual(result.items[0].vendor_code,"051330")
+            self.assertEqual(result.items[0].debit,1250000)
+
+    def test_legacy_xls_with_formula_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"formula.xls"
+            wb=xlwt.Workbook(); ws=wb.add_sheet("전표출력")
+            headers=["기표일자","계정코드","계정과목명","거래처코드","거래처명","적요","차변","대변"]
+            for col,value in enumerate(headers):
+                ws.write(0,col,value)
+            ws.write(1,0,"2026-07-15")
+            ws.write(1,1,"25301")
+            ws.write(1,2,"미지급금-일반")
+            ws.write(1,3,"051330")
+            ws.write(1,4,"가상물류")
+            ws.write(1,5,"수식 테스트")
+            ws.write(1,6,xlwt.Formula("100+200"))
+            ws.write(1,7,0)
+            wb.save(str(p))
+
+            with self.assertRaisesRegex(ValueError,"수식 셀"):
+                classify_excel_input(p)
 
     def test_input_classifier_rejects_unknown_shape(self):
         with tempfile.TemporaryDirectory() as tmp:
