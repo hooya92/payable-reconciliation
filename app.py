@@ -541,6 +541,60 @@ class App(ctk.CTk):
             f"파일의 최신 공통 명세서 월 {statement_period.label}을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
         )
 
+    def _add_classified_files(self,paths,requested_kind):
+        """Add selected Excel files to the structurally correct input bucket."""
+        added_prior=False
+        added_raw=False
+        moved=[]
+        rejected=[]
+
+        for p in paths:
+            try:
+                kind=classify_excel_input(p)
+            except Exception as e:
+                rejected.append(f"{Path(p).name}: 파일을 읽지 못함 ({e})")
+                continue
+
+            if kind=="prior":
+                if p not in self.prior_paths:
+                    self.prior_paths.append(p)
+                    self.prior_list.insert("end",Path(p).name)
+                    added_prior=True
+                    if requested_kind!="prior":
+                        moved.append(f"{Path(p).name} → 전월 명세서")
+            elif kind=="douzone":
+                if p not in self.douzone_paths:
+                    self.douzone_paths.append(p)
+                    self.douzone_list.insert("end",Path(p).name)
+                    added_raw=True
+                    if requested_kind!="douzone":
+                        moved.append(f"{Path(p).name} → 더존 Raw")
+            elif kind=="ambiguous":
+                rejected.append(f"{Path(p).name}: 명세서와 더존 구조가 함께 보여 자동 분류하지 않음")
+            else:
+                rejected.append(f"{Path(p).name}: 명세서/더존 Raw 구조를 식별하지 못함")
+
+        if added_prior or added_raw:
+            self._refresh_file_counts()
+            self._invalidate_results()
+
+        if added_prior:
+            self._maybe_align_period_to_statement_files()
+
+        if moved:
+            self._set_banner(
+                "idle",
+                "파일 자동 분류",
+                "잘못된 칸에서 선택한 파일을 구조에 맞게 자동 배치했습니다: " + " · ".join(moved)
+            )
+
+        if rejected:
+            messagebox.showwarning(
+                "파일 자동 분류 확인",
+                "다음 파일은 안전하게 자동 분류할 수 없어 추가하지 않았습니다.\n\n"
+                + "\n".join(rejected)
+            )
+
     def pick_priors(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
         if paths:
