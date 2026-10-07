@@ -12,7 +12,7 @@ from domain.models import Status
 from domain.period import AccountingPeriod
 from domain.reconciliation import new_payables, reconcile
 
-BG="#F5F5F7"; CARD="#FFFFFF"; TEXT="#1D1D1F"; MUTED="#6E6E73"; ACCENT="#0071E3"; WARN="#B45309"
+BG="#F5F5F7"; CARD="#FFFFFF"; TEXT="#1D1D1F"; MUTED="#6E6E73"; ACCENT="#007AFF"; WARN="#B45309"; BORDER="#D2D2D7"; SOFT="#E8E8ED"
 
 class App(tk.Tk):
     def __init__(self):
@@ -25,13 +25,13 @@ class App(tk.Tk):
 
     def _build(self):
         s=ttk.Style(self); s.theme_use("clam")
-        s.configure("TButton",font=("Segoe UI",10),padding=(14,9)); s.configure("TEntry",padding=8)
-        s.configure("Accent.TButton",font=("Segoe UI Semibold",10),padding=(18,10),foreground="white",background=ACCENT)
+        s.configure("TButton",font=("Segoe UI",10),padding=(14,9),background="#FFFFFF",bordercolor=BORDER); s.map("TButton",background=[("active",SOFT)]); s.configure("TEntry",padding=8,fieldbackground="#FFFFFF",bordercolor=BORDER)
+        s.configure("Accent.TButton",font=("Segoe UI Semibold",10),padding=(18,10),foreground="white",background=ACCENT,bordercolor=ACCENT); s.map("Accent.TButton",background=[("active","#0066CC")])
         root=tk.Frame(self,bg=BG); root.pack(fill="both",expand=True,padx=44,pady=30)
-        tk.Label(root,text="미지급금 대사",font=("Segoe UI Semibold",26),bg=BG,fg=TEXT).pack(anchor="w")
+        tk.Label(root,text="미지급금 대사",font=("Segoe UI Semibold",28),bg=BG,fg=TEXT).pack(anchor="w")
         tk.Label(root,text="정상 건은 숨기고 사람이 확인해야 할 항목만 선명하게 보여줍니다.",font=("Segoe UI",11),bg=BG,fg=MUTED).pack(anchor="w",pady=(4,18))
 
-        period=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground="#E5E5EA"); period.pack(fill="x",pady=(0,12))
+        period=tk.Frame(root,bg=CARD,highlightthickness=1,highlightbackground=BORDER); period.pack(fill="x",pady=(0,12))
         left=tk.Frame(period,bg=CARD); left.pack(side="left",padx=22,pady=16)
         tk.Label(left,text="대상 회계월",font=("Segoe UI Semibold",10),bg=CARD,fg=TEXT).pack(anchor="w")
         controls=tk.Frame(left,bg=CARD); controls.pack(anchor="w",pady=(7,0))
