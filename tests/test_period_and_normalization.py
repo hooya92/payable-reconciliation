@@ -18,6 +18,9 @@ class PeriodTests(unittest.TestCase):
         self.assertFalse(p.contains("2026-07-31"))
         self.assertFalse(p.contains("2026-09-01"))
 
+    def test_december_rolls_forward_year(self):
+        self.assertEqual(AccountingPeriod(2026,12).next(),AccountingPeriod(2027,1))
+
     def test_january_rolls_back_year(self):
         self.assertEqual((prior_period_for(2027, 1).year, prior_period_for(2027, 1).month), (2026, 12))
 

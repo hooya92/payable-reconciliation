@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from openpyxl import Workbook
-from adapters.excel.reader import read_douzone, read_prior
+from adapters.excel.reader import detect_statement_periods, read_douzone, read_prior
 from domain.period import AccountingPeriod
 
 class ExcelEdgeCaseTests(unittest.TestCase):
@@ -149,6 +149,22 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             self.assertEqual(len(r.items),0)
             self.assertTrue(any("상세 합계" in x.reason for x in r.issues))
 
+    def test_detect_statement_periods_from_monthly_tabs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"multi_month.xlsx"; wb=Workbook(); june=wb.active; june.title="26.06"
+            june.append(["거래처코드","거래처명","날짜","적요","금액"])
+            june.append(["001001","6월업체","2026-06-30","6월 비용",100])
+            july=wb.create_sheet("2026-07")
+            july.append(["거래처코드","거래처명","날짜","적요","금액"])
+            july.append(["002002","7월업체","2026-07-31","7월 비용",200])
+            cover=wb.create_sheet("안내")
+            cover.append(["월별 명세서 안내"])
+            wb.save(p)
+            self.assertEqual(
+                detect_statement_periods(p),
+                [AccountingPeriod(2026,6),AccountingPeriod(2026,7)],
+            )
+
     def test_monthly_workbook_reads_only_requested_statement_sheet(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/"multi_month.xlsx"; wb=Workbook(); july=wb.active; july.title="26.07"
@@ -172,7 +188,7 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             aug.append(["거래처코드","거래처명","날짜","적요","금액"])
             aug.append(["002002","8월업체","2026-08-31","8월 비용",200])
             wb.save(p)
-            with self.assertRaisesRegex(ValueError,"2026년 9월 시트를 찾지 못했습니다"):
+            with self.assertRaisesRegex(ValueError,"현재 대상 회계월은 2026년 10월이므로 2026년 9월 명세서가 필요합니다"):
                 read_prior(p,"",AccountingPeriod(2026,9))
 
 if __name__=="__main__": unittest.main()

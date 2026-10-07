@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from collections import Counter
 
-from app import changed_snapshot_paths, completion_detail, reconciliation_breakdown, snapshot_file_digests
+from app import changed_snapshot_paths, completion_detail, reconciliation_breakdown, snapshot_file_digests, suggest_reconciliation_period
 from domain.models import Status
 from domain.period import AccountingPeriod
 
@@ -19,6 +19,30 @@ class UISafetyTests(unittest.TestCase):
         text=completion_detail(AccountingPeriod(2026,8),4,counts)
         self.assertIn("자동 대사 4건",text)
         self.assertIn("2026년 8월",text)
+
+    def test_statement_tabs_can_suggest_target_accounting_month(self):
+        current=AccountingPeriod(2026,9)
+        suggested=suggest_reconciliation_period(
+            current,
+            [[AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
+        )
+        self.assertEqual(suggested,AccountingPeriod(2026,8))
+
+    def test_no_month_suggestion_when_required_statement_month_exists(self):
+        current=AccountingPeriod(2026,9)
+        suggested=suggest_reconciliation_period(
+            current,
+            [[AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
+        )
+        self.assertIsNone(suggested)
+
+    def test_no_auto_suggestion_when_statement_files_share_no_month(self):
+        current=AccountingPeriod(2026,9)
+        suggested=suggest_reconciliation_period(
+            current,
+            [[AccountingPeriod(2026,7)],[AccountingPeriod(2026,8)]],
+        )
+        self.assertIsNone(suggested)
 
     def test_source_snapshot_detects_file_change(self):
         with tempfile.TemporaryDirectory() as tmp:
