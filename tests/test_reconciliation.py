@@ -19,9 +19,11 @@ class ReconcileTests(unittest.TestCase):
                       [j("051330", "7월 FMC사업부(주류) 용차료/유류비", 100)])
         self.assertEqual(r[0].status, Status.MATCHED)
 
-    def test_same_amount_different_description_is_exception(self):
+    def test_unique_same_vendor_code_and_amount_passes_with_description_note(self):
         r = reconcile([p("051330", "주류", 100)], [j("051330", "일반", 100)])
-        self.assertEqual(r[0].status, Status.DESCRIPTION_MISMATCH)
+        self.assertEqual(r[0].status, Status.MATCHED)
+        self.assertEqual(r[0].rule, "CODE_AMOUNT_UNIQUE_WITH_NOTE")
+        self.assertIn("적요 차이", r[0].reason)
 
     def test_same_amount_other_vendor_is_exception(self):
         r = reconcile([p("051330", "주류", 100)], [j("999999", "주류", 100)])

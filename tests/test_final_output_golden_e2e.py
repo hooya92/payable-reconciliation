@@ -44,24 +44,29 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             # Summary is a fixed golden answer for this adversarial fixture.
             summary=dict(wb["요약"].iter_rows(min_row=1,max_col=2,values_only=True))
             self.assertEqual(summary["대상 회계월"],"2026년 8월")
-            self.assertEqual(summary["확인 필요"],6)
+            self.assertEqual(summary["확인 필요"],4)
             self.assertEqual(summary["입력 형식 확인"],3)
             self.assertEqual(summary["차월 초안"],0)
             self.assertEqual(summary["차월 초안 금액"],0)
             self.assertEqual(summary["당월 신규 명세 검토"],1)
-            self.assertEqual(summary["초안 제외 검토건"],7)
+            self.assertEqual(summary["초안 제외 검토건"],5)
 
-            # Only the exact match may appear as automatically completed.
+            # Unique code+amount matches complete automatically; name/description differences are reference notes.
             completed=list(wb["자동대사완료"].iter_rows(min_row=2,values_only=True))
-            self.assertEqual(len(completed),1)
-            self.assertEqual(completed[0][1],"001001")
-            self.assertEqual(completed[0][4],110000)
+            self.assertEqual(len(completed),3)
+            completed_by_code={row[1]:row for row in completed}
+            self.assertEqual(completed_by_code["001001"][4],110000)
+            self.assertIn("적요 차이",completed_by_code["001002"][6])
+            self.assertTrue(
+                "거래처명 차이" in completed_by_code["001004"][6]
+                or "거래처명 오타 의심" in completed_by_code["001004"][6]
+            )
 
-            # Every non-exact prior item remains visible for human review.
+            # Only code/amount/ambiguity/input-safety exceptions remain for human review.
             review=list(wb["확인필요"].iter_rows(min_row=2,values_only=True))
-            self.assertEqual(len(review),6)
+            self.assertEqual(len(review),4)
             review_codes={row[6] for row in review}
-            self.assertEqual(review_codes,{"001002","001003","001004","001005","001006","001007"})
+            self.assertEqual(review_codes,{"001003","001005","001006","001007"})
 
             # Dirty source rows are quarantined and never disappear silently.
             input_issues=list(wb["입력데이터확인"].iter_rows(min_row=2,values_only=True))

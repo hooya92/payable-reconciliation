@@ -49,9 +49,11 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     for j in new_items:
         nw.append(["사람 확인 필요",j.date,j.account_code,j.vendor_code,j.vendor_name,j.description,int(j.credit),
                    "당월 발생·당월 지급/취소·재발행 규칙 미확정으로 차월 초안 자동포함 안 함"])
-    ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","전월적요","금액","더존행"])
+    ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","전월적요","금액","더존행","참고"])
     for x in results:
-        if x.status==Status.MATCHED: ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number])
+        if x.status==Status.MATCHED:
+            note=x.reason if x.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" else ""
+            ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number,note])
     info=wb.create_sheet("요약",0)
     info.append(["대상 회계월",period_label])
     info.append(["확인 필요",sum(x.status!=Status.MATCHED for x in results)])

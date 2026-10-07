@@ -99,45 +99,35 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
             continue
 
         exact = [x for x in candidates if normalize_text(x.description) == normalize_text(item.description)]
-        if len(exact) == 1 and len(candidates) == 1:
-            line=exact[0]
+        if len(candidates) == 1:
+            line=candidates[0]
             used.add(id(line))
-            if normalize_text(line.vendor_name) != normalize_text(item.vendor_name):
-                if _text_typo(line.vendor_name,item.vendor_name):
-                    results.append(ReconcileResult(
-                        Status.INPUT_TYPO_SUSPECT, item, line,
-                        "거래처코드·금액·적요는 일치하고 거래처명만 1글자 수준 차이 — 거래처명 수기 오타 의심",
-                        "VENDOR_NAME_TYPO"
-                    ))
-                else:
-                    results.append(ReconcileResult(
-                        Status.VENDOR_NAME_MISMATCH, item, line,
-                        "거래처코드는 같지만 거래처명이 다름", "VENDOR_NAME"
-                    ))
+
+            same_name=normalize_text(line.vendor_name) == normalize_text(item.vendor_name)
+            same_desc=normalize_text(line.description) == normalize_text(item.description)
+            notes=[]
+            if not same_name:
+                notes.append("거래처명 오타 의심" if _text_typo(line.vendor_name,item.vendor_name) else "거래처명 차이")
+            if not same_desc:
+                notes.append("적요 오타 의심" if _text_typo(line.description,item.description) else "적요 차이")
+
+            if notes:
+                results.append(ReconcileResult(
+                    Status.MATCHED, item, line,
+                    "거래처코드·금액이 유일하게 일치 · 참고: " + " / ".join(notes),
+                    "CODE_AMOUNT_UNIQUE_WITH_NOTE"
+                ))
             else:
-                results.append(ReconcileResult(Status.MATCHED, item, line, "거래처코드·금액·적요 일치", "EXACT"))
+                results.append(ReconcileResult(
+                    Status.MATCHED, item, line,
+                    "거래처코드·금액·적요 일치", "EXACT"
+                ))
 
         elif len(exact) > 1 or len(candidates) > 1:
             results.append(ReconcileResult(
                 Status.AMBIGUOUS, item, (exact or candidates)[0],
                 "동일 거래처/금액 후보가 여러 건", "DUPLICATE"
             ))
-
-        elif len(candidates) == 1:
-            line=candidates[0]
-            used.add(id(line))
-            same_name=normalize_text(line.vendor_name) == normalize_text(item.vendor_name)
-            if same_name and _text_typo(line.description,item.description):
-                results.append(ReconcileResult(
-                    Status.INPUT_TYPO_SUSPECT, item, line,
-                    "거래처코드·거래처명·금액은 일치하고 적요만 1글자 수준 차이 — 적요 수기 오타 의심",
-                    "DESCRIPTION_TYPO"
-                ))
-            else:
-                reason="거래처코드와 금액은 같지만 적요가 다름"
-                if not same_name:
-                    reason += " · 거래처명도 다름"
-                results.append(ReconcileResult(Status.DESCRIPTION_MISMATCH, item, line, reason, "VENDOR_AMOUNT"))
 
         else:
             remaining_vendor_debits = [
