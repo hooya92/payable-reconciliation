@@ -49,6 +49,24 @@ def _is_summary_label(v):
     return _header(v) in {"소계","합계","총계","전체합계"}
 
 
+# Conservative aliases observed in common Douzone/iCUBE-style journal exports.
+# File names are intentionally ignored; classification is based on worksheet structure.
+DOUZONE_DATE_HEADERS=("기표일자","기표일","전표일자","전표일","회계일자","일자","날짜")
+DOUZONE_ACCOUNT_CODE_HEADERS=("계정코드","계정 코드","계정과목코드","계정과목 코드")
+DOUZONE_ACCOUNT_NAME_HEADERS=("계정과목명","계정과목","계정명")
+DOUZONE_VENDOR_CODE_HEADERS=("거래처코드","거래처 코드","거래처번호","거래처 번호","거래처No","거래처 No")
+DOUZONE_VENDOR_NAME_HEADERS=("거래처명","거래처 명","거래처","업체명")
+DOUZONE_DESCRIPTION_HEADERS=("적요","적요명","전표적요","전표 적요","내용")
+DOUZONE_DEBIT_HEADERS=("차변","차변금액","차변 금액","차변액")
+DOUZONE_CREDIT_HEADERS=("대변","대변금액","대변 금액","대변액")
+DOUZONE_REQUIRED_GROUPS=(
+    DOUZONE_VENDOR_NAME_HEADERS,
+    DOUZONE_DESCRIPTION_HEADERS,
+    DOUZONE_DEBIT_HEADERS,
+    DOUZONE_CREDIT_HEADERS,
+)
+
+
 def _period_from_sheet_title(title):
     """Parse common monthly sheet names such as 26.07, 2026-07, 2026년 7월."""
     text=_text(title).strip()
@@ -164,21 +182,21 @@ def _first(vals, *names):
 def _douzone_columns(vals):
     # 더존 전표출력은 '코드'가 2개일 수 있다.
     # 계정과목명 바로 왼쪽 코드=계정코드, 거래처명 바로 왼쪽 코드=거래처코드.
-    account_name=_first(vals,"계정과목명","계정과목","계정명")
-    vendor_name=_first(vals,"거래처명","거래처 명")
-    account_code=_first(vals,"계정코드","계정 코드")
-    vendor_code=_first(vals,"거래처코드","거래처 코드")
+    account_name=_first(vals,*DOUZONE_ACCOUNT_NAME_HEADERS)
+    vendor_name=_first(vals,*DOUZONE_VENDOR_NAME_HEADERS)
+    account_code=_first(vals,*DOUZONE_ACCOUNT_CODE_HEADERS)
+    vendor_code=_first(vals,*DOUZONE_VENDOR_CODE_HEADERS)
     if account_code is None and account_name and account_name>1 and vals[account_name-2]=="코드":
         account_code=account_name-1
     if vendor_code is None and vendor_name and vendor_name>1 and vals[vendor_name-2]=="코드":
         vendor_code=vendor_name-1
     return {
-        "date":_first(vals,"기표일자","일자","날짜"),
+        "date":_first(vals,*DOUZONE_DATE_HEADERS),
         "account_code":account_code, "account_name":account_name,
         "vendor_code":vendor_code, "vendor_name":vendor_name,
-        "description":_first(vals,"적요","적요명"),
-        "debit":_first(vals,"차변","차변금액","차변 금액"),
-        "credit":_first(vals,"대변","대변금액","대변 금액"),
+        "description":_first(vals,*DOUZONE_DESCRIPTION_HEADERS),
+        "debit":_first(vals,*DOUZONE_DEBIT_HEADERS),
+        "credit":_first(vals,*DOUZONE_CREDIT_HEADERS),
     }
 
 
@@ -186,7 +204,7 @@ def detect_douzone_periods(path: str|Path, account_codes:set[str]|None=None) -> 
     """Detect months that actually contain rows for the selected account code(s) in a Douzone Raw file."""
     wanted={normalize_code(x) for x in (account_codes or set()) if x}
     wb=load_workbook(path,read_only=True,data_only=False)
-    groups=[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")]
+    groups=DOUZONE_REQUIRED_GROUPS
     found=set()
     try:
         for ws in wb.worksheets:
@@ -221,12 +239,7 @@ def classify_excel_input(path: str|Path) -> str:
         ("적요","내역","내용"),
         ("금액","미지급금","잔액"),
     ]
-    douzone_groups=[
-        ("거래처명","거래처 명"),
-        ("적요","적요명"),
-        ("차변","차변금액","차변 금액"),
-        ("대변","대변금액","대변 금액"),
-    ]
+    douzone_groups=DOUZONE_REQUIRED_GROUPS
     prior_found=False
     douzone_found=False
     try:
@@ -260,7 +273,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
         raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
     wb=load_workbook(path,read_only=True,data_only=False)
     out=ReadResult()
-    groups=[("거래처명","거래처 명"),("적요","적요명"),("차변","차변금액","차변 금액"),("대변","대변금액","대변 금액")]
+    groups=DOUZONE_REQUIRED_GROUPS
     try:
         for ws in wb.worksheets:
             hr, vals=_header_row(ws,groups)
