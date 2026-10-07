@@ -65,7 +65,23 @@ class App(tk.Tk):
         s=ttk.Style(self); s.theme_use("clam")
         s.configure("TButton",font=("Segoe UI",10),padding=(14,9),background="#FFFFFF",bordercolor=BORDER); s.map("TButton",background=[("active",SOFT)]); s.configure("TEntry",padding=8,fieldbackground="#FFFFFF",bordercolor=BORDER)
         s.configure("Accent.TButton",font=("Segoe UI Semibold",10),padding=(18,10),foreground="white",background=ACCENT,bordercolor=ACCENT); s.map("Accent.TButton",background=[("active","#0066CC")])
-        root=tk.Frame(self,bg=BG); root.pack(fill="both",expand=True,padx=44,pady=30)
+        shell=tk.Frame(self,bg=BG); shell.pack(fill="both",expand=True)
+        self.scroll_canvas=tk.Canvas(shell,bg=BG,highlightthickness=0,borderwidth=0)
+        scroll=ttk.Scrollbar(shell,orient="vertical",command=self.scroll_canvas.yview)
+        self.scroll_canvas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side="right",fill="y")
+        self.scroll_canvas.pack(side="left",fill="both",expand=True)
+
+        scroll_body=tk.Frame(self.scroll_canvas,bg=BG)
+        self.scroll_window=self.scroll_canvas.create_window((0,0),window=scroll_body,anchor="nw")
+        root=tk.Frame(scroll_body,bg=BG); root.pack(fill="both",expand=True,padx=44,pady=30)
+
+        scroll_body.bind("<Configure>",lambda _e:self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all")))
+        self.scroll_canvas.bind("<Configure>",lambda e:self.scroll_canvas.itemconfigure(self.scroll_window,width=e.width))
+        self.bind_all("<MouseWheel>",self._on_mousewheel,add="+")
+        self.bind_all("<Button-4>",self._on_mousewheel,add="+")
+        self.bind_all("<Button-5>",self._on_mousewheel,add="+")
+
         tk.Label(root,text="명세서 대사",font=("Segoe UI Semibold",28),bg=BG,fg=TEXT).pack(anchor="w")
         tk.Label(root,text="전월 명세서와 더존 전표를 대사해 차월 명세서 초안을 만들고, 확인이 필요한 항목만 보여줍니다.",font=("Segoe UI",11),bg=BG,fg=MUTED).pack(anchor="w",pady=(4,18))
 
@@ -109,6 +125,21 @@ class App(tk.Tk):
         self.detail.pack(fill="both",expand=True,pady=(10,0))
         tk.Label(root,text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",font=("Segoe UI",9),bg=BG,fg=MUTED).pack(anchor="w",pady=(18,0))
         self.account_codes.trace_add("write",lambda *_:self._invalidate_results())
+
+    def _on_mousewheel(self,event):
+        # File lists and the result table keep their own wheel behavior.
+        if isinstance(event.widget,(tk.Listbox,ttk.Treeview)):
+            return
+        if getattr(event,"num",None)==4:
+            steps=-1
+        elif getattr(event,"num",None)==5:
+            steps=1
+        else:
+            delta=getattr(event,"delta",0)
+            if not delta:
+                return
+            steps=-1 if delta>0 else 1
+        self.scroll_canvas.yview_scroll(steps,"units")
 
     def _update_period(self):
         try:
