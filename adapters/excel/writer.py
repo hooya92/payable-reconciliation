@@ -44,3 +44,52 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     if draft_rows:
         draft.append(["전체합계","","","","",sum(r[5] for r in draft_rows),"차월명세서 초안 합계",""])
 
+
+    nw=wb.create_sheet("신규미지급"); nw.append(["기표일자","계정코드","거래처코드","거래처명","적요","대변"])
+    for j in new_items: nw.append([j.date,j.account_code,j.vendor_code,j.vendor_name,j.description,int(j.credit)])
+    ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","전월적요","금액","더존행"])
+    for x in results:
+        if x.status==Status.MATCHED: ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number])
+    info=wb.create_sheet("요약",0)
+    info.append(["대상 회계월",period_label])
+    info.append(["확인 필요",sum(x.status!=Status.MATCHED for x in results)])
+    info.append(["입력 형식 확인",len(issues)])
+    info.append(["차월 초안",len(draft_rows)])
+    info.append(["차월 초안 금액",sum(r[5] for r in draft_rows)])
+    info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID) for x in results)])
+    info.append(["초안 원칙","확정 미지급 이월 + 당월 신규만 포함 / 검토 필요 건은 제외"])
+
+    palette={"header":"1D1D1F","carry":"FFF4CC","new":"E8F5EE","subtotal":"F2F2F7","total":"E5E5EA"}
+    thin=Side(style="thin",color="E5E5EA")
+    for sheet in wb.worksheets:
+        sheet.sheet_view.showGridLines=False
+        for cell in sheet[1]:
+            cell.font=Font(bold=True,color="FFFFFF")
+            cell.fill=PatternFill("solid",fgColor=palette["header"])
+            cell.alignment=Alignment(vertical="center",horizontal="center")
+        sheet.freeze_panes="A2"
+        for row in sheet.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment=Alignment(vertical="top",wrap_text=True)
+                cell.border=Border(bottom=thin)
+        for col_idx,cell in enumerate(sheet[1],1):
+            if cell.value in {"금액","전월금액","더존차변","대변","차월 초안 금액"}:
+                for rr in range(2,sheet.max_row+1):
+                    sheet.cell(rr,col_idx).number_format="#,##0"
+                    sheet.cell(rr,col_idx).alignment=Alignment(horizontal="right",vertical="top")
+        for col in sheet.columns:
+            sheet.column_dimensions[col[0].column_letter].width=min(max(max(len(str(x.value or "")) for x in col)+2,10),40)
+
+    for rr in range(2,draft.max_row+1):
+        kind=draft.cell(rr,1).value
+        fill={"전월이월":palette["carry"],"당월신규":palette["new"],"소계":palette["subtotal"],"전체합계":palette["total"]}.get(kind)
+        if fill:
+            for cell in draft[rr]: cell.fill=PatternFill("solid",fgColor=fill)
+        if kind in ("소계","전체합계"):
+            for cell in draft[rr]: cell.font=Font(bold=True)
+    draft.column_dimensions["E"].width=36
+    draft.column_dimensions["G"].width=22
+    draft.column_dimensions["H"].width=28
+    info.column_dimensions["A"].width=22
+    info.column_dimensions["B"].width=58
+    wb.save(out)
