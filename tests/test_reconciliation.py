@@ -19,6 +19,14 @@ class ReconcileTests(unittest.TestCase):
                       [j("051330", "7월 FMC사업부(주류) 용차료/유류비", 100)])
         self.assertEqual(r[0].status, Status.MATCHED)
 
+    def test_multiline_description_is_normalized_as_whitespace(self):
+        r = reconcile(
+            [p("051330", "7월 용차료\n7월 시스템비", 100)],
+            [j("051330", "7월 용차료 7월 시스템비", 100)],
+        )
+        self.assertEqual(r[0].status, Status.MATCHED)
+        self.assertEqual(r[0].rule, "EXACT")
+
     def test_unique_same_vendor_code_and_amount_passes_with_description_note(self):
         r = reconcile([p("051330", "주류", 100)], [j("051330", "일반", 100)])
         self.assertEqual(r[0].status, Status.MATCHED)

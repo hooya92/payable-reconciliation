@@ -974,10 +974,6 @@ class App(ctk.CTk):
                 "success","결과 저장 완료",
                 f"{Path(path).name} · 원본 Excel은 수정하지 않았습니다."
             )
-            messagebox.showinfo(
-                "저장 완료",
-                "원본은 수정하지 않았습니다.\n확인필요/입력데이터확인 시트를 먼저 확인해주세요."
-            )
         except Exception as e:
             messagebox.showerror("저장 실패",str(e))
 
