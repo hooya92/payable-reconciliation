@@ -89,12 +89,9 @@ def completion_detail(period, prior_count, counts, new_count=0, issue_count=0):
 
 
 def suggest_reconciliation_period(current_period, statement_period_groups):
-    """Suggest a target accounting month only when all detected statement files share a month."""
+    """Infer the target accounting month from the latest statement month shared by all files."""
     groups=[set(group) for group in statement_period_groups if group]
     if not groups:
-        return None
-    expected=current_period.previous()
-    if all(expected in group for group in groups):
         return None
     common=set.intersection(*groups)
     if not common:
@@ -514,92 +511,35 @@ class App(ctk.CTk):
             return
 
         suggested=suggest_reconciliation_period(current,detected)
-        expected=current.previous()
         if suggested is None:
-            if not all(expected in periods for periods in detected):
-                self._set_banner(
-                    "warning",
-                    "명세서 월 확인 필요",
-                    f"현재 {current.label} 대사에는 {expected.label} 명세서가 필요합니다. 선택한 파일들의 월이 서로 달라 자동 설정하지 않았습니다."
-                )
-            return
-
-        suggested_statement=suggested.previous()
-        details="\n".join(lines)
-        change=messagebox.askyesno(
-            "회계월 자동 설정",
-            f"현재 대상 회계월은 {current.label}입니다.\n"
-            f"→ 필요한 전월 명세서: {expected.label}\n\n"
-            f"선택한 파일에서 확인된 월별 시트:\n{details}\n\n"
-            f"공통으로 확인된 최신 명세서는 {suggested_statement.label}입니다.\n"
-            f"대상 회계월을 {suggested.label}로 자동 변경할까요?\n\n"
-            "[예] 자동 변경   [아니오] 현재 회계월 유지"
-        )
-        if change:
-            self.year.set(suggested.year)
-            self.month.set(suggested.month)
-            self._update_period()
-            self._set_banner(
-                "idle",
-                "회계월 자동 설정",
-                f"{suggested_statement.label} 명세서에 맞춰 대상 회계월을 {suggested.label}로 변경했습니다."
-            )
-        else:
             self._set_banner(
                 "warning",
-                "명세서 월 확인",
-                f"현재 {current.label} 대사에는 {expected.label} 명세서가 필요합니다."
+                "명세서 월 확인 필요",
+                "선택한 명세서 파일들의 월별 시트가 서로 달라 회계월을 자동 설정하지 않았습니다."
             )
+            return
 
-    def _add_classified_files(self,paths,requested_kind):
-        added_prior=False
-        added_raw=False
-        moved=[]
-        rejected=[]
-        for p in paths:
-            try:
-                kind=classify_excel_input(p)
-            except Exception as e:
-                rejected.append(f"{Path(p).name}: 파일을 읽지 못함 ({e})")
-                continue
-
-            if kind=="prior":
-                if p not in self.prior_paths:
-                    self.prior_paths.append(p)
-                    self.prior_list.insert("end",Path(p).name)
-                    added_prior=True
-                    if requested_kind!="prior":
-                        moved.append(f"{Path(p).name} → 전월 명세서")
-            elif kind=="douzone":
-                if p not in self.douzone_paths:
-                    self.douzone_paths.append(p)
-                    self.douzone_list.insert("end",Path(p).name)
-                    added_raw=True
-                    if requested_kind!="douzone":
-                        moved.append(f"{Path(p).name} → 더존 Raw")
-            elif kind=="ambiguous":
-                rejected.append(f"{Path(p).name}: 명세서와 더존 구조가 함께 보여 자동 분류하지 않음")
-            else:
-                rejected.append(f"{Path(p).name}: 명세서/더존 Raw 구조를 식별하지 못함")
-
-        if added_prior or added_raw:
+        statement_period=suggested.previous()
+        if suggested==current:
             self._refresh_file_counts()
-            self._invalidate_results()
-        if added_prior:
-            self._maybe_align_period_to_statement_files()
-
-        if moved:
             self._set_banner(
                 "idle",
-                "파일 자동 분류",
-                "잘못된 칸에 선택한 파일을 구조를 확인해 자동으로 옮겼습니다: " + " · ".join(moved)
+                "회계월 확인",
+                f"{statement_period.label} 명세서를 기준으로 대상 회계월은 {suggested.label}입니다."
             )
-        if rejected:
-            messagebox.showwarning(
-                "파일 자동 분류 확인",
-                "다음 파일은 안전하게 자동 분류할 수 없어 추가하지 않았습니다.\n\n"
-                + "\n".join(rejected)
-            )
+            return
+
+        # Monthly statement tabs are the strongest signal for the reconciliation month.
+        # Set it automatically; the user can still change the spinboxes afterward for a historical rerun.
+        self.year.set(suggested.year)
+        self.month.set(suggested.month)
+        self._update_period()
+        self._refresh_file_counts()
+        self._set_banner(
+            "idle",
+            "회계월 자동 설정",
+            f"파일의 최신 공통 명세서 월 {statement_period.label}을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
+        )
 
     def pick_priors(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm")])
