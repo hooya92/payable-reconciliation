@@ -20,7 +20,7 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     # Draft is intentionally conservative: only definitely-unpaid prior items and
     # current-month credits are included. Review/ambiguous items stay out until a human decides.
     draft=wb.create_sheet("차월명세서 초안")
-    draft.append(["구분","담당자","거래처코드","거래처명","날짜","적요","금액","근거","원본파일","원본행"])
+    draft.append(["구분","거래처코드","거래처명","날짜","적요","금액","근거","원본"])
     for x in results:
         if x.status==Status.UNPAID:
             p=x.prior
