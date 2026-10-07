@@ -6,6 +6,7 @@ from openpyxl import load_workbook
 
 from domain.models import DataQuality, JournalLine, PayableItem
 from domain.normalization import normalize_code, parse_amount
+from domain.period import AccountingPeriod, parse_date
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,7 @@ def _douzone_columns(vals):
     }
 
 
-def read_douzone(path: str|Path, account_codes:set[str]|None=None) -> ReadResult:
+def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: AccountingPeriod|None=None) -> ReadResult:
     wb=load_workbook(path,read_only=True,data_only=True)
     out=ReadResult(); wanted={normalize_code(x) for x in (account_codes or set()) if x}
     for ws in wb.worksheets:
@@ -81,6 +82,12 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None) -> ReadResult
             raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
         out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
         for r in range(hr+1,ws.max_row+1):
+            raw_date=ws.cell(r,cols["date"]).value if cols["date"] else None
+            if period:
+                parsed_date=parse_date(raw_date)
+                if parsed_date is None:
+                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
+                if not period.contains(parsed_date): continue
             ac=normalize_code(ws.cell(r,cols["account_code"]).value) if cols["account_code"] else ""
             an=_text(ws.cell(r,cols["account_name"]).value) if cols["account_name"] else ""
             if wanted and ac not in wanted: continue
@@ -99,7 +106,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None) -> ReadResult
                 out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); continue
             out.items.append(JournalLine(code,_text(ws.cell(r,cols["vendor_name"]).value),ac,an,
                 _text(ws.cell(r,cols["description"]).value),debit,credit,
-                _date(ws.cell(r,cols["date"]).value) if cols["date"] else "",r))
+                _date(raw_date) if cols["date"] else "",r))
     wb.close()
     if not out.items and not out.issues: raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
     return out
