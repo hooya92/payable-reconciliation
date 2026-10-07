@@ -102,7 +102,7 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             for sheet_name in ("확인필요","입력데이터확인","당월신규명세"):
                 color=wb[sheet_name].sheet_properties.tabColor
                 self.assertIsNotNone(color)
-                self.assertTrue(color.rgb.endswith("FFD60A"))
+                self.assertTrue(color.rgb.endswith("FFD966"))
 
             for sheet_name in ("요약","차월명세서 초안","자동대사완료"):
                 self.assertIsNone(wb[sheet_name].sheet_properties.tabColor)
