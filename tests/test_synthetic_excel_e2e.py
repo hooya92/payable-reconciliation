@@ -26,5 +26,26 @@ class SyntheticExcelE2ETests(unittest.TestCase):
             self.assertEqual(counts[Status.VENDOR_MISMATCH],expected["VENDOR_MISMATCH"])
             self.assertEqual(len(new_payables(dz.items)),expected["new_payables"])
 
+    def test_split_raw_files_behave_like_one_input(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            expected=build(tmp,prior_count=1200,raw_noise=12000)
+            root=Path(tmp); source=root/"더존_Raw_2026_1년.xlsx"
+            from openpyxl import load_workbook, Workbook
+            wb=load_workbook(source,read_only=True,data_only=True); ws=wb.active
+            rows=ws.iter_rows(values_only=True); header=next(rows); chunks=[[],[],[]]
+            for i,row in enumerate(rows): chunks[i%3].append(row)
+            wb.close(); source.unlink()
+            for n,chunk in enumerate(chunks):
+                out=Workbook(); ow=out.active; ow.title="전표출력"; ow.append(header)
+                for row in chunk: ow.append(row)
+                out.save(root/f"더존_Raw_part{n+1}.xlsx")
+            prior=[]
+            for fp in sorted(root.glob("담당자*_미지급.xlsx")): prior.extend(read_prior(fp,fp.stem).items)
+            journal=[]
+            for fp in sorted(root.glob("더존_Raw_part*.xlsx")): journal.extend(read_douzone(fp,{"25301"},AccountingPeriod(2026,8)).items)
+            result=reconcile(prior,journal); counts=Counter(x.status for x in result)
+            self.assertEqual(counts[Status.MATCHED],expected["MATCHED"])
+            self.assertEqual(len(new_payables(journal)),expected["new_payables"])
+
 if __name__=="__main__":
     unittest.main()
