@@ -21,29 +21,26 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     # current-month credits are included. Review/ambiguous items stay out until a human decides.
     draft=wb.create_sheet("차월명세서 초안")
     draft.append(["구분","거래처코드","거래처명","날짜","적요","금액","근거","원본"])
+    draft_rows=[]
     for x in results:
         if x.status==Status.UNPAID:
             p=x.prior
-            draft.append(["전월이월",p.source.owner,p.vendor_code,p.vendor_name,p.date,p.description,int(p.amount),
-                          "당월 대응 차변 없음",p.source.file_name,p.source.row])
+            draft_rows.append(["전월이월",p.vendor_code,p.vendor_name,p.date,p.description,int(p.amount),
+                               "당월 대응 차변 없음",f"{p.source.file_name} · {p.source.row}행"])
     for j in new_items:
-        draft.append(["당월신규","",j.vendor_code,j.vendor_name,j.date,j.description,int(j.credit),
-                      "당월 미지급금 대변","더존",j.row_number])
+        draft_rows.append(["당월신규",j.vendor_code,j.vendor_name,j.date,j.description,int(j.credit),
+                           "당월 미지급금 대변",f"더존 · {j.row_number}행"])
+    draft_rows.sort(key=lambda x:(x[2] or "",x[1] or "",x[3] or "",x[4] or ""))
 
-    nw=wb.create_sheet("신규미지급"); nw.append(["기표일자","계정코드","거래처코드","거래처명","적요","대변"])
-    for j in new_items: nw.append([j.date,j.account_code,j.vendor_code,j.vendor_name,j.description,int(j.credit)])
-    ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","전월적요","금액","더존행"])
-    for x in results:
-        if x.status==Status.MATCHED: ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number])
-    info=wb.create_sheet("요약",0); info.append(["대상 회계월",period_label]); info.append(["확인 필요",sum(x.status!=Status.MATCHED for x in results)]); info.append(["입력 형식 확인",len(issues)])
-    info.append(["차월 초안",sum(x.status==Status.UNPAID for x in results)+len(new_items)])
-    info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID) for x in results)])
-    info.append(["초안 원칙","확정 미지급 이월 + 당월 신규만 포함 / 검토 필요 건은 제외"])
-    for sheet in wb.worksheets:
-        if sheet.max_row and sheet.max_column:
-            for c in sheet[1]:
-                c.font=Font(bold=True); c.fill=PatternFill("solid",fgColor="E9EEF5"); c.alignment=Alignment(vertical="center")
-            sheet.freeze_panes="A2"
-            for col in sheet.columns:
-                sheet.column_dimensions[col[0].column_letter].width=min(max(max(len(str(c.value or "")) for c in col)+2,10),44)
-    wb.save(out)
+    current=None; subtotal=0
+    for row in draft_rows:
+        vendor=(row[1],row[2])
+        if current is not None and vendor != current:
+            draft.append(["소계",current[0],current[1],"","",subtotal,"거래처 소계",""])
+            subtotal=0
+        draft.append(row); subtotal += row[5]; current=vendor
+    if current is not None:
+        draft.append(["소계",current[0],current[1],"","",subtotal,"거래처 소계",""])
+    if draft_rows:
+        draft.append(["전체합계","","","","",sum(r[5] for r in draft_rows),"차월명세서 초안 합계",""])
+
