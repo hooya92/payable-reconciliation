@@ -227,37 +227,21 @@ class App(ctk.CTk):
             corner_radius=24
         )
         hero.pack(fill="x",pady=(0,14))
-        hero.grid_columnconfigure(1,weight=1)
-
-        app_icon=ctk.CTkFrame(
-            hero,width=72,height=72,fg_color="#F4F7FC",
-            border_width=1,border_color="#E8ECF3",corner_radius=20
-        )
-        app_icon.grid(row=0,column=0,rowspan=2,padx=(22,18),pady=20)
-        app_icon.grid_propagate(False)
-        ctk.CTkLabel(
-            app_icon,text="▤",font=("Segoe UI Semibold",34),
-            text_color="#6E86B7"
-        ).place(relx=.5,rely=.46,anchor="center")
-        ctk.CTkLabel(
-            app_icon,text="↻",font=("Segoe UI Semibold",17),
-            text_color=ACCENT,fg_color=CARD,corner_radius=10,
-            width=24,height=24
-        ).place(relx=.72,rely=.72,anchor="center")
+        hero.grid_columnconfigure(0,weight=1)
 
         ctk.CTkLabel(
             hero,text="명세서 대사",font=("Segoe UI Semibold",31),
             text_color=TEXT,anchor="w"
-        ).grid(row=0,column=1,sticky="sw",pady=(21,0))
+        ).grid(row=0,column=0,sticky="sw",padx=(22,0),pady=(21,0))
         ctk.CTkLabel(
             hero,text="명세서와 더존 전표를 같은 회계월 기준으로 빠르게 대사합니다.",
             font=("Segoe UI",12),text_color=MUTED,anchor="w"
-        ).grid(row=1,column=1,sticky="nw",pady=(2,20))
+        ).grid(row=1,column=0,sticky="nw",padx=(22,0),pady=(2,20))
 
         local_badge=ctk.CTkFrame(
             hero,fg_color="#F3F5F8",corner_radius=18
         )
-        local_badge.grid(row=0,column=2,rowspan=2,sticky="e",padx=22)
+        local_badge.grid(row=0,column=1,rowspan=2,sticky="e",padx=22)
         ctk.CTkLabel(
             local_badge,text="●",font=("Segoe UI",13),text_color="#34C759"
         ).pack(side="left",padx=(14,7),pady=9)
@@ -354,19 +338,13 @@ class App(ctk.CTk):
             )
             file_box.grid(row=row,column=1,sticky="ew",pady=10)
             file_box.grid_propagate(False)
-            excel_badge=ctk.CTkLabel(
-                file_box,text="X",font=("Segoe UI Semibold",10),
-                text_color="white",fg_color="#22A447",
-                width=23,height=23,corner_radius=5
-            )
-            excel_badge.pack(side="left",padx=(12,8))
             lb=tk.Listbox(
                 file_box,height=1,font=("Segoe UI",11),selectmode="extended",
                 bg="#FAFBFD",fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
                 relief="flat",highlightthickness=0,borderwidth=0,
                 activestyle="none"
             )
-            lb.pack(side="left",fill="both",expand=True,pady=8)
+            lb.pack(side="left",fill="both",expand=True,padx=(12,8),pady=8)
 
             actions=ctk.CTkFrame(card,fg_color="transparent")
             actions.grid(row=row,column=2,padx=(14,18),pady=10,sticky="e")
