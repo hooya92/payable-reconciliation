@@ -117,7 +117,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
             if not code:
                 out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); continue
             out.items.append(JournalLine(code,_text(row[cols["vendor_name"]-1]),ac,an,
-                _text(row[cols["description"]-1]),debit,credit,
+                _text(row[cols["description"]-1].value),debit,credit,
                 _date(raw_date) if cols["date"] else "",r))
     wb.close()
     if not out.items and not out.issues: raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
