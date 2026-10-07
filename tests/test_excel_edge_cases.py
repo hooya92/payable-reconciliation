@@ -77,4 +77,22 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             self.assertEqual(len(r.items),0)
             self.assertEqual(len(r.issues),2)
 
+    def test_prior_formula_amount_is_quarantined(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"prior_formula.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["거래처코드","거래처명","날짜","적요","금액"])
+            ws.append(["001234","가상상사","2026-07-31","유류비","=50000+50000"]); wb.save(p)
+            r=read_prior(p)
+            self.assertEqual(len(r.items),0)
+            self.assertTrue(any("수식" in x.reason for x in r.issues))
+
+    def test_douzone_formula_amount_is_quarantined(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/"raw_formula.xlsx"; wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명","거래처코드","거래처명","적요","차변","대변"])
+            ws.append(["2026-08-01","25301","미지급금-일반","001234","가상상사","유류비","=50000+50000",0]); wb.save(p)
+            r=read_douzone(p,{"25301"},AccountingPeriod(2026,8))
+            self.assertEqual(len(r.items),0)
+            self.assertTrue(any(x.field=="차변" and "수식" in x.reason for x in r.issues))
+
 if __name__=="__main__": unittest.main()

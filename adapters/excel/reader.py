@@ -28,6 +28,7 @@ class ReadResult:
 
 
 def _text(v): return "" if v is None else str(v).strip()
+def _is_formula(cell): return getattr(cell,"data_type",None)=="f" or (isinstance(cell.value,str) and cell.value.startswith("="))
 def _code_from_cell(cell):
     """Preserve identifier leading zeroes when Excel stores a numeric code with a zero-only display format."""
     value=cell.value
@@ -87,7 +88,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
     wanted={normalize_code(x) for x in (account_codes or set()) if x}
     if not wanted:
         raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
-    wb=load_workbook(path,read_only=True,data_only=True)
+    wb=load_workbook(path,read_only=True,data_only=False)
     out=ReadResult()
     try:
         for ws in wb.worksheets:
@@ -101,17 +102,33 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                 raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
             out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
             for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
-                ac=_code_from_cell(row[cols["account_code"]-1])
+                account_cell=row[cols["account_code"]-1]
+                if _is_formula(account_cell):
+                    out.issues.append(InputIssue("더존",ws.title,r,"계정코드",account_cell.value,"수식 셀은 대상 계정 여부를 확정할 수 없어 자동 처리하지 않음")); continue
+                ac=_code_from_cell(account_cell)
                 if ac not in wanted:
                     continue
                 an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
 
-                raw_date=row[cols["date"]-1].value if cols["date"] else None
+                date_cell=row[cols["date"]-1] if cols["date"] else None
+                raw_date=date_cell.value if date_cell else None
+                if date_cell is not None and _is_formula(date_cell):
+                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"수식 날짜는 대상월을 확정할 수 없어 자동 처리하지 않음")); continue
                 if period:
                     parsed_date=parse_date(raw_date)
                     if parsed_date is None:
                         out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
                     if not period.contains(parsed_date): continue
+
+                formula_field=None
+                for field,col in (("거래처코드",cols["vendor_code"]),("거래처명",cols["vendor_name"]),
+                                  ("적요",cols["description"]),("차변",cols["debit"]),("대변",cols["credit"])):
+                    cell=row[col-1]
+                    if _is_formula(cell):
+                        formula_field=(field,cell.value); break
+                if formula_field:
+                    out.issues.append(InputIssue("더존",ws.title,r,formula_field[0],formula_field[1],
+                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 처리하지 않음")); continue
 
                 d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
                 suspicious=False
@@ -150,7 +167,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
 
 
 def read_prior(path: str|Path, owner: str = "") -> ReadResult:
-    wb=load_workbook(path,read_only=True,data_only=True); out=ReadResult()
+    wb=load_workbook(path,read_only=True,data_only=False); out=ReadResult()
     try:
         for ws in wb.worksheets:
             hr,vals=_header_row(ws,[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")])
@@ -167,14 +184,22 @@ def read_prior(path: str|Path, owner: str = "") -> ReadResult:
                 raise ValueError("전월 명세서 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
             out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
             for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
-                code=_code_from_cell(row[cols["vendor_code"]-1])
-                vendor_name=_text(row[cols["vendor_name"]-1].value)
-                desc=_text(row[cols["description"]-1].value)
-                a=parse_amount(row[cols["amount"]-1].value)
+                code_cell=row[cols["vendor_code"]-1]
+                name_cell=row[cols["vendor_name"]-1]
+                desc_cell=row[cols["description"]-1]
+                amount_cell=row[cols["amount"]-1]
+                code=_code_from_cell(code_cell)
+                vendor_name=_text(name_cell.value)
+                desc=_text(desc_cell.value)
 
-                if not code and not vendor_name and not desc and (a.value or 0)==0:
-                    continue
                 if not code and not desc and _is_summary_label(vendor_name):
+                    continue
+                if any(_is_formula(cell) for cell in (code_cell,name_cell,desc_cell,amount_cell)):
+                    out.issues.append(InputIssue("전월명세",ws.title,r,"수식",amount_cell.value,
+                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 대사하지 않음")); continue
+
+                a=parse_amount(amount_cell.value)
+                if not code and not vendor_name and not desc and (a.value or 0)==0:
                     continue
                 if a.quality==DataQuality.SUSPICIOUS:
                     out.issues.append(InputIssue("전월명세",ws.title,r,"금액",a.raw,a.reason)); continue
