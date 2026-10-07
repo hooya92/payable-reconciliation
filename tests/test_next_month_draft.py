@@ -26,8 +26,8 @@ class NextMonthDraftTests(unittest.TestCase):
             rows=list(ws.iter_rows(min_row=2,values_only=True))
             self.assertEqual(len(rows),2)
             self.assertEqual({r[0] for r in rows},{"전월이월","당월신규"})
-            self.assertEqual({r[6] for r in rows},{1000,4000})
-            self.assertNotIn(3000,{r[6] for r in rows})
+            self.assertEqual({r[5] for r in rows},{1000,4000})
+            self.assertNotIn(3000,{r[5] for r in rows})
             wb.close()
 
 if __name__=="__main__": unittest.main()
