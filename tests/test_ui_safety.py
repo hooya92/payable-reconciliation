@@ -3,12 +3,15 @@ import unittest
 from pathlib import Path
 from collections import Counter
 
-from app import changed_snapshot_paths, completion_detail, reconciliation_breakdown, snapshot_file_digests, suggest_reconciliation_period
+from app import App, changed_snapshot_paths, completion_detail, reconciliation_breakdown, snapshot_file_digests, suggest_reconciliation_period
 from domain.models import Status
 from domain.period import AccountingPeriod
 
 
 class UISafetyTests(unittest.TestCase):
+    def test_file_attachment_classifier_handler_exists(self):
+        self.assertTrue(callable(getattr(App,"_add_classified_files",None)))
+
     def test_reconciliation_breakdown_separates_auto_review_and_input(self):
         counts=Counter({Status.MATCHED:4,Status.AMBIGUOUS:2,Status.UNPAID:1})
         result=reconciliation_breakdown(counts,new_count=3,issue_count=2)
