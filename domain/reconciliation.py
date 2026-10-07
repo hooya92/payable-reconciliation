@@ -27,14 +27,22 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
             results.append(ReconcileResult(Status.AMBIGUOUS, item, candidates[0] if candidates else None, "전월 명세에 동일 거래처/금액이 중복되어 1:1 할당 불가", "PRIOR_DUPLICATE"))
             continue
         exact = [x for x in candidates if normalize_text(x.description) == normalize_text(item.description)]
-        if len(exact) == 1:
-            used.add(id(exact[0]))
-            results.append(ReconcileResult(Status.MATCHED, item, exact[0], "거래처코드·금액·적요 일치", "EXACT"))
+        if len(exact) == 1 and len(candidates) == 1:
+            line=exact[0]
+            used.add(id(line))
+            if normalize_text(line.vendor_name) != normalize_text(item.vendor_name):
+                results.append(ReconcileResult(Status.VENDOR_NAME_MISMATCH, item, line, "거래처코드는 같지만 거래처명이 다름", "VENDOR_NAME"))
+            else:
+                results.append(ReconcileResult(Status.MATCHED, item, line, "거래처코드·금액·적요 일치", "EXACT"))
         elif len(exact) > 1 or len(candidates) > 1:
             results.append(ReconcileResult(Status.AMBIGUOUS, item, (exact or candidates)[0], "동일 거래처/금액 후보가 여러 건", "DUPLICATE"))
         elif len(candidates) == 1:
-            used.add(id(candidates[0]))
-            results.append(ReconcileResult(Status.DESCRIPTION_MISMATCH, item, candidates[0], "거래처코드와 금액은 같지만 적요가 다름", "VENDOR_AMOUNT"))
+            line=candidates[0]
+            used.add(id(line))
+            reason="거래처코드와 금액은 같지만 적요가 다름"
+            if normalize_text(line.vendor_name) != normalize_text(item.vendor_name):
+                reason += " · 거래처명도 다름"
+            results.append(ReconcileResult(Status.DESCRIPTION_MISMATCH, item, line, reason, "VENDOR_AMOUNT"))
         else:
             partial = [x for x in by_vendor.get(key[0], []) if id(x) not in used and 0 < x.debit < item.amount]
             if partial:

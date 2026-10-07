@@ -43,12 +43,19 @@ class AdversarialReconciliationTests(unittest.TestCase):
         result = reconcile([payable("001001", "운송비", 100)], [debit("001001", "보관비", 100)])
         self.assertEqual(result[0].status, Status.DESCRIPTION_MISMATCH)
 
-    def test_vendor_name_change_does_not_override_code_identity(self):
+    def test_vendor_name_change_requires_review_even_when_code_matches(self):
         result = reconcile(
             [payable("001001", "운송비", 100, "이전상호")],
             [debit("001001", "운송비", 100, "변경상호")],
         )
-        self.assertEqual(result[0].status, Status.MATCHED)
+        self.assertEqual(result[0].status, Status.VENDOR_NAME_MISMATCH)
+
+    def test_punctuation_difference_is_not_erased_into_an_exact_match(self):
+        result = reconcile(
+            [payable("001001", "유류비/주류", 100)],
+            [debit("001001", "유류비 주류", 100)],
+        )
+        self.assertEqual(result[0].status, Status.DESCRIPTION_MISMATCH)
 
     def test_long_carryover_date_is_never_used_as_match_key(self):
         old = PayableItem("001001", "거래처", "운송비", Decimal("100"), "2024-01-31")

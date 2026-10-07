@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 from domain.models import DataQuality
-from domain.normalization import parse_amount
+from domain.normalization import normalize_text, parse_amount
 from domain.period import AccountingPeriod, prior_period_for
 
 
@@ -40,6 +40,14 @@ class AmountTests(unittest.TestCase):
         x = parse_amount("8600만원")
         self.assertEqual(x.value, Decimal("86000000"))
         self.assertEqual(x.quality, DataQuality.SUSPICIOUS)
+
+
+class TextNormalizationTests(unittest.TestCase):
+    def test_whitespace_only_differences_are_safe_to_normalize(self):
+        self.assertEqual(normalize_text("  유류비   주류  "), normalize_text("유류비 주류"))
+
+    def test_punctuation_is_preserved(self):
+        self.assertNotEqual(normalize_text("유류비/주류"), normalize_text("유류비 주류"))
 
 
 if __name__ == "__main__":

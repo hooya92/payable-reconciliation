@@ -3,7 +3,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adapters.excel.reader import read_douzone, read_prior
-from domain.models import Status
 from domain.period import AccountingPeriod
 from domain.reconciliation import new_payables, reconcile
 
@@ -26,12 +25,12 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
 
     cross_seen={}
     for item in prior_items:
-        key=(item.vendor_code,int(item.amount),item.description.strip().casefold())
+        key=(item.vendor_code,item.amount,item.description.strip().casefold())
         prev=cross_seen.get(key)
         if prev and prev.source.file_name != item.source.file_name:
             raise ValueError(
                 "명세서 간 중복 의심: "
-                f"{item.vendor_name or item.vendor_code} / {int(item.amount):,}원 / "
+                f"{item.vendor_name or item.vendor_code} / {item.amount:,.0f}원 / "
                 f"{prev.source.file_name} ↔ {item.source.file_name}"
             )
         cross_seen.setdefault(key,item)

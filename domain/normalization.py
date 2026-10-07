@@ -14,8 +14,9 @@ def normalize_code(value: object) -> str:
 
 
 def normalize_text(value: object) -> str:
+    """Only normalize harmless whitespace/case differences; preserve punctuation and wording."""
     text = "" if value is None else str(value)
-    return re.sub(r"[\s_\-./·,()\[\]]+", "", text.lower().strip())
+    return re.sub(r"\s+", " ", text.strip().casefold())
 
 
 def parse_amount(value: object) -> NormalizedAmount:
