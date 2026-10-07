@@ -105,6 +105,10 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             for sheet_name in ("요약","차월명세서 초안","자동대사완료"):
                 self.assertIsNone(wb[sheet_name].sheet_properties.tabColor)
 
+            completed_sheet=wb["자동대사완료"]
+            self.assertGreater(completed_sheet.column_dimensions["D"].width,20)
+            self.assertGreaterEqual(completed_sheet.row_dimensions[2].height,20)
+
             wb.close()
 
 
