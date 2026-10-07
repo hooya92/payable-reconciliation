@@ -137,6 +137,19 @@ class App(tk.Tk):
             prior_items=[]; prior_issues=[]
             for path in self.prior_paths:
                 rr=read_prior(path,Path(path).stem); prior_items.extend(rr.items); prior_issues.extend(rr.issues)
+            # Same payable appearing in different 담당자 files is never silently accepted.
+            cross_seen={}
+            for item in prior_items:
+                key=(item.vendor_code, int(item.amount), item.description.strip().casefold())
+                prev=cross_seen.get(key)
+                if prev and prev.source.file_name != item.source.file_name:
+                    raise ValueError(
+                        "명세서 간 중복 의심: "
+                        f"{item.vendor_name or item.vendor_code} / {int(item.amount):,}원 / "
+                        f"{prev.source.file_name} ↔ {item.source.file_name}"
+                    )
+                cross_seen.setdefault(key,item)
+
             journal_items=[]; dz_issues=[]
             for path in self.douzone_paths:
                 dz=read_douzone(path,codes or None,p); journal_items.extend(dz.items); dz_issues.extend(dz.issues)
