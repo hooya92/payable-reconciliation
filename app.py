@@ -323,7 +323,7 @@ class App(ctk.CTk):
                 text_color=TEXT,font=("Segoe UI Semibold",12)
             ).pack(fill="x")
             ctk.CTkButton(
-                buttons,text="선택 제거",command=remove_command,width=112,height=34,
+                buttons,text="첨부 제거",command=remove_command,width=112,height=34,
                 corner_radius=10,fg_color="transparent",hover_color=SOFT,
                 text_color=MUTED,font=("Segoe UI",12)
             ).pack(fill="x",pady=(5,0))
@@ -691,24 +691,22 @@ class App(ctk.CTk):
             self._add_classified_files(paths,"douzone")
 
     def remove_douzone(self):
-        selected=list(self.douzone_list.curselection())
-        for i in reversed(selected):
-            self.douzone_list.delete(i)
-            self.douzone_paths.pop(i)
-        if selected:
-            self._refresh_file_counts()
-            self._invalidate_results()
-            self._maybe_align_period_from_inputs()
+        if not self.douzone_paths:
+            return
+        self.douzone_list.delete(0,"end")
+        self.douzone_paths.clear()
+        self._refresh_file_counts()
+        self._invalidate_results()
+        self._maybe_align_period_from_inputs()
 
     def remove_priors(self):
-        selected=list(self.prior_list.curselection())
-        for i in reversed(selected):
-            self.prior_list.delete(i)
-            self.prior_paths.pop(i)
-        if selected:
-            self._refresh_file_counts()
-            self._invalidate_results()
-            self._maybe_align_period_from_inputs()
+        if not self.prior_paths:
+            return
+        self.prior_list.delete(0,"end")
+        self.prior_paths.clear()
+        self._refresh_file_counts()
+        self._invalidate_results()
+        self._maybe_align_period_from_inputs()
 
     def _summary(self,counts):
         for w in self.summary.winfo_children():
