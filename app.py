@@ -1,16 +1,14 @@
 from __future__ import annotations
 import tkinter as tk
 import hashlib
-from collections import Counter
 from datetime import date
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from adapters.excel.reader import read_douzone, read_prior
 from adapters.excel.writer import write_result
 from domain.models import Status
 from domain.period import AccountingPeriod
-from domain.reconciliation import new_payables, reconcile
+from application.service import run_reconciliation
 
 BG="#F5F5F7"; CARD="#FFFFFF"; TEXT="#1D1D1F"; MUTED="#6E6E73"; ACCENT="#007AFF"; WARN="#B45309"; BORDER="#D2D2D7"; SOFT="#E8E8ED"
 
@@ -134,34 +132,16 @@ class App(tk.Tk):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
-            prior_items=[]; prior_issues=[]
-            for path in self.prior_paths:
-                rr=read_prior(path,Path(path).stem); prior_items.extend(rr.items); prior_issues.extend(rr.issues)
-            # Same payable appearing in different 담당자 files is never silently accepted.
-            cross_seen={}
-            for item in prior_items:
-                key=(item.vendor_code, int(item.amount), item.description.strip().casefold())
-                prev=cross_seen.get(key)
-                if prev and prev.source.file_name != item.source.file_name:
-                    raise ValueError(
-                        "명세서 간 중복 의심: "
-                        f"{item.vendor_name or item.vendor_code} / {int(item.amount):,}원 / "
-                        f"{prev.source.file_name} ↔ {item.source.file_name}"
-                    )
-                cross_seen.setdefault(key,item)
-
-            journal_items=[]; dz_issues=[]
-            for path in self.douzone_paths:
-                dz=read_douzone(path,codes or None,p); journal_items.extend(dz.items); dz_issues.extend(dz.issues)
-            self.issues=prior_issues+dz_issues; self.results=reconcile(prior_items,journal_items); self.new_items=new_payables(journal_items)
-            counts=Counter(x.status for x in self.results); self._summary(counts)
+            run=run_reconciliation(self.prior_paths,self.douzone_paths,codes,p)
+            self.issues=run.issues; self.results=run.results; self.new_items=run.new_items
+            counts=run.counts; self._summary(counts)
             exc=sum(v for k,v in counts.items() if k!=Status.MATCHED)
             self.preflight.config(text=(f"⚠ 입력 형식 확인 {len(self.issues):,}건 — 해당 행은 자동대사에서 제외했습니다." if self.issues else "✓ 사전검사 통과 — 의심스러운 금액 형식 없음"),fg=(WARN if self.issues else "#2E7D32"))
             for row in self.detail.get_children(): self.detail.delete(row)
             for x in self.results:
                 if x.status != Status.MATCHED:
                     self.detail.insert("", "end", values=(x.prior.source.owner or x.prior.source.file_name, x.prior.vendor_name, f"{int(x.prior.amount):,}", x.status.value, x.reason))
-            self.status_text.set(f"{p.label} 대사 완료 · 전월 {len(prior_items):,}건 · 대사 예외 {exc:,}건 · 신규 {len(self.new_items):,}건")
+            self.status_text.set(f"{p.label} 대사 완료 · 전월 {run.prior_count:,}건 · 대사 예외 {exc:,}건 · 신규 {len(self.new_items):,}건")
             self.export_btn.config(state="normal")
         except Exception as e: messagebox.showerror("대사 중단",str(e))
 
