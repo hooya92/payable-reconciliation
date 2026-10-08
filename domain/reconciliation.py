@@ -220,9 +220,11 @@ def new_payables(
     journal_lines: list[JournalLine],
     prior_results: list[ReconcileResult],
     allow_auto: bool = True,
+    blocked_vendors=(),
 ) -> list[NewPayable]:
     """Only carry current credits whose same-month settlement is unambiguous."""
     credits = [line for line in journal_lines if line.credit > 0]
+    blocked_vendors={normalize_code(code) for code in blocked_vendors}
     used_debits = {
         id(r.journal) for r in prior_results
         if r.status == Status.MATCHED and r.journal is not None
@@ -262,6 +264,8 @@ def new_payables(
         reason = ""
         if not allow_auto:
             reason = "입력 데이터 확인 항목이 있어 신규 발생분 자동 이월 보류"
+        elif code in blocked_vendors:
+            reason = "해당 거래처의 입력 확인 항목이 있어 신규 발생분 자동 이월 보류"
         elif code in review_vendors:
             reason = "동일 거래처의 전월 대사 확인필요 건이 있어 당월 신규분 자동 반영 보류"
         elif credit_counts[key] != 1 or key in prior_keys:

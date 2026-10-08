@@ -214,7 +214,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                             source_files.get(id(line),"더존 Raw"),line.row_number))
 
     for issue in issues:
-        reviews.append(("입력 데이터 확인","","",str(issue.raw_value),"",
+        reviews.append(("입력 데이터 확인",issue.vendor_code,"",str(issue.raw_value),"",
                         issue.reason,issue.source,issue.row))
     records.sort(key=lambda record:vendor_order[(record.vendor_code,record.vendor_name)])
     return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons,record_sources)

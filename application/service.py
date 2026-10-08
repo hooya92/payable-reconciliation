@@ -125,6 +125,9 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
             # positive item exists, rather than inventing an offset or hiding it.
             standalone_debits.append(line)
     issues=prior_issues+dz_issues
+    blocked_vendors={normalize_code(issue.vendor_code) for issue in prior_issues
+                     if issue.vendor_code}
+    global_input_issues=bool(dz_issues) or any(not issue.vendor_code for issue in prior_issues)
     for item, reason in opening_reviews:
         vendor=normalize_code(item.vendor_code)
         activity=[line for line in journal_items if normalize_code(line.vendor_code)==vendor]
@@ -135,7 +138,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
             f" · 당월 차변 {debits:,.0f}원 / 대변 {credits:,.0f}원"
             f" → 당월말 거래처 순잔액 {net:,.0f}원"
         )
-        if issues:
+        if global_input_issues or vendor in blocked_vendors:
             status=Status.SIGNED_OPENING_REVIEW
             reason += " · 입력 확인 항목이 있어 자동 반영 보류"
         elif net < 0:
@@ -153,7 +156,8 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 result.status=Status.RAW_INPUT_INCOMPLETE
                 result.reason="더존 대상월/계정 데이터에 자동 제외된 행이 있어 지급 여부를 확정할 수 없음"
                 result.rule="RAW_INPUT_INCOMPLETE"
-    fresh=new_payables(journal_items, results, allow_auto=not issues)
+    fresh=new_payables(journal_items, results, allow_auto=not global_input_issues,
+                      blocked_vendors=blocked_vendors)
     counts=Counter(x.status for x in results)
     return ReconciliationRun(
         period,len(prior_items)+len(opening_reviews),results,fresh,issues,counts,

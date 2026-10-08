@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
 import re
@@ -138,6 +138,7 @@ class InputIssue:
     field: str
     raw_value: object
     reason: str
+    vendor_code: str = ""
 
 
 @dataclass
@@ -531,6 +532,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
             # identity when the following subtotal exactly equals their amount sum.
             pending=[]
             group_tainted=False
+            issue_scopes=[]
+            group_start=hr+1
             flat_negative_codes=set()
             def flush_pending_as_issues(reason):
                 nonlocal pending, group_tainted
@@ -554,6 +557,14 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     (v for v in (raw_date,desc,vendor_name) if _is_summary_label(v)),
                     None,
                 )
+                if summary_label:
+                    trusted_code=(code if code and vendor_name
+                                  and not _is_formula(code_cell)
+                                  and not _is_formula(name_cell) else "")
+                    issue_scopes.append((group_start,r,trusted_code))
+                    group_start=r+1
+                elif code and vendor_name and not _is_formula(code_cell) and not _is_formula(name_cell):
+                    issue_scopes.append((r,r,code))
 
                 relevant_cells=[code_cell,name_cell,desc_cell,amount_cell]
                 if date_cell is not None:
@@ -701,6 +712,17 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
 
             if pending:
                 flush_pending_as_issues("파일 끝까지 거래처 소계가 없어 상세 행의 거래처를 확정할 수 없음")
+            # A subtotal's explicit identity bounds its preceding detail rows.
+            # Keep ambiguous identities unscoped so the service remains cautious.
+            scoped=[]
+            for issue in out.issues:
+                if issue.sheet==ws.title and issue.source=="명세서" and not issue.vendor_code:
+                    candidates={code for start,end,code in issue_scopes
+                                if start<=issue.row<=end}
+                    if len(candidates)==1 and "" not in candidates and issue.field not in ("거래처코드","거래처명"):
+                        issue=replace(issue,vendor_code=candidates.pop())
+                scoped.append(issue)
+            out.issues=scoped
             # Without a verified subtotal, a negative flat row can affect
             # other rows for the same vendor; suppress their auto-matching.
             if flat_negative_codes:
@@ -709,7 +731,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     if item.source.sheet==ws.title and item.vendor_code in flat_negative_codes:
                         out.issues.append(InputIssue(
                             "명세서",ws.title,item.source.row,"거래처",item.vendor_code,
-                            "동일 거래처에 소계 없는 음수 내역이 있어 순잔액 확인 전 자동 대사 보류"
+                            "동일 거래처에 소계 없는 음수 내역이 있어 순잔액 확인 전 자동 대사 보류",
+                            vendor_code=item.vendor_code
                         ))
                     else:
                         retained.append(item)
