@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: refresh latest Windows EXE with month-end matching and partial-payment review
+# Release trigger: include signed manager-statement netting, subtotal checks and review-only exceptions
 
 on:
   workflow_dispatch:
