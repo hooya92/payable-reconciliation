@@ -16,10 +16,10 @@ def debit(code, desc, amount, name="거래처"):
 class AdversarialReconciliationTests(unittest.TestCase):
     """Fail-closed cases: uncertainty must never be promoted to an automatic match."""
 
-    def test_possible_partial_payment_requires_review(self):
+    def test_unique_same_description_partial_payment_carries_remainder(self):
         result = reconcile([payable("001001", "운송비", 100)], [debit("001001", "운송비", 40)])
-        self.assertEqual(result[0].status, Status.AMBIGUOUS)
-        self.assertEqual(result[0].rule, "POSSIBLE_PARTIAL")
+        self.assertEqual(result[0].status, Status.PARTIAL)
+        self.assertEqual(result[0].rule, "PARTIAL_UNIQUE")
 
     def test_larger_same_vendor_debit_requires_combined_payment_review(self):
         result = reconcile([payable("001001", "운송비", 100)], [debit("001001", "통합지급", 150)])
