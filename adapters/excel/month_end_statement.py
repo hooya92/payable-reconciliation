@@ -117,7 +117,7 @@ def _template_shapes(sheet, header, fields):
 
 def write_month_end_statement(path, prior_paths, results, new_items, issues, period:AccountingPeriod,
                               standalone_debits=(), standalone_debit_sources=None,
-                              journal_items=()):
+                              journal_items=(), journal_sources=None):
     """Write a *draft*, never a final approved statement. No source is mutated."""
     if not prior_paths:
         raise ValueError("전월 명세서 양식 파일이 필요합니다.")
@@ -242,13 +242,14 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             standalone_debits=standalone_debits,
             standalone_debit_sources=standalone_debit_sources,
             journal_items=journal_items,
+            journal_sources=journal_sources,
         )
         records,audits,offsets,reviews=(
             plan.records,plan.audits,plan.offsets,plan.reviews
         )
         # Count the exact number of physical rows needed, including subtotal
         # rows. Remove obsolete physical rows rather than leaving blank gaps.
-        vendor_keys={(rec[0],rec[1]) for rec in records}
+        vendor_keys={(rec.vendor_code,rec.vendor_name) for rec in records}
         required_rows=len(records)+(len(vendor_keys) if grouped else 0)
         if last_template_row>header:
             ws.delete_rows(header+1,last_template_row-header)
@@ -306,25 +307,25 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         start=None
         total=Decimal(0)
         for rec in records:
-            code,name,desc,amount,row_date,status,source_row,extras=rec
-            current=(code,name)
+            current=(rec.vendor_code,rec.vendor_name)
             if vendor is not None and current!=vendor:
                 finish_subtotal(vendor,start,total)
                 start=None
                 total=Decimal(0)
             if start is None:
                 start=row_no
+            row_date=rec.date
             if row_date is None:
                 row_date=f"{period.year}-{period.month:02d}-{calendar.monthrange(period.year,period.month)[1]}"
-            values={fields["desc"]:desc,fields["amount"]:_amount(amount)}
-            values.update(extras)
+            values={fields["desc"]:rec.description,fields["amount"]:_amount(rec.amount)}
+            values.update(rec.extras)
             if fields["date"]:
                 values[fields["date"]]=_template_date(row_date,sample_date)
             if not grouped:
-                values[fields["code"]]=code
-                values[fields["name"]]=name
+                values[fields["code"]]=rec.vendor_code
+                values[fields["name"]]=rec.vendor_name
             write_row(values,*detail_style)
-            total+=Decimal(amount)
+            total+=Decimal(rec.amount)
             vendor=current
         if vendor is not None:
             finish_subtotal(vendor,start,total)
