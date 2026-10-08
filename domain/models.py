@@ -6,6 +6,7 @@ from enum import Enum
 class Status(str, Enum):
     MATCHED = "자동 대사"
     PARTIAL = "부분지급 확인 필요"
+    SIGNED_NET_AUTO = "거래처 순잔액 자동계산"
     SIGNED_OPENING_REVIEW = "전월 음수·소계 확인"
     DESCRIPTION_MISMATCH = "적요 불일치"
     VENDOR_NAME_MISMATCH = "거래처명 변경 확인"
@@ -79,3 +80,4 @@ class ReconcileResult:
     reason: str = ""
     rule: str = ""
     source_rows: list[int] = field(default_factory=list)
+    closing_balance: Decimal | None = None
