@@ -542,7 +542,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 if code and vendor_name and summary_label and pending and _is_formula(amount_cell):
                     column=get_column_letter(cols["amount"])
                     expected=f"=SUM({column}{pending[0]['row']}:{column}{pending[-1]['row']})"
-                    actual=re.sub(r"\\s|\\$", "",str(amount_cell.value)).upper()
+                    actual=str(amount_cell.value).replace(" ", "").replace("$", "").upper()
                     simple_sum=(actual==expected)
                 if any(_is_formula(cell) for cell in relevant_cells
                        if cell is not amount_cell or not simple_sum):
