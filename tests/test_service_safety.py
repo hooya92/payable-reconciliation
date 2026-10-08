@@ -32,7 +32,7 @@ class ServiceSafetyTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"Raw 파일 간 동일 전표"):
                 run_reconciliation([prior],[raw1,raw2],{"25301"},AccountingPeriod(2026,7))
 
-    def test_orphan_current_debit_is_reported_and_cannot_silently_disappear(self):
+    def test_orphan_current_debit_is_preserved_as_signed_raw_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             prior=root/"prior.xlsx"; raw=root/"raw.xlsx"
@@ -44,9 +44,11 @@ class ServiceSafetyTests(unittest.TestCase):
                        "009999","전월에 없는 업체","미확인 차변",40000,0])
             wb.save(raw)
             result=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,7))
-            self.assertEqual(len(result.issues),1)
-            self.assertIn("대응하지 않는 차변",result.issues[0].reason)
-            self.assertEqual(result.results[0].status,Status.RAW_INPUT_INCOMPLETE)
+            self.assertEqual(result.issues,[])
+            self.assertEqual(result.results[0].status,Status.UNPAID)
+            self.assertEqual(len(result.standalone_debits),1)
+            self.assertEqual(result.standalone_debits[0].description,"미확인 차변")
+            self.assertEqual(result.standalone_debits[0].debit,40000)
 
     def test_blank_account_code_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
