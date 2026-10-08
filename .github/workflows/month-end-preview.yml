@@ -9,6 +9,7 @@ on:
       - "adapters/excel/reader.py"
       - "tests/test_month_end_template.py"
       - "tests/test_month_end_sample_e2e.py"
+      - "tests/test_month_end_style_roundtrip.py"
       - "tests/test_attachment_progress.py"
       - ".github/workflows/month-end-preview.yml"
   pull_request:
@@ -18,6 +19,7 @@ on:
       - "adapters/excel/reader.py"
       - "tests/test_month_end_template.py"
       - "tests/test_month_end_sample_e2e.py"
+      - "tests/test_month_end_style_roundtrip.py"
       - ".github/workflows/month-end-preview.yml"
   workflow_dispatch:
 
