@@ -10,6 +10,9 @@ on:
       - "tests/test_month_end_template.py"
       - "tests/test_month_end_sample_e2e.py"
       - "tests/test_month_end_style_roundtrip.py"
+      - "tests/test_month_end_status_column.py"
+      - "tests/test_month_end_offset_audit.py"
+      - "application/service.py"
       - "tests/test_attachment_progress.py"
       - ".github/workflows/month-end-preview.yml"
   pull_request:
@@ -20,6 +23,9 @@ on:
       - "tests/test_month_end_template.py"
       - "tests/test_month_end_sample_e2e.py"
       - "tests/test_month_end_style_roundtrip.py"
+      - "tests/test_month_end_status_column.py"
+      - "tests/test_month_end_offset_audit.py"
+      - "application/service.py"
       - ".github/workflows/month-end-preview.yml"
   workflow_dispatch:
 
