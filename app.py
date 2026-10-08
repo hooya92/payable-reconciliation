@@ -4,6 +4,7 @@ import customtkinter as ctk
 import hashlib
 import queue
 import threading
+import sys
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -159,6 +160,8 @@ class App(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("명세서 대사")
+        if sys.platform=="win32":
+            self.iconbitmap(str(Path(__file__).resolve().parent/"assets"/"app.ico"))
         self.geometry("1280x920")
         self.minsize(1080,760)
         self.configure(fg_color=BG)

@@ -10,6 +10,7 @@ on:
       - "adapters/excel/**"
       - "tests/**"
       - "requirements.txt"
+      - "assets/**"
       - ".github/workflows/month-end-preview.yml"
   workflow_dispatch:
 
@@ -42,7 +43,7 @@ jobs:
       - name: Build preview EXE (separate from stable release)
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onefile --name "당월명세서-미리보기" app.py
+          python -m PyInstaller --noconfirm --clean --windowed --onefile --icon "assets/app.ico" --add-data "assets/app.ico;assets" --name "당월명세서-미리보기" app.py
           Copy-Item "dist/당월명세서-미리보기.exe" "dist/month-end-preview.exe"
       - name: Upload preview artifact
         uses: actions/upload-artifact@v4
