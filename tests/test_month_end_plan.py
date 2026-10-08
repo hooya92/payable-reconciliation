@@ -34,6 +34,27 @@ class MonthlyPlannerTests(unittest.TestCase):
         self.assertEqual(plan.reviews,[])
         self.assertEqual([r[5] for r in plan.records],["대사 일치","대사 일치","당월 발생"])
 
+    def test_douzone_vendor_name_difference_reuses_original_group_and_needs_review(self):
+        source=opening("300")
+        changed=JournalLine("001111","가상물류(주)","25301","미지급금",
+                            "당월 발생",Decimal(0),Decimal(50),"2026-08-25",17)
+        plan=build_month_end_plan(
+            [("001111","가상물류",source.description,source.amount,source.date,4,{})],
+            [ReconcileResult(Status.UNPAID,source)],[NewPayable(changed,Decimal(50),"당월 발생",True)],
+            [],"전월.xlsx","26.07",journal_items=[changed]
+        )
+        self.assertEqual({(r[0],r[1]) for r in plan.records},{("001111","가상물류")})
+        self.assertIn("확인 필요",[r[5] for r in plan.records])
+        self.assertTrue(any("거래처명" in str(r[5]) for r in plan.reviews))
+
+    def test_same_opening_code_with_conflicting_vendor_names_is_blocked(self):
+        with self.assertRaisesRegex(ValueError,"거래처명이 서로 다릅니다"):
+            build_month_end_plan(
+                [("001111","가상물류","A",Decimal(100),"2026-07-31",4,{}),
+                 ("001111","다른업체","B",Decimal(200),"2026-07-31",5,{})],
+                [],[],[],"전월.xlsx","26.07",
+            )
+
     def test_unverified_offset_is_not_claimed_matched(self):
         p=opening("100")
         wrong=journal("001111","전월 운송비",debit=90)
