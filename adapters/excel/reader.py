@@ -487,6 +487,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
 
 def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=None) -> ReadResult:
     wb=_load_workbook(path,read_only=True,data_only=False); out=ReadResult()
+    verified_zero_groups=0
     groups=[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")]
     try:
         selected=_select_prior_sheets(wb,groups,period)
@@ -618,6 +619,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                             )
                             out.review_items.append((balance,reason))
                         # A zero closing balance has no outstanding payable to carry.
+                        if subtotal == 0:
+                            verified_zero_groups+=1
                     else:
                         for rec in pending:
                             out.items.append(PayableItem(
@@ -686,7 +689,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 out.items=retained
     finally:
         wb.close()
-    if not out.items and not out.review_items and not out.issues:
+    if not out.items and not out.review_items and not out.issues and verified_zero_groups==0:
         target=f" {period.label}" if period else ""
         raise ValueError(f"명세서에서{target} 대사할 항목을 찾지 못했습니다.")
     return out
