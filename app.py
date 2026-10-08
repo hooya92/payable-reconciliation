@@ -38,6 +38,13 @@ ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 
+def attachment_analysis_label(path, seconds, completed=False):
+    elapsed=max(0,int(seconds))
+    time_text=f"{elapsed//60:02d}:{elapsed%60:02d}"
+    state="분석 완료" if completed else "분석 중"
+    return f"{state} ({time_text}) · {Path(path).name}"
+
+
 def file_digest(path):
     h=hashlib.sha256()
     with open(path,"rb") as f:
@@ -709,7 +716,8 @@ class App(ctk.CTk):
         self._file_add_stage="파일 구조 확인"
         # Show selection immediately; this is a temporary label, not an accepted input.
         self._pending_file_list = self.prior_list if requested_kind == "prior" else self.douzone_list
-        self._pending_file_labels = [f"분석 중 · {Path(p).name}" for p in paths]
+        self._pending_file_paths = tuple(paths)
+        self._pending_file_labels = [attachment_analysis_label(p,0) for p in paths]
         for label in self._pending_file_labels:
             self._pending_file_list.insert("end", label)
         self._set_banner("running","파일 분석 중","Excel 구조와 회계월을 확인하고 있습니다. 큰 파일은 시간이 걸릴 수 있습니다.")
@@ -750,9 +758,21 @@ class App(ctk.CTk):
         except queue.Empty:
             seconds=int(time.monotonic()-self._file_add_started)
             elapsed=f"{seconds//60:02d}:{seconds%60:02d}"
-            self._set_banner("running","파일 분석 중",f"{self._file_add_stage} · 경과 {elapsed} · 남은 시간 계산 중")
+            for i, path in enumerate(self._pending_file_paths):
+                previous=self._pending_file_labels[i]
+                label=attachment_analysis_label(path,seconds)
+                if label != previous:
+                    rows=self._pending_file_list.get(0,"end")
+                    if previous in rows:
+                        index=rows.index(previous)
+                        self._pending_file_list.delete(index)
+                        self._pending_file_list.insert(index,label)
+                    self._pending_file_labels[i]=label
+            delay_note=" · 30초 이상 소요 중, 분석은 계속 진행됩니다." if seconds>=30 else ""
+            self._set_banner("running","파일 분석 중",f"{self._file_add_stage} · 경과 {elapsed}{delay_note}")
             self.after(250,self._poll_file_add)
             return
+        seconds=int(time.monotonic()-self._file_add_started)
         try:
             # Remove only temporary rows before showing verified file names.
             for label in self._pending_file_labels:
@@ -763,12 +783,13 @@ class App(ctk.CTk):
                 self._set_banner("error","파일 분석 실패",error)
                 messagebox.showerror("파일 분석 실패",error)
             else:
-                self._finish_classified_files(classified,kind,detected)
+                self._finish_classified_files(classified,kind,detected,seconds)
         finally:
             self._pending_file_labels=[]
+            self._pending_file_paths=()
             self._file_add_busy=False
 
-    def _finish_classified_files(self,classified,requested_kind,detected):
+    def _finish_classified_files(self,classified,requested_kind,detected,seconds=0):
         """Add selected Excel files to the structurally correct input bucket."""
         added_prior=False
         added_raw=False
@@ -783,14 +804,14 @@ class App(ctk.CTk):
             if kind=="prior":
                 if p not in self.prior_paths:
                     self.prior_paths.append(p)
-                    self.prior_list.insert("end",Path(p).name)
+                    self.prior_list.insert("end",attachment_analysis_label(p,seconds,completed=True))
                     added_prior=True
                     if requested_kind!="prior":
                         moved.append(f"{Path(p).name} → 명세서")
             elif kind=="douzone":
                 if p not in self.douzone_paths:
                     self.douzone_paths.append(p)
-                    self.douzone_list.insert("end",Path(p).name)
+                    self.douzone_list.insert("end",attachment_analysis_label(p,seconds,completed=True))
                     added_raw=True
                     if requested_kind!="douzone":
                         moved.append(f"{Path(p).name} → 더존 Raw")
