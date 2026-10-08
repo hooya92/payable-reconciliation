@@ -27,6 +27,17 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         rr=read_prior(path,Path(path).stem,period.previous())
         prior_items.extend(rr.items); opening_reviews.extend(rr.review_items); prior_issues.extend(rr.issues)
 
+    review_vendor_seen={}
+    for item,_reason in opening_reviews:
+        code=normalize_code(item.vendor_code)
+        if code in review_vendor_seen:
+            previous=review_vendor_seen[code]
+            raise ValueError(
+                f"전월 음수·소계 거래처 {code}가 여러 곳에서 중복되었습니다: "
+                f"{previous.source.file_name} ↔ {item.source.file_name}. 명세서를 확인해주세요."
+            )
+        review_vendor_seen[code]=item
+
     cross_seen={}
     for item in prior_items:
         key=(item.vendor_code,item.amount,item.description.strip().casefold())
