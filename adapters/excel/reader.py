@@ -141,6 +141,9 @@ class InputIssue:
 @dataclass
 class ReadResult:
     items: list = field(default_factory=list)
+    # Signed subtotal groups carry a verified vendor balance, but the negative
+    # entries cannot safely be assigned to individual invoices automatically.
+    review_items: list[tuple[PayableItem, str]] = field(default_factory=list)
     issues: list[InputIssue] = field(default_factory=list)
     detected_headers: list[str] = field(default_factory=list)
     recognized_sheets: list[str] = field(default_factory=list)
@@ -504,8 +507,10 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
             # after the detail rows. Buffer only contiguous detail rows and attach the vendor
             # identity when the following subtotal exactly equals their amount sum.
             pending=[]
+            group_tainted=False
             def flush_pending_as_issues(reason):
-                nonlocal pending
+                nonlocal pending, group_tainted
+                group_tainted=True
                 for rec in pending:
                     out.issues.append(InputIssue("명세서",ws.title,rec["row"],"거래처",rec["description"],reason))
                 pending=[]
@@ -556,25 +561,55 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 # Group subtotal row: vendor code/name + '소계' and exact sum of preceding details.
                 if code and vendor_name and summary_label:
                     subtotal=a.value or 0
-                    if subtotal <= 0:
-                        flush_pending_as_issues("거래처 소계 금액이 0 이하라 그룹을 확정할 수 없음")
-                        out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,"소계 금액이 0 이하"))
+                    if group_tainted:
+                        out.issues.append(InputIssue(
+                            "명세서",ws.title,r,"소계",a.raw,
+                            "거래처 상세 내역에 입력 오류가 있어 소계 확정 불가"
+                        ))
+                        pending=[]
+                        group_tainted=False
                         continue
                     if not pending:
-                        # A subtotal without detail rows is presentation-only; do not turn it into a payable.
+                        # A subtotal without detail rows is presentation-only.
                         continue
                     pending_total=sum(x["amount"] for x in pending)
                     if pending_total != subtotal:
                         reason=f"상세 합계 {pending_total:,.0f}원과 소계 {subtotal:,.0f}원이 달라 자동 대사하지 않음"
                         flush_pending_as_issues(reason)
                         out.issues.append(InputIssue("명세서",ws.title,r,"소계",a.raw,reason))
+                        group_tainted=False
                         continue
-                    for rec in pending:
-                        out.items.append(PayableItem(
-                            code,vendor_name,rec["description"],rec["amount"],
-                            rec["date"],rec["row"],SourceRef(Path(path).name,ws.title,rec["row"],owner)
-                        ))
+                    if subtotal < 0:
+                        flush_pending_as_issues("거래처 소계가 음수라 지급 초과/조정 여부 확인 필요")
+                        out.issues.append(InputIssue("명세서",ws.title,r,"소계",a.raw,"거래처 순잔액 음수 확인 필요"))
+                        group_tainted=False
+                        continue
+
+                    negatives=[rec for rec in pending if rec["amount"] < 0]
+                    if negatives:
+                        if subtotal > 0:
+                            positive_total=sum(rec["amount"] for rec in pending if rec["amount"] > 0)
+                            negative_total=sum(rec["amount"] for rec in negatives)
+                            balance=PayableItem(
+                                code,vendor_name,"전월 순미지급 잔액(음수 상세 포함)",subtotal,
+                                _date(raw_date) if date_cell else "",r,
+                                SourceRef(Path(path).name,ws.title,r,owner)
+                            )
+                            reason=(
+                                f"양수 {positive_total:,.0f}원 + 음수 {negative_total:,.0f}원"
+                                f" = 소계 {subtotal:,.0f}원 검증 완료. "
+                                "음수 지급/조정의 개별 발생 건 상계가 불명확하여 자동 대사·이월 제외"
+                            )
+                            out.review_items.append((balance,reason))
+                        # A zero closing balance has no outstanding payable to carry.
+                    else:
+                        for rec in pending:
+                            out.items.append(PayableItem(
+                                code,vendor_name,rec["description"],rec["amount"],
+                                rec["date"],rec["row"],SourceRef(Path(path).name,ws.title,rec["row"],owner)
+                            ))
                     pending=[]
+                    group_tainted=False
                     continue
 
                 # Flat format: every detail row already carries vendor identity.
@@ -589,7 +624,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     if not desc:
                         out.issues.append(InputIssue("명세서",ws.title,r,"적요","", "적요 없음")); row_invalid=True
                     if (a.value or 0) <= 0:
-                        out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,"금액이 0 이하라 자동 대사하지 않음")); row_invalid=True
+                        out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,
+                            "소계 없는 음수·0원 행은 미지급 순잔액을 확정할 수 없어 자동 대사하지 않음")); row_invalid=True
                     if row_invalid:
                         continue
                     out.items.append(PayableItem(
@@ -600,7 +636,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
 
                 # Grouped format detail row: description+amount are present, vendor is supplied by
                 # the following subtotal row. Keep it buffered; never guess the vendor.
-                if desc and (a.value or 0)>0:
+                if desc and (a.value or 0)!=0:
                     pending.append({
                         "row":r,
                         "date":_date(raw_date) if date_cell else "",
@@ -619,7 +655,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 flush_pending_as_issues("파일 끝까지 거래처 소계가 없어 상세 행의 거래처를 확정할 수 없음")
     finally:
         wb.close()
-    if not out.items and not out.issues:
+    if not out.items and not out.review_items and not out.issues:
         target=f" {period.label}" if period else ""
         raise ValueError(f"명세서에서{target} 대사할 항목을 찾지 못했습니다.")
     return out
