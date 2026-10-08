@@ -63,6 +63,18 @@ class SignedStatementTests(unittest.TestCase):
             self.assertEqual(result.review_items,[])
             self.assertTrue(any("상세 합계 120원과 소계 121원" in x.reason for x in result.issues))
 
+    def test_zero_signed_subtotal_is_valid_no_outstanding_balance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prior=Path(directory)/"prior.xlsx"
+            statement(prior,include_clean=False,subtotal=0)
+            wb=load_workbook(prior)
+            wb.active["E5"]=-160
+            wb.save(prior)
+            result=read_prior(prior,"",AccountingPeriod(2026,9))
+            self.assertEqual(result.items,[])
+            self.assertEqual(result.review_items,[])
+            self.assertEqual(result.issues,[])
+
     def test_unverified_subtotal_formula_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             prior=Path(directory)/"prior.xlsx"
