@@ -44,6 +44,9 @@ class AttachmentProgressTests(unittest.TestCase):
             def after(self, delay, callback):
                 self.poll_delay=delay
 
+            def _poll_file_add(self):
+                App._poll_file_add(self)
+
         obj=Stub()
         obj._file_add_queue=queue.Queue()
         obj._file_add_started=100
