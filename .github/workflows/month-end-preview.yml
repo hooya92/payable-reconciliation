@@ -8,6 +8,7 @@ on:
       - "adapters/excel/month_end_statement.py"
       - "adapters/excel/reader.py"
       - "tests/test_month_end_template.py"
+      - "tests/test_attachment_progress.py"
       - ".github/workflows/month-end-preview.yml"
   pull_request:
     paths:
