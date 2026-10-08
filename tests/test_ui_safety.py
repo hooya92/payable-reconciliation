@@ -55,6 +55,14 @@ class UISafetyTests(unittest.TestCase):
         self.assertEqual(period,AccountingPeriod(2026,8))
         self.assertEqual(source,"raw")
 
+    def test_explicit_october_selection_survives_annual_raw_when_statement_sheet_unnamed(self):
+        oct_period=AccountingPeriod(2026,10)
+        detected,source=infer_period_from_inputs(
+            [],[[AccountingPeriod(2026,m) for m in range(1,13)]],
+            preferred=oct_period,
+        )
+        self.assertEqual((detected,source),(oct_period,"raw"))
+
     def test_statement_and_raw_agreement_drives_accounting_month(self):
         period,source=infer_period_from_inputs(
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
