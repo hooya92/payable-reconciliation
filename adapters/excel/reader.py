@@ -646,7 +646,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                         if code and a.value is not None and a.value < 0:
                             flat_negative_codes.add(code)
                         out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,
-                            "소계 없는 음수·0원 행은 미지급 순잔액을 확정할 수 없어 자동 대사하지 않음")); row_invalid=True
+                            "금액이 0 이하이며 소계 없는 음수·0원 행은 미지급 순잔액을 확정할 수 없어 자동 대사하지 않음")); row_invalid=True
                     if row_invalid:
                         continue
                     out.items.append(PayableItem(
