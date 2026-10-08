@@ -102,6 +102,53 @@ class SignedStatementTests(unittest.TestCase):
             self.assertEqual([x.vendor_code for x in result.items],["009999"])
             self.assertTrue(any("순잔액 확인 전" in x.reason for x in result.issues))
 
+    def test_signed_net_zero_is_auto_closed_and_negative_is_reviewed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prior=Path(directory)/"prior.xlsx"
+            raw=Path(directory)/"journal.xlsx"
+            statement(prior,include_clean=False)
+            wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명","거래처코드",
+                       "거래처명","적요","차변","대변"])
+            ws.append(["2026-10-02","25301","미지급금-일반",
+                       "001234","가상물류","지급",120,0])
+            wb.save(raw)
+            zero=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,10))
+            self.assertEqual(zero.results[0].status,Status.SIGNED_NET_AUTO)
+            self.assertEqual(zero.results[0].closing_balance,Decimal(0))
+            output=Path(directory)/"zero.xlsx"
+            write_result(output,zero.results,zero.new_items,zero.issues,[prior,raw],"2026년 10월")
+            result=load_workbook(output,read_only=True,data_only=True)
+            try:
+                self.assertEqual(len(list(result["당월말명세서 초안"].values)),1)
+            finally:
+                result.close()
+            wb=load_workbook(raw)
+            wb.active.cell(2,7).value=130
+            wb.save(raw)
+            negative=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,10))
+            self.assertEqual(negative.results[0].status,Status.SIGNED_OPENING_REVIEW)
+            self.assertEqual(negative.results[0].closing_balance,Decimal(-10))
+            self.assertIn("음수 잔액",negative.results[0].reason)
+
+    def test_invalid_raw_blocks_signed_net_auto_roll_forward(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prior=Path(directory)/"prior.xlsx"
+            raw=Path(directory)/"journal.xlsx"
+            statement(prior,include_clean=False)
+            wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명","거래처코드",
+                       "거래처명","적요","차변","대변"])
+            ws.append(["2026-10-02","25301","미지급금-일반",
+                       "001234","가상물류","10월 지급",10,0])
+            ws.append(["2026-10-03","25301","미지급금-일반",
+                       "001234","가상물류","수정분개",-5,0])
+            wb.save(raw)
+            run=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,10))
+            self.assertTrue(run.issues)
+            self.assertEqual(run.results[0].status,Status.SIGNED_OPENING_REVIEW)
+            self.assertIn("자동 반영 보류",run.results[0].reason)
+
     def test_signed_balance_is_carried_once_as_vendor_net(self):
         with tempfile.TemporaryDirectory() as directory:
             prior=Path(directory)/"prior.xlsx"
