@@ -163,6 +163,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             raise ValueError("엑셀 표(Table)로 지정된 명세서는 표 범위 보존을 위해 자동 생성을 중단합니다.")
         # The selected month is replaced *only in the newly saved workbook*.
         # Keep all other workbook sheets, their styles, print settings and layouts.
+        source_sheet=ws.title
         ws.title=target_name
         last_template_row=ws.max_row
         # Reject unrecognized content instead of deleting a footer or other data.
@@ -182,7 +183,6 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         _change_heading(ws,header,period.previous(),period)
 
         # Carry through any original extra columns without adding to the template.
-        source_sheet=selected[0][0].title
         opening=[]
         pending=[]
         business_columns={col for col in fields.values() if col}
