@@ -87,7 +87,7 @@ class FullTemplateStyleTests(unittest.TestCase):
                 self.assertEqual(ws["E7"].value,"=SUM(E6:E6)")
                 self.assertEqual(ws["B5"].value,"가상물류")
                 self.assertEqual(ws["B7"].value,"가상신규")
-                self.assertEqual(ws["F2"].value,"처리상태")
+                self.assertIsNone(ws["F2"].value)  # Flags belong in removable review sheet
                 self.assertTrue(wb.calculation.fullCalcOnLoad)
             finally:
                 wb.close()
