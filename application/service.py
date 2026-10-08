@@ -23,6 +23,8 @@ class ReconciliationRun:
     standalone_debits: list = field(default_factory=list)
     standalone_debit_sources: dict = field(default_factory=dict)
     journal_items: list = field(default_factory=list)
+    # Every accepted journal line tracks its original RAW filename, not just orphans.
+    journal_sources: dict = field(default_factory=dict)
 
 
 def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
@@ -158,4 +160,5 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         standalone_debits,
         {id(line):journal_sources.get(id(line),"더존 Raw") for line in standalone_debits},
         journal_items,
+        journal_sources,
     )
