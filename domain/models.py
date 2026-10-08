@@ -5,6 +5,7 @@ from enum import Enum
 
 class Status(str, Enum):
     MATCHED = "자동 대사"
+    PARTIAL = "부분지급(잔액 이월)"
     DESCRIPTION_MISMATCH = "적요 불일치"
     VENDOR_NAME_MISMATCH = "거래처명 변경 확인"
     UNPAID = "지급 확인 안 됨"
@@ -59,6 +60,14 @@ class JournalLine:
     credit: Decimal
     date: str = ""
     row_number: int = 0
+
+
+@dataclass(frozen=True)
+class NewPayable:
+    journal: JournalLine
+    remaining: Decimal
+    reason: str
+    auto_carry: bool
 
 
 @dataclass
