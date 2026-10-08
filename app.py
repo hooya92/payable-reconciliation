@@ -70,8 +70,9 @@ def find_duplicate_files(prior_paths, douzone_paths, digests=None):
 
 
 def reconciliation_breakdown(counts, new_count=0, issue_count=0):
-    matched=counts.get(Status.MATCHED,0)
-    review=sum(v for k,v in counts.items() if k!=Status.MATCHED)+new_count
+    auto_statuses=(Status.MATCHED,Status.SIGNED_NET_AUTO)
+    matched=sum(counts.get(status,0) for status in auto_statuses)
+    review=sum(v for k,v in counts.items() if k not in auto_statuses)+new_count
     return {
         "matched":matched,
         "review":review,
@@ -819,8 +820,8 @@ class App(ctk.CTk):
     def _update_view_buttons(self):
         if not hasattr(self,"review_view_btn"):
             return
-        matched=sum(1 for x in self.results if x.status==Status.MATCHED)
-        review=sum(1 for x in self.results if x.status!=Status.MATCHED)
+        matched=sum(1 for x in self.results if x.status in (Status.MATCHED,Status.SIGNED_NET_AUTO))
+        review=sum(1 for x in self.results if x.status not in (Status.MATCHED,Status.SIGNED_NET_AUTO))
 
         def style(btn,active,label):
             btn.configure(
@@ -837,13 +838,13 @@ class App(ctk.CTk):
     def _refresh_detail(self):
         self._clear_detail()
         if self.result_view=="matched":
-            rows=[x for x in self.results if x.status==Status.MATCHED]
+            rows=[x for x in self.results if x.status in (Status.MATCHED,Status.SIGNED_NET_AUTO)]
             self.detail_hint_text.set(
                 "자동 대사된 항목입니다. 이름·적요 차이가 있었던 경우에도 참고 사유를 함께 남깁니다."
                 if rows else "자동 대사된 항목이 없습니다."
             )
         elif self.result_view=="review":
-            rows=[x for x in self.results if x.status!=Status.MATCHED]
+            rows=[x for x in self.results if x.status not in (Status.MATCHED,Status.SIGNED_NET_AUTO)]
             self.detail_hint_text.set(
                 "사람이 확인해야 하는 명세서 항목만 표시합니다."
                 if rows else "검토할 명세서 항목이 없습니다."
@@ -856,14 +857,14 @@ class App(ctk.CTk):
             )
 
         for x in rows:
-            tag="matched" if x.status==Status.MATCHED else "review"
+            tag="matched" if x.status in (Status.MATCHED,Status.SIGNED_NET_AUTO) else "review"
             self.detail.insert(
                 "","end",
                 values=(
                     x.prior.source.owner or x.prior.source.file_name,
                     x.prior.vendor_name,
-                    f"{int(x.prior.amount):,}",
-                    ("● " + x.status.value) if x.status==Status.MATCHED else x.status.value,
+                    f"{int(x.closing_balance if x.status==Status.SIGNED_NET_AUTO else x.prior.amount):,}",
+                    ("● " + x.status.value) if x.status in (Status.MATCHED,Status.SIGNED_NET_AUTO) else x.status.value,
                     x.reason,
                 ),
                 tags=(tag,),
@@ -916,7 +917,7 @@ class App(ctk.CTk):
                 text_color=(WARN if self.issues else GREEN),
             )
 
-            self.result_view="review" if any(x.status!=Status.MATCHED for x in self.results) else "matched"
+            self.result_view="review" if any(x.status not in (Status.MATCHED,Status.SIGNED_NET_AUTO) for x in self.results) else "matched"
             self._update_view_buttons()
             self._refresh_detail()
 
