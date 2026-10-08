@@ -2,6 +2,8 @@ from __future__ import annotations
 import tkinter as tk
 import customtkinter as ctk
 import hashlib
+import queue
+import threading
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -180,6 +182,8 @@ class App(ctk.CTk):
         self.last_source_paths=[]
         self.last_source_digests={}
         self.result_view="review"
+        self._file_add_busy=False
+        self._file_add_queue=queue.Queue()
 
         self._build()
         self._update_period()
@@ -628,7 +632,7 @@ class App(ctk.CTk):
             f"{len(self.douzone_paths)}개 파일 선택" if self.douzone_paths else "선택된 파일 없음"
         )
 
-    def _maybe_align_period_from_inputs(self, show_banner=True):
+    def _maybe_align_period_from_inputs(self, show_banner=True, detected=None):
         if not self.prior_paths and not self.douzone_paths:
             self.period_badge_text.set("자동 감지 대기")
             self.period_text.set("명세서와 Raw 파일을 추가하면 회계월을 자동으로 감지합니다.")
@@ -641,7 +645,8 @@ class App(ctk.CTk):
         statement_labels=[]
         for path in self.prior_paths:
             try:
-                periods=detect_statement_periods(path)
+                periods=(detected[path] if detected is not None and path in detected
+                         else detect_statement_periods(path))
             except Exception:
                 periods=[]
             if periods:
@@ -653,7 +658,8 @@ class App(ctk.CTk):
         raw_labels=[]
         for path in self.douzone_paths:
             try:
-                periods=detect_douzone_periods(path,codes)
+                periods=(detected[path] if detected is not None and path in detected
+                         else detect_douzone_periods(path,codes))
             except Exception:
                 periods=[]
             if periods:
@@ -693,17 +699,64 @@ class App(ctk.CTk):
         return True
 
     def _add_classified_files(self,paths,requested_kind):
+        """Read and classify large files off the Tk main thread."""
+        if self._file_add_busy:
+            self._set_banner("warning","파일 분석 중","현재 파일 분석이 끝난 뒤 다시 추가해주세요.")
+            return
+        self._file_add_busy=True
+        self._set_banner("running","파일 분석 중","Excel 구조와 회계월을 확인하고 있습니다. 큰 파일은 시간이 걸릴 수 있습니다.")
+        codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
+        prior=tuple(self.prior_paths)
+        raw=tuple(self.douzone_paths)
+        def worker():
+            classified=[]
+            detected={}
+            try:
+                for p in paths:
+                    try:
+                        kind=classify_excel_input(p)
+                        classified.append((p,kind,None))
+                    except Exception as e:
+                        classified.append((p,None,str(e)))
+                # Include existing files; period detection must use the same inputs as before.
+                new_prior=prior+tuple(p for p,k,e in classified if k=="prior" and not e and p not in prior)
+                new_raw=raw+tuple(p for p,k,e in classified if k=="douzone" and not e and p not in raw)
+                for p in new_prior:
+                    try: detected[p]=detect_statement_periods(p)
+                    except Exception: detected[p]=[]
+                for p in new_raw:
+                    try: detected[p]=detect_douzone_periods(p,codes)
+                    except Exception: detected[p]=[]
+                self._file_add_queue.put((classified,requested_kind,detected,None))
+            except Exception as e:
+                self._file_add_queue.put((None,None,None,str(e)))
+        threading.Thread(target=worker,daemon=True).start()
+        self.after(100,self._poll_file_add)
+
+    def _poll_file_add(self):
+        try:
+            classified,kind,detected,error=self._file_add_queue.get_nowait()
+        except queue.Empty:
+            self.after(100,self._poll_file_add)
+            return
+        try:
+            if error:
+                messagebox.showerror("파일 분석 실패",error)
+            else:
+                self._finish_classified_files(classified,kind,detected)
+        finally:
+            self._file_add_busy=False
+
+    def _finish_classified_files(self,classified,requested_kind,detected):
         """Add selected Excel files to the structurally correct input bucket."""
         added_prior=False
         added_raw=False
         moved=[]
         rejected=[]
 
-        for p in paths:
-            try:
-                kind=classify_excel_input(p)
-            except Exception as e:
-                rejected.append(f"{Path(p).name}: 파일을 읽지 못함 ({e})")
+        for p,kind,error in classified:
+            if error:
+                rejected.append(f"{Path(p).name}: 파일을 읽지 못함 ({error})")
                 continue
 
             if kind=="prior":
@@ -730,7 +783,7 @@ class App(ctk.CTk):
             self._invalidate_results()
 
         if added_prior or added_raw:
-            self._maybe_align_period_from_inputs()
+            self._maybe_align_period_from_inputs(detected=detected)
 
         if moved:
             self._set_banner(
@@ -757,6 +810,8 @@ class App(ctk.CTk):
             self._add_classified_files(paths,"douzone")
 
     def remove_douzone(self):
+        if self._file_add_busy:
+            return
         if not self.douzone_paths:
             return
         self.douzone_list.delete(0,"end")
@@ -766,6 +821,8 @@ class App(ctk.CTk):
         self._maybe_align_period_from_inputs()
 
     def remove_priors(self):
+        if self._file_add_busy:
+            return
         if not self.prior_paths:
             return
         self.prior_list.delete(0,"end")
@@ -875,6 +932,9 @@ class App(ctk.CTk):
             )
 
     def run(self):
+        if self._file_add_busy:
+            messagebox.showinfo("파일 분석 중","파일 분석이 완료된 후 대사를 실행해주세요.")
+            return
         if not self.prior_paths or not self.douzone_paths:
             messagebox.showwarning("파일 필요","명세서와 더존 Raw를 각각 1개 이상 추가해주세요.")
             return
