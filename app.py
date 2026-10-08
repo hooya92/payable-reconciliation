@@ -4,6 +4,7 @@ import customtkinter as ctk
 import hashlib
 import queue
 import threading
+import time
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -704,6 +705,8 @@ class App(ctk.CTk):
             self._set_banner("warning","파일 분석 중","현재 파일 분석이 끝난 뒤 다시 추가해주세요.")
             return
         self._file_add_busy=True
+        self._file_add_started=time.monotonic()
+        self._file_add_stage="파일 구조 확인"
         # Show selection immediately; this is a temporary label, not an accepted input.
         self._pending_file_list = self.prior_list if requested_kind == "prior" else self.douzone_list
         self._pending_file_labels = [f"분석 중 · {Path(p).name}" for p in paths]
@@ -718,6 +721,7 @@ class App(ctk.CTk):
             detected={}
             try:
                 for p in paths:
+                    self._file_add_stage=f"파일 구조 확인 · {Path(p).name}"
                     try:
                         kind=classify_excel_input(p)
                         classified.append((p,kind,None))
@@ -727,9 +731,11 @@ class App(ctk.CTk):
                 new_prior=prior+tuple(p for p,k,e in classified if k=="prior" and not e and p not in prior)
                 new_raw=raw+tuple(p for p,k,e in classified if k=="douzone" and not e and p not in raw)
                 for p in new_prior:
+                    self._file_add_stage=f"명세서 회계월 감지 · {Path(p).name}"
                     try: detected[p]=detect_statement_periods(p)
                     except Exception: detected[p]=[]
                 for p in new_raw:
+                    self._file_add_stage=f"더존 회계월 감지 · {Path(p).name}"
                     try: detected[p]=detect_douzone_periods(p,codes)
                     except Exception: detected[p]=[]
                 self._file_add_queue.put((classified,requested_kind,detected,None))
@@ -742,7 +748,10 @@ class App(ctk.CTk):
         try:
             classified,kind,detected,error=self._file_add_queue.get_nowait()
         except queue.Empty:
-            self.after(100,self._poll_file_add)
+            seconds=int(time.monotonic()-self._file_add_started)
+            elapsed=f"{seconds//60:02d}:{seconds%60:02d}"
+            self._set_banner("running","파일 분석 중",f"{self._file_add_stage} · 경과 {elapsed} · 남은 시간 계산 중")
+            self.after(250,self._poll_file_add)
             return
         try:
             # Remove only temporary rows before showing verified file names.
