@@ -5,40 +5,18 @@ on:
     branches: [feature/month-end-statement-template]
     paths:
       - "app.py"
-      - "adapters/excel/month_end_statement.py"
-      - "application/month_end_plan.py"
-      - "tests/test_month_end_plan.py"
-      - "tests/test_month_end_status_column.py"
-      - "tests/test_month_end_style_roundtrip.py"
-      - "adapters/excel/reader.py"
-      - "tests/test_month_end_template.py"
-      - "tests/test_month_end_sample_e2e.py"
-      - "tests/test_month_end_style_roundtrip.py"
-      - "tests/test_month_end_status_column.py"
-      - "tests/test_month_end_offset_audit.py"
-      - "application/service.py"
-      - "tests/test_attachment_progress.py"
-      - ".github/workflows/month-end-preview.yml"
-  pull_request:
-    paths:
-      - "app.py"
-      - "adapters/excel/month_end_statement.py"
-      - "application/month_end_plan.py"
-      - "tests/test_month_end_plan.py"
-      - "tests/test_month_end_status_column.py"
-      - "tests/test_month_end_style_roundtrip.py"
-      - "adapters/excel/reader.py"
-      - "tests/test_month_end_template.py"
-      - "tests/test_month_end_sample_e2e.py"
-      - "tests/test_month_end_style_roundtrip.py"
-      - "tests/test_month_end_status_column.py"
-      - "tests/test_month_end_offset_audit.py"
-      - "application/service.py"
+      - "application/**"
+      - "domain/**"
+      - "adapters/excel/**"
+      - "tests/**"
+      - "requirements.txt"
       - ".github/workflows/month-end-preview.yml"
   workflow_dispatch:
 
+# A PR already runs the separate Linux test workflow. Avoid building the same
+# Windows EXE twice for every feature-branch commit.
 concurrency:
-  group: ${{ github.event_name == 'push' && 'month-end-preview-publish' || github.run_id }}
+  group: month-end-preview-publish
   cancel-in-progress: true
 
 permissions:
