@@ -201,8 +201,17 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             reviews.append(("입력 데이터 확인", "", "", str(issue.raw_value),
                             "",issue.reason,issue.source,issue.row))
 
-        # One stable vendor group makes it possible to delete any detail row in Excel.
-        records.sort(key=lambda x:(str(x[1]),str(x[0]),str(x[4]),str(x[8])))
+        # Preserve the previous statement's vendor order and invoice order.
+        # New invoices for an existing vendor join its group; truly new vendors
+        # are appended in the order they first appeared in the Douzone RAW.
+        vendor_order={}
+        for result in results:
+            vendor=(result.prior.vendor_code,result.prior.vendor_name)
+            vendor_order.setdefault(vendor,len(vendor_order))
+        for item in new_items:
+            vendor=(item.journal.vendor_code,item.journal.vendor_name)
+            vendor_order.setdefault(vendor,len(vendor_order))
+        records.sort(key=lambda row:vendor_order[(row[0],row[1])])
         # Count the exact number of physical rows needed, including subtotal
         # rows. Remove obsolete physical rows rather than leaving blank gaps.
         vendor_keys={(rec[0],rec[1]) for rec in records}
