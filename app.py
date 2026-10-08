@@ -179,10 +179,7 @@ class App(ctk.CTk):
         self.results=[]
         self.new_items=[]
         self.issues=[]
-        self.month_end_standalone_debits=[]
-        self.month_end_standalone_sources={}
-        self.month_end_journal_lines=[]
-        self.month_end_journal_sources={}
+        self.last_reconciliation_run=None
         self.last_period=None
         self.last_source_paths=[]
         self.last_source_digests={}
@@ -611,10 +608,7 @@ class App(ctk.CTk):
         self.results=[]
         self.new_items=[]
         self.issues=[]
-        self.month_end_standalone_debits=[]
-        self.month_end_standalone_sources={}
-        self.month_end_journal_lines=[]
-        self.month_end_journal_sources={}
+        self.last_reconciliation_run=None
         self.last_period=None
         self.last_source_paths=[]
         self.last_source_digests={}
@@ -996,10 +990,7 @@ class App(ctk.CTk):
             self.issues=run.issues
             self.results=run.results
             self.new_items=run.new_items
-            self.month_end_standalone_debits=run.standalone_debits
-            self.month_end_standalone_sources=run.standalone_debit_sources
-            self.month_end_journal_lines=run.journal_items
-            self.month_end_journal_sources=run.journal_sources
+            self.last_reconciliation_run=run
             counts=run.counts
             self._summary(counts)
 
@@ -1036,7 +1027,7 @@ class App(ctk.CTk):
 
     def export_month_end(self):
         """Save a separate, editable draft based on the original statement template."""
-        if self.last_period is None:
+        if self.last_period is None or self.last_reconciliation_run is None:
             messagebox.showwarning("대사 필요","대사를 먼저 실행해주세요.")
             return
         changed=changed_snapshot_paths(self.last_source_digests)
@@ -1057,12 +1048,13 @@ class App(ctk.CTk):
         if not path:
             return
         try:
+            run=self.last_reconciliation_run
             write_month_end_statement(
-                path,self.prior_paths,self.results,self.new_items,self.issues,p,
-                standalone_debits=self.month_end_standalone_debits,
-                standalone_debit_sources=self.month_end_standalone_sources,
-                journal_items=self.month_end_journal_lines,
-                journal_sources=self.month_end_journal_sources,
+                path,self.prior_paths,run.results,run.new_items,run.issues,p,
+                standalone_debits=run.standalone_debits,
+                standalone_debit_sources=run.standalone_debit_sources,
+                journal_items=run.journal_items,
+                journal_sources=run.journal_sources,
             )
             self._set_banner(
                 "success","당월 명세서 초안 생성",
