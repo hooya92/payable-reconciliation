@@ -704,6 +704,11 @@ class App(ctk.CTk):
             self._set_banner("warning","파일 분석 중","현재 파일 분석이 끝난 뒤 다시 추가해주세요.")
             return
         self._file_add_busy=True
+        # Show selection immediately; this is a temporary label, not an accepted input.
+        self._pending_file_list = self.prior_list if requested_kind == "prior" else self.douzone_list
+        self._pending_file_labels = [f"분석 중 · {Path(p).name}" for p in paths]
+        for label in self._pending_file_labels:
+            self._pending_file_list.insert("end", label)
         self._set_banner("running","파일 분석 중","Excel 구조와 회계월을 확인하고 있습니다. 큰 파일은 시간이 걸릴 수 있습니다.")
         codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
         prior=tuple(self.prior_paths)
@@ -740,11 +745,18 @@ class App(ctk.CTk):
             self.after(100,self._poll_file_add)
             return
         try:
+            # Remove only temporary rows before showing verified file names.
+            for label in self._pending_file_labels:
+                rows=self._pending_file_list.get(0,"end")
+                if label in rows:
+                    self._pending_file_list.delete(rows.index(label))
             if error:
+                self._set_banner("error","파일 분석 실패",error)
                 messagebox.showerror("파일 분석 실패",error)
             else:
                 self._finish_classified_files(classified,kind,detected)
         finally:
+            self._pending_file_labels=[]
             self._file_add_busy=False
 
     def _finish_classified_files(self,classified,requested_kind,detected):
