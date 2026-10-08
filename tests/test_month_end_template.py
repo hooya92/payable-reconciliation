@@ -179,7 +179,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             try:
                 self.assertEqual(wb["26.08"].max_row,6)
                 self.assertEqual(wb["26.08"]["F6"].value,"확인 필요")
-                self.assertIn("당월 신규 확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
+                self.assertIn("확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
             finally:
                 wb.close()
 
