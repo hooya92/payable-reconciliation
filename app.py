@@ -1063,7 +1063,7 @@ class App(ctk.CTk):
             messagebox.showwarning(
                 "입력 파일 변경",
                 "대사 후 원본 Excel이 변경되거나 사라졌습니다: "
-                + ", ".join(changed) + "\\n다시 대사를 실행해주세요."
+                + ", ".join(changed) + "\n다시 대사를 실행해주세요."
             )
             return
         p=self.last_period
