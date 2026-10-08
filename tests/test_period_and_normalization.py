@@ -26,6 +26,17 @@ class PeriodTests(unittest.TestCase):
 
 
 class AmountTests(unittest.TestCase):
+    def test_accounting_sign_spacing_is_not_an_amount_error(self):
+        for value in ("-500,000","-    500,000","-\u00a0\u00a0500,000","− 500,000"):
+            with self.subTest(value=value):
+                result=parse_amount(value)
+                self.assertEqual(result.value,Decimal("-500000"))
+                self.assertEqual(result.quality,DataQuality.CLEAN)
+
+    def test_spaces_inside_digits_are_not_silently_joined(self):
+        for value in ("5 00,000","500,000 700,000","- 5 00,000"):
+            self.assertEqual(parse_amount(value).quality,DataQuality.SUSPICIOUS)
+
     def test_commas(self):
         x = parse_amount("86,000,000")
         self.assertEqual(x.value, Decimal("86000000"))

@@ -29,7 +29,9 @@ def parse_amount(value: object) -> NormalizedAmount:
         return NormalizedAmount(value, Decimal(str(value)), DataQuality.CLEAN)
 
     raw = str(value).strip()
-    s = raw.replace(" ", "")
+    # Allow spacing between a leading sign and the amount, including NBSP
+    # from Excel copy/paste. Spaces inside digits must never join two numbers.
+    s = re.sub(r"^([+\-−])\s*",lambda m: "-" if m.group(1)=="−" else m.group(1),raw)
     if re.fullmatch(r"[+-]?\d+", s):
         return NormalizedAmount(value, Decimal(s), DataQuality.CLEAN)
     if re.fullmatch(r"[+-]?\d{1,3}(,\d{3})+", s):

@@ -14,6 +14,37 @@ from domain.period import AccountingPeriod
 
 
 class FullTemplateStyleTests(unittest.TestCase):
+    def test_accounting_negative_formats_and_text_sign_gaps_keep_correct_totals(self):
+        from adapters.excel.reader import read_prior
+        with tempfile.TemporaryDirectory() as folder:
+            prior=Path(folder)/"original.xlsx"
+            output=Path(folder)/"generated.xlsx"
+            wb=Workbook();ws=wb.active;ws.title="26.07"
+            ws.append(["7월 명세서"])
+            ws.append(["코드","거래처","날짜","적요","금액"])
+            ws.append([None,None,"2026-07-31","발생",1000])
+            ws.append([None,None,"2026-07-31","지급1",-100])
+            ws.append([None,None,"2026-07-31","지급2","-\u00a0 200"])
+            ws.append(["001111","가상물류","소계",None,"=SUM(E3:E5)"])
+            ws["E4"].number_format='_(* #,##0_);_(* -#,##0_);_(* "-"_);_(@_)'
+            ws["E5"].number_format='#,##0;-#,##0;-'
+            styles={r:ws.cell(r,5)._style for r in (4,5)}
+            wb.save(prior);wb.close()
+            before=prior.read_bytes()
+            read=read_prior(prior,period=AccountingPeriod(2026,7))
+            self.assertEqual(read.issues,[])
+            self.assertEqual(read.review_items[0][0].amount,Decimal(700))
+            write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+            wb=load_workbook(output);ws=wb["26.08"]
+            try:
+                self.assertEqual([ws.cell(r,5).value for r in (3,4,5)],[1000,-100,-200])
+                self.assertEqual(ws["E6"].value,"=SUM(E3:E5)")
+                for row,style in styles.items():
+                    self.assertEqual(ws.cell(row,5)._style,style)
+                self.assertEqual(prior.read_bytes(),before)
+            finally:
+                wb.close()
+
     def test_signed_literal_formula_is_preserved_without_evaluating_references(self):
         from tests.test_month_end_template import write_grouped
         with tempfile.TemporaryDirectory() as folder:

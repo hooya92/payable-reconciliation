@@ -15,7 +15,8 @@ import re
 from openpyxl import load_workbook
 
 from adapters.excel.reader import _first, _header, _is_summary_label, _select_prior_sheets
-from domain.models import Status
+from domain.models import Status, DataQuality
+from domain.normalization import parse_amount
 from application.month_end_plan import build_month_end_plan
 from adapters.excel.month_end_status import (
     find_status_column, prepare_status_header, write_status,
@@ -237,7 +238,15 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                         f"명세서 {idx}행 금액에 지원하지 않는 수식이 있습니다. "
                         "원본은 그대로 두고, 복사본에서 확인한 숫자 값으로 바꾼 뒤 다시 실행해 주세요."
                     )
-                amount=literal
+                amount=Decimal(literal)
+            elif isinstance(amount,str):
+                parsed=parse_amount(amount)
+                if parsed.quality==DataQuality.SUSPICIOUS or parsed.value is None:
+                    raise ValueError(
+                        f"명세서 {idx}행 금액 형식을 확정할 수 없습니다: {amount}. "
+                        "검토 후 복사본에서 숫자 값으로 입력해 주세요."
+                    )
+                amount=parsed.value
             try:
                 amount=Decimal(str(amount))
             except (ValueError,ArithmeticError) as exc:
@@ -355,7 +364,13 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             values.update(rec.extras)
             original_style=opening_styles.get(id(rec.extras))
             if original_style is not None:
-                values[fields["amount"]]=opening_amounts[id(rec.extras)]
+                original_amount=opening_amounts[id(rec.extras)]
+                # Text amounts must become numeric in the output so Excel SUM
+                # includes them. Keep the original formatting and input file.
+                values[fields["amount"]]=(
+                    _amount(rec.amount) if isinstance(original_amount,str)
+                    and not original_amount.startswith("=") else original_amount
+                )
             if fields["date"]:
                 values[fields["date"]]=(
                     rec.date if original_style is not None
