@@ -16,7 +16,7 @@ class AdversarialExcelE2ETests(unittest.TestCase):
             data=build(tmp); expected=data["expected"]
 
             prior=read_prior(data["prior_path"],"가상담당")
-            raw=read_douzone(data["raw_path"],{"25301"},AccountingPeriod(2026,7))
+            raw=read_douzone(data["raw_path"],{"25301"},AccountingPeriod(2026,8))
             results=reconcile(prior.items,raw.items)
             counts=Counter(x.status for x in results)
 
@@ -40,9 +40,9 @@ class AdversarialExcelE2ETests(unittest.TestCase):
                 expected["DUPLICATE"],
             )
 
-            fresh=new_payables(raw.items)
+            fresh=new_payables(raw.items,results,allow_auto=not prior.issues and not raw.issues)
             self.assertEqual(len(fresh),expected["CURRENT_MONTH_NEW_REVIEW"])
-            self.assertEqual(fresh[0].vendor_code,"002001")
+            self.assertEqual(fresh[0].journal.vendor_code,"002001")
 
 
 if __name__=="__main__":
