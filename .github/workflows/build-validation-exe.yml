@@ -1,5 +1,4 @@
 name: Build Windows Release EXE
-# Release trigger: audited 108-test workflow with period, zero-subtotal and unmatched-debit fixes
 
 on:
   workflow_dispatch:
@@ -12,6 +11,11 @@ on:
       - "domain/**"
       - "adapters/excel/**"
       - "requirements.txt"
+      - "assets/**"
+
+concurrency:
+  group: stable-release-publish
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -43,8 +47,32 @@ jobs:
       - name: Build Windows EXE
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onefile --name "명세서대사" app.py
+          python -m PyInstaller --noconfirm --clean --windowed --onefile --icon "assets/app.ico" --add-data "assets/app.ico;assets" --name "명세서대사" app.py
           Copy-Item "dist/명세서대사.exe" "dist/statement-reconciliation.exe"
+
+      - name: Verify Windows Explorer file icon
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.Drawing
+          $exe = (Resolve-Path "dist/statement-reconciliation.exe").Path
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if ($null -eq $icon) { throw "EXE file icon could not be extracted" }
+          $bitmap = $icon.ToBitmap()
+          $pinkPixels = 0
+          for ($y = 0; $y -lt $bitmap.Height; $y++) {
+            for ($x = 0; $x -lt $bitmap.Width; $x++) {
+              $pixel = $bitmap.GetPixel($x, $y)
+              if ($pixel.A -gt 200 -and $pixel.R -gt ($pixel.G + 15) -and $pixel.R -gt ($pixel.B + 10)) {
+                $pinkPixels++
+              }
+            }
+          }
+          if ($pinkPixels -lt ($bitmap.Width * $bitmap.Height * 0.1)) {
+            throw "Extracted file icon is not the expected pink rabbit icon"
+          }
+          $bitmap.Save("dist/verified-file-icon.png")
+          $bitmap.Dispose()
+          $icon.Dispose()
 
       - name: Create SHA-256 checksum
         shell: pwsh
@@ -77,10 +105,12 @@ jobs:
           path: |
             dist/statement-reconciliation.exe
             dist/SHA256SUMS.txt
+            dist/verified-file-icon.png
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish stable download release
+        if: github.ref == 'refs/heads/main'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -91,7 +121,9 @@ jobs:
           gh release view $tag --repo "$env:GITHUB_REPOSITORY" *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --clobber --repo "$env:GITHUB_REPOSITORY"
+            if ($LASTEXITCODE -ne 0) { throw "Stable asset upload failed" }
             gh release edit $tag --title "명세서 대사 최신 버전" --notes $notes --repo "$env:GITHUB_REPOSITORY"
           } else {
             gh release create $tag @assets --target "$env:GITHUB_SHA" --title "명세서 대사 최신 버전" --notes $notes --repo "$env:GITHUB_REPOSITORY"
           }
+          if ($LASTEXITCODE -ne 0) { throw "Stable release publish failed" }

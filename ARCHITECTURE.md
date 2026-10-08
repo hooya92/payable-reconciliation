@@ -1,7 +1,7 @@
 # 모듈 경계 및 변경 원칙
 
-당월 명세서 기능은 `feature/month-end-statement-template`에서 검증합니다. 
-정식 `main` 및 `download-latest`를 테스트용 배포로 덮어쓰지 않습니다.
+사용자 요청으로 당월 명세서 기능을 `main`에 승격했습니다.
+`main`은 정식 `download-latest`를 배포하며, 개발 브랜치의 `month-end-preview`는 별도로 유지합니다.
 
 ## 의존성 및 책임
 
@@ -31,8 +31,8 @@
 3. 거래처명 차이·부분지급·오타 등은 검토내역으로 전달합니다. 같은 거래처코드는 하나의 소계 그룹만 구성해야 합니다.
 4. 여러 전월 양식 첨부는 누락 방지를 위해 자동 생성에서 거절합니다(대사 자체는 기존처럼 수행).
 5. 변경 시 도메인 단위 → 서비스 → 계획 → Excel → UI 순으로 검증하고, 먼저 기존 함수를 재사용합니다. 불필요한 새 의존성/추상화는 도입하지 않습니다.
-6. `python -m unittest discover -s tests -p "test_*.py" -v`를 통과시킨 뒤 Windows 미리보기 Release의 커밋 SHA를 확인합니다.
-7. 브랜치 미리보기 `month-end-preview`와 정식 `download-latest`는 별도입니다. PR은 현업 양식 회귀 검증 전까지 draft/미병합으로 둡니다.
+6. `python -m unittest discover -s tests -p "test_*.py" -v`를 통과시킨 뒤 Windows EXE 테스트·파일 아이콘 검사와 Release의 커밋 SHA를 확인합니다.
+7. 브랜치 미리보기 `month-end-preview`와 정식 `download-latest`는 별도입니다. 정식 배포는 `main`에서만 게시합니다.
 
 참고: 현재 UI(`app.py`)와 입력 파서(`reader.py`)는 파일 크기가 큽니다. 단순 분량을 줄이려 대규모로 쪼개지 말고,
 수정 대상이 되는 실제 기능 단위에서만 단계적으로 추출하며 동작 테스트를 먼저 추가합니다.
