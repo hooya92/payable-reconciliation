@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods, read_douzone, read_prior
 from adapters.excel.writer import write_result
+from adapters.excel.month_end_statement import write_month_end_statement
 from domain.models import Status
 from domain.period import AccountingPeriod
 from application.service import run_reconciliation
@@ -431,6 +432,12 @@ class App(ctk.CTk):
             font=("Segoe UI Semibold",13)
         )
         self.export_btn.pack(side="left",padx=(10,0))
+        self.month_end_btn=ctk.CTkButton(
+            actions,text="▤   당월 명세서 생성",command=self.export_month_end,state="disabled",
+            width=198,height=52,corner_radius=13,fg_color="#EDE7F6",hover_color="#E4D8F5",
+            text_color="#6040A0",font=("Segoe UI Semibold",13)
+        )
+        self.month_end_btn.pack(side="left",padx=(10,0))
 
         # Status
         self.banner=ctk.CTkFrame(
@@ -612,6 +619,7 @@ class App(ctk.CTk):
         self.last_source_paths=[]
         self.last_source_digests={}
         self.export_btn.configure(state="disabled")
+        self.month_end_btn.configure(state="disabled")
         self._summary({})
         self.preflight.configure(text="")
         self._clear_detail()
@@ -1039,9 +1047,43 @@ class App(ctk.CTk):
             else:
                 self._set_banner("success","대사 완료",detail)
             self.export_btn.configure(state="normal")
+            self.month_end_btn.configure(state="normal")
         except Exception as e:
             self._set_banner("error","대사 중단","입력 내용을 확인한 뒤 다시 실행해주세요.")
             messagebox.showerror("대사 중단",str(e))
+
+    def export_month_end(self):
+        """Save a separate, editable draft based on the original statement template."""
+        if self.last_period is None:
+            messagebox.showwarning("대사 필요","대사를 먼저 실행해주세요.")
+            return
+        changed=changed_snapshot_paths(self.last_source_digests)
+        if changed:
+            self._invalidate_results()
+            messagebox.showwarning(
+                "입력 파일 변경",
+                "대사 후 원본 Excel이 변경되거나 사라졌습니다: "
+                + ", ".join(changed) + "\\n다시 대사를 실행해주세요."
+            )
+            return
+        p=self.last_period
+        path=filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            initialfile=f"{p.year}_{p.month:02d}_당월명세서_검토용.xlsx",
+            filetypes=[("Excel","*.xlsx")],
+        )
+        if not path:
+            return
+        try:
+            write_month_end_statement(
+                path,self.prior_paths,self.results,self.new_items,self.issues,p
+            )
+            self._set_banner(
+                "success","당월 명세서 초안 생성",
+                f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다."
+            )
+        except Exception as e:
+            messagebox.showerror("당월 명세서 생성 실패",str(e))
 
     def export(self):
         if self.last_period is None:
