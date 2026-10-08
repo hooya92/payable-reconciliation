@@ -50,18 +50,19 @@ class ReconcileTests(unittest.TestCase):
         line=JournalLine("051330","거래처","25301","미지급금-일반","same",Decimal("100"),Decimal("0"),"2026-08-31")
         self.assertEqual(reconcile([prior],[line])[0].status, Status.MATCHED)
 
-    def test_unique_partial_payment_is_carried(self):
+    def test_unique_partial_payment_requires_review(self):
         r=reconcile([p("051330","A",100)],[j("051330","A",40)])
         self.assertEqual(r[0].status, Status.PARTIAL)
-        self.assertEqual(r[0].rule, "PARTIAL_UNIQUE")
+        self.assertEqual(r[0].rule, "POSSIBLE_PARTIAL")
+        self.assertIn("자동 차감/이월 제외",r[0].reason)
 
     def test_partial_with_duplicate_opening_descriptions_requires_review(self):
         r=reconcile([p("051330","A",100),p("051330","A",200)],[j("051330","A",40)])
-        self.assertTrue(all(x.status == Status.AMBIGUOUS for x in r))
+        self.assertTrue(all(x.status == Status.PARTIAL for x in r))
 
     def test_same_amount_debit_not_stolen_from_other_partial_payment(self):
         r=reconcile([p("051330","B",40),p("051330","A",100)],[j("051330","A",40)])
-        self.assertTrue(all(x.status == Status.AMBIGUOUS for x in r))
+        self.assertEqual([x.status for x in r],[Status.AMBIGUOUS,Status.PARTIAL])
 
     def test_duplicate_prior_with_insufficient_debits_is_ambiguous(self):
         r=reconcile([p("051330","A",100),p("051330","A",100)],[j("051330","A",100)])
