@@ -283,7 +283,9 @@ def _select_prior_sheets(wb, groups, period):
 
 def _header_row(ws, required_groups, max_rows=30):
     # Stream rows once; repeated ws.cell() calls reparse read-only .xlsx sheets.
-    limit=min(ws.max_row, max_rows)
+    # Some valid exporters omit the worksheet <dimension> tag. Streaming works
+    # even when the read-only worksheet cannot know its row count up front.
+    limit=min(ws.max_row, max_rows) if ws.max_row is not None else max_rows
     for r, row in enumerate(islice(ws.iter_rows(min_row=1, values_only=True), limit), start=1):
         vals=[_header(value) for value in row]
         if all(any(name in vals for name in group) for group in required_groups):
@@ -294,7 +296,9 @@ def _header_row(ws, required_groups, max_rows=30):
 def _partial_header_row(ws, required_groups, min_groups, max_rows=30):
     """Detect a likely data table whose headers changed enough that we should not silently ignore it."""
     best=(None,0)
-    limit=min(ws.max_row, max_rows)
+    # Some valid exporters omit the worksheet <dimension> tag. Streaming works
+    # even when the read-only worksheet cannot know its row count up front.
+    limit=min(ws.max_row, max_rows) if ws.max_row is not None else max_rows
     for r, row in enumerate(islice(ws.iter_rows(min_row=1, values_only=True), limit), start=1):
         vals=[_header(value) for value in row]
         matched=sum(any(_header(name) in vals for name in group) for group in required_groups)
@@ -423,7 +427,9 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
             missing=[x for x in needed if not cols[x]]
             if missing:
                 raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
-            out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
+            out.detected_headers=[_text(v) for v in next(
+                ws.iter_rows(min_row=hr,max_row=hr,values_only=True), ()
+            )]
             for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
                 account_cell=row[cols["account_code"]-1]
                 if _is_formula(account_cell):
@@ -516,7 +522,9 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
             missing=[x for x in required if not cols[x]]
             if missing:
                 raise ValueError("명세서 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
-            out.detected_headers=[_text(ws.cell(hr,c).value) for c in range(1,ws.max_column+1)]
+            out.detected_headers=[_text(v) for v in next(
+                ws.iter_rows(min_row=hr,max_row=hr,values_only=True), ()
+            )]
 
             # Some real statement sheets place vendor code/name only on the yellow subtotal row
             # after the detail rows. Buffer only contiguous detail rows and attach the vendor
