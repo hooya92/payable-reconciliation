@@ -60,10 +60,10 @@ class FullTemplateStyleTests(unittest.TestCase):
             wb=load_workbook(output)
             try:
                 ws=wb["26.08"]
-                self.assertEqual(ws.max_row,4)
-                self.assertEqual(ws["E3"].value,250)
-                self.assertEqual([r[0] for r in list(wb["상계내역"].values)[1:]],["전월 전액 상계"])
-                for i in (3,):
+                self.assertEqual(ws.max_row,7)
+                self.assertEqual([ws.cell(r,5).value for r in (3,4,6)],[100,-100,250])
+                self.assertEqual([r[0] for r in list(wb["대사내역"].values)[1:]],["대사 일치 후보"])
+                for i in (3,4,6):
                     cell=ws.cell(i,5)
                     self.assertEqual(cell.font.name,"굴림")
                     self.assertEqual(cell.font.sz,10)
@@ -75,16 +75,19 @@ class FullTemplateStyleTests(unittest.TestCase):
                     self.assertEqual(ws.row_dimensions[i].height,29)
                     self.assertEqual(ws.cell(i,3).number_format,"yyyy/mm/dd")
                     self.assertIsInstance(ws.cell(i,3).value,(datetime,date))
-                self.assertEqual(ws["C3"].value.date() if isinstance(ws["C3"].value,datetime)
-                                 else ws["C3"].value,date(2026,8,23))
-                for i in (4,):
+                self.assertEqual(ws["C4"].value.date() if isinstance(ws["C4"].value,datetime)
+                                 else ws["C4"].value,date(2026,8,5))
+                for i in (5,7):
                     subtotal=ws.cell(i,5)
                     self.assertEqual(subtotal.fill.fgColor.rgb,"00FFF2A6")
                     self.assertEqual(subtotal.border.top.style,"double")
                     self.assertTrue(subtotal.font.bold)
                     self.assertEqual(ws.row_dimensions[i].height,25)
-                self.assertEqual(ws["E4"].value,"=SUM(E3:E3)")
-                self.assertEqual(ws["B4"].value,"가상신규")
+                self.assertEqual(ws["E5"].value,"=SUM(E3:E4)")
+                self.assertEqual(ws["E7"].value,"=SUM(E6:E6)")
+                self.assertEqual(ws["B5"].value,"가상물류")
+                self.assertEqual(ws["B7"].value,"가상신규")
+                self.assertEqual(ws["F2"].value,"처리상태")
                 self.assertTrue(wb.calculation.fullCalcOnLoad)
             finally:
                 wb.close()
