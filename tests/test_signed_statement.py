@@ -72,7 +72,8 @@ class SignedStatementTests(unittest.TestCase):
             wb.save(prior)
             result=read_prior(prior,"",AccountingPeriod(2026,9))
             self.assertEqual(result.items,[])
-            self.assertEqual(result.review_items,[])
+            self.assertEqual(len(result.review_items),1)
+            self.assertEqual(result.review_items[0][0].amount,Decimal(0))
             self.assertEqual(result.issues,[])
 
     def test_unverified_subtotal_formula_is_rejected(self):
@@ -130,6 +131,27 @@ class SignedStatementTests(unittest.TestCase):
             self.assertEqual(negative.results[0].status,Status.SIGNED_OPENING_REVIEW)
             self.assertEqual(negative.results[0].closing_balance,Decimal(-10))
             self.assertIn("음수 잔액",negative.results[0].reason)
+
+    def test_zero_opening_subtotal_detects_october_overpayment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prior=Path(directory)/"prior.xlsx"
+            raw=Path(directory)/"journal.xlsx"
+            statement(prior,include_clean=False,subtotal=0)
+            wb=load_workbook(prior)
+            wb.active["E5"]=-160
+            wb.save(prior)
+
+            wb=Workbook(); ws=wb.active
+            ws.append(["기표일자","계정코드","계정과목명",
+                       "거래처코드","거래처명","적요","차변","대변"])
+            ws.append(["2026-10-03","25301","미지급금-일반",
+                       "001234","가상물류","추가 지급",25,0])
+            wb.save(raw)
+            run=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,10))
+            self.assertEqual(run.prior_count,1)
+            self.assertEqual(len(run.results),1)
+            self.assertEqual(run.results[0].closing_balance,Decimal(-25))
+            self.assertEqual(run.results[0].status,Status.SIGNED_OPENING_REVIEW)
 
     def test_invalid_raw_blocks_signed_net_auto_roll_forward(self):
         with tempfile.TemporaryDirectory() as directory:
