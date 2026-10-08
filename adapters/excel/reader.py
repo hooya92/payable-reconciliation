@@ -509,6 +509,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
             # identity when the following subtotal exactly equals their amount sum.
             pending=[]
             group_tainted=False
+            flat_negative_codes=set()
             def flush_pending_as_issues(reason):
                 nonlocal pending, group_tainted
                 group_tainted=True
@@ -639,6 +640,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     if not desc:
                         out.issues.append(InputIssue("명세서",ws.title,r,"적요","", "적요 없음")); row_invalid=True
                     if (a.value or 0) <= 0:
+                        if code and a.value is not None and a.value < 0:
+                            flat_negative_codes.add(code)
                         out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,
                             "소계 없는 음수·0원 행은 미지급 순잔액을 확정할 수 없어 자동 대사하지 않음")); row_invalid=True
                     if row_invalid:
@@ -668,6 +671,19 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
 
             if pending:
                 flush_pending_as_issues("파일 끝까지 거래처 소계가 없어 상세 행의 거래처를 확정할 수 없음")
+            # Without a verified subtotal, a negative flat row can affect
+            # other rows for the same vendor; suppress their auto-matching.
+            if flat_negative_codes:
+                retained=[]
+                for item in out.items:
+                    if item.source.sheet==ws.title and item.vendor_code in flat_negative_codes:
+                        out.issues.append(InputIssue(
+                            "명세서",ws.title,item.source.row,"거래처",item.vendor_code,
+                            "동일 거래처에 소계 없는 음수 내역이 있어 순잔액 확인 전 자동 대사 보류"
+                        ))
+                    else:
+                        retained.append(item)
+                out.items=retained
     finally:
         wb.close()
     if not out.items and not out.review_items and not out.issues:
