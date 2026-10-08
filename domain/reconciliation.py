@@ -236,6 +236,11 @@ def new_payables(
         (normalize_code(r.prior.vendor_code), normalize_text(r.prior.description))
         for r in prior_results
     }
+    review_vendors = {
+        normalize_code(r.prior.vendor_code)
+        for r in prior_results
+        if r.status not in (Status.MATCHED, Status.UNPAID)
+    }
     for line in credits:
         credit_counts[(normalize_code(line.vendor_code), normalize_text(line.description))] += 1
 
@@ -248,6 +253,8 @@ def new_payables(
         reason = ""
         if not allow_auto:
             reason = "입력 데이터 확인 항목이 있어 신규 발생분 자동 이월 보류"
+        elif code in review_vendors:
+            reason = "동일 거래처의 전월 대사 확인필요 건이 있어 당월 신규분 자동 반영 보류"
         elif credit_counts[key] != 1 or key in prior_keys:
             reason = "전월 항목과 중복 또는 당월 동일 적요 대변 중복 가능성 확인 필요"
         elif len(same_desc_debits) > 1 or len(vendor_debits) != len(same_desc_debits):
