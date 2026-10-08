@@ -103,9 +103,10 @@ class ExampleMonthEndFlowTests(unittest.TestCase):
                     self.assertEqual(ws.cell(idx,5).fill.fgColor.rgb,"00FFF2A6")
                     self.assertEqual(ws.cell(idx,5).font.name,"굴림")
                 self.assertEqual(ws["D4"].font.name,"굴림")
-                self.assertEqual(ws["F3"].value,"처리상태")
-                self.assertIn("당월 발생",[ws.cell(i,6).value for i in range(4,24)])
-                self.assertIn("대사 일치",[ws.cell(i,6).value for i in range(4,24)])
+                self.assertIsNone(ws["F3"].value)  # Never alter the attached template columns.
+                change_states=[r[0] for r in list(wb["변경내역"].values)[1:]]
+                self.assertIn("당월 발생",change_states)
+                self.assertIn("대사 일치",change_states)
                 self.assertTrue(any("부분지급" in str(row[5])
                                     for row in list(wb["검토필요"].values)[1:]))
             finally:
