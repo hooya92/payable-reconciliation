@@ -2,7 +2,7 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
-from adapters.excel.reader import read_douzone, read_prior
+from adapters.excel.reader import InputIssue, read_douzone, read_prior
 from domain.models import ReconcileResult, Status
 from domain.normalization import normalize_code, normalize_text
 from domain.period import AccountingPeriod
@@ -60,7 +60,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
             )
         cross_seen.setdefault(key,item)
 
-    journal_items=[]; dz_issues=[]; raw_seen={}
+    journal_items=[]; dz_issues=[]; raw_seen={}; journal_sources={}
     for path in douzone_paths:
         dz=read_douzone(path,account_codes or None,period)
         source_name=Path(path).name
@@ -84,9 +84,36 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 )
             raw_seen.setdefault(key,source_name)
         journal_items.extend(dz.items); dz_issues.extend(dz.issues)
+        journal_sources.update({id(item):Path(path).name for item in dz.items})
 
-    issues=prior_issues+dz_issues
     results=reconcile(prior_items,journal_items)
+    # A debit with no opening liability or same-month credit must not be
+    # silently omitted. Existing reviewed candidates and aggregate vendors
+    # are already accounted for by their respective reconciliation paths.
+    referenced_debits={
+        id(result.journal) for result in results
+        if result.journal is not None and result.journal.debit > 0
+    }
+    aggregate_vendors=set(review_vendor_seen)
+    reviewed_vendors={
+        normalize_code(result.prior.vendor_code) for result in results
+        if result.status != Status.MATCHED
+    }
+    credit_vendors={
+        normalize_code(line.vendor_code) for line in journal_items if line.credit > 0
+    }
+    for line in journal_items:
+        vendor=normalize_code(line.vendor_code)
+        if (line.debit > 0 and id(line) not in referenced_debits
+                and vendor not in aggregate_vendors
+                and vendor not in reviewed_vendors
+                and vendor not in credit_vendors):
+            dz_issues.append(InputIssue(
+                journal_sources.get(id(line),"더존 Raw"),"",line.row_number,
+                "차변",line.debit,
+                "전월 미지급금 명세서 및 당월 신규 대변에 대응하지 않는 차변 전표 — 미확인 지급/조정 확인 필요"
+            ))
+    issues=prior_issues+dz_issues
     for item, reason in opening_reviews:
         vendor=normalize_code(item.vendor_code)
         activity=[line for line in journal_items if normalize_code(line.vendor_code)==vendor]
