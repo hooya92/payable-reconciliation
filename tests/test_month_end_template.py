@@ -130,6 +130,25 @@ class TemplateMonthEndTests(unittest.TestCase):
             finally:
                 wb.close()
 
+    def test_unresolved_generated_statement_is_blocked_on_next_month_reconciliation(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/"prior.xlsx"
+            output=Path(folder)/"draft.xlsx"
+            write_flat(p)
+            review=payable("000033","가상C","검토 대상","300",5)
+            write_month_end_statement(
+                output,[p],[ReconcileResult(Status.INPUT_TYPO_SUSPECT,review,None,
+                                           "거래처코드 오타 의심","CODE_TYPO")],[],[],TARGET
+            )
+            with self.assertRaisesRegex(ValueError,"검토필요 항목"):
+                read_prior(output,period=TARGET)
+            # Final approval remains a human action. Deleting the review tab
+            # after correcting the main sheet allows normal next-month input.
+            wb=load_workbook(output)
+            wb.remove(wb["검토필요"])
+            wb.save(output)
+            self.assertEqual(len(read_prior(output,period=TARGET).items),1)
+
     def test_does_not_overwrite_source_or_guess_an_already_present_month(self):
         with tempfile.TemporaryDirectory() as folder:
             p=Path(folder)/"prior.xlsx"; write_flat(p)
