@@ -61,6 +61,29 @@ def _change_heading(sheet, header_row, previous, current):
                 cell.value=updated
 
 
+def _template_date(value, original):
+    """Use the original date cell's storage type and visual presentation."""
+    if value in ("", None):
+        return value
+    if isinstance(original,(datetime,date)):
+        if isinstance(value,(datetime,date)):
+            return value
+        try:
+            return date.fromisoformat(str(value).replace("/","-").replace(".","-"))
+        except ValueError as exc:
+            raise ValueError(f"원본 양식의 날짜 형식으로 해석할 수 없는 값: {value}") from exc
+    if isinstance(value,(datetime,date)):
+        value=value.strftime("%Y-%m-%d")
+    text=str(value)
+    original_text=str(original or "")
+    if len(original_text)>=10:
+        if original_text[4:5]=="/" and original_text[7:8]=="/":
+            return text.replace("-","/")
+        if original_text[4:5]=="." and original_text[7:8]==".":
+            return text.replace("-",".")
+    return text
+
+
 def _template_shapes(sheet, header, fields):
     """Identify a familiar flat or group-subtotal template without guessing new columns."""
     detail=None
@@ -82,8 +105,12 @@ def _template_shapes(sheet, header, fields):
     if grouped and subtotal is None:
         raise ValueError("거래처코드가 소계에만 있는 양식인데 유효한 소계 행을 찾지 못했습니다.")
     def styles(row):
-        return [copy(c._style) for c in row], sheet.row_dimensions[row[0].row].height
-    return grouped,styles(detail),styles(subtotal) if subtotal else styles(detail),("date" if fields["date"] and subtotal and _is_summary_label(subtotal[fields["date"]-1].value) else "desc")
+        return ([copy(c._style) for c in row],
+                copy(sheet.row_dimensions[row[0].row]))
+    return (grouped,styles(detail),styles(subtotal) if subtotal else styles(detail),
+            ("date" if fields["date"] and subtotal
+             and _is_summary_label(subtotal[fields["date"]-1].value) else "desc"),
+            detail[fields["date"]-1].value if fields["date"] else None)
 
 
 def write_month_end_statement(path, prior_paths, results, new_items, issues, period:AccountingPeriod):
@@ -115,7 +142,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         }
         if not all(fields[k] for k in ("code","name","desc","amount")):
             raise ValueError("거래처코드/거래처명/적요/금액 열을 안전하게 식별하지 못했습니다.")
-        grouped,detail_style,subtotal_style,subtotal_label=_template_shapes(original,header,fields)
+        grouped,detail_style,subtotal_style,subtotal_label,sample_date=_template_shapes(original,header,fields)
 
         # Retain the original worksheet object, not a worksheet copy:
         # openpyxl's copy_worksheet loses drawings and some sheet properties.
@@ -159,8 +186,22 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             p=result.prior
             status=result.status
             if status==Status.MATCHED:
-                audits.append(("지급 완료 제외",p.vendor_code,p.vendor_name,p.description,
-                               _amount(p.amount),"더존 차변 일치",p.source.file_name,p.source.row))
+                if grouped and result.journal is not None and result.journal.debit==p.amount:
+                    # A grouped signed statement keeps the opening and appends
+                    # only a *confirmed* Douzone debit with opposite sign.
+                    # Both rows cancel; the original history remains visible.
+                    j=result.journal
+                    records.append((p.vendor_code,p.vendor_name,None,None,p.description,p.amount,
+                                    p.source.file_name,"이월",p.source.row,p.date))
+                    records.append((p.vendor_code,p.vendor_name,None,None,j.description,-j.debit,
+                                    "더존 Raw","확정차변",j.row_number,j.date))
+                    audits.append(("더존 차변 반영",p.vendor_code,p.vendor_name,j.description,
+                                   _amount(-j.debit),result.reason,"더존 Raw",j.row_number))
+                else:
+                    # Flat templates do not have a verified group subtotal;
+                    # never introduce a negative row they cannot safely import.
+                    audits.append(("지급 완료 제외",p.vendor_code,p.vendor_name,p.description,
+                                   _amount(p.amount),"더존 차변 일치",p.source.file_name,p.source.row))
                 continue
             if status==Status.SIGNED_NET_AUTO:
                 if result.closing_balance is None:
@@ -242,12 +283,15 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             )
 
         row_no=header+1
-        def write_row(values,styles,height):
+        def write_row(values,styles,dimension):
             nonlocal row_no
+            # _style captures font, border, fill, alignment, number format
+            # and protection. Match the original row's height and visibility too.
             for column,style in enumerate(styles,1):
                 ws.cell(row_no,column)._style=copy(style)
-            if height is not None:
-                ws.row_dimensions[row_no].height=height
+            row_dim=copy(dimension)
+            row_dim.index=row_no
+            ws.row_dimensions[row_no]=row_dim
             for column,value in values.items():
                 ws.cell(row_no,column).value=value
             row_no+=1
@@ -281,7 +325,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 row_date=f"{period.year}-{period.month:02d}-{calendar.monthrange(period.year,period.month)[1]}"
             values={fields["desc"]:desc,fields["amount"]:_amount(amount)}
             if fields["date"]:
-                values[fields["date"]]=row_date
+                values[fields["date"]]=_template_date(row_date,sample_date)
             if not grouped:
                 values[fields["code"]]=code
                 values[fields["name"]]=name
@@ -319,6 +363,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             extra.column_dimensions["H"].width=12
         changes.column_dimensions["J"].width=75
 
+        # Let Excel recalculate all copied per-vendor subtotal formulas on open.
+        from openpyxl.workbook.properties import CalcProperties
+        wb.calculation=CalcProperties(calcMode="auto",fullCalcOnLoad=True,forceFullCalc=True)
         wb.active=wb.worksheets.index(ws)
         wb.save(out)
     finally:
