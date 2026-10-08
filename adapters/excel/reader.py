@@ -428,7 +428,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
             if missing:
                 raise ValueError("더존 파일 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
             out.detected_headers=[_text(v) for v in next(
-                ws.iter_rows(min_row=hr,max_row=hr,values_only=True), ()
+                islice(ws.iter_rows(min_row=hr,values_only=True),1), ()
             )]
             for r, row in enumerate(ws.iter_rows(min_row=hr+1, values_only=False), start=hr+1):
                 account_cell=row[cols["account_code"]-1]
@@ -523,7 +523,7 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
             if missing:
                 raise ValueError("명세서 필수 헤더를 안전하게 식별하지 못했습니다: "+", ".join(missing))
             out.detected_headers=[_text(v) for v in next(
-                ws.iter_rows(min_row=hr,max_row=hr,values_only=True), ()
+                islice(ws.iter_rows(min_row=hr,values_only=True),1), ()
             )]
 
             # Some real statement sheets place vendor code/name only on the yellow subtotal row
