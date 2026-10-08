@@ -29,7 +29,7 @@ class UISafetyTests(unittest.TestCase):
             current,
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
         )
-        self.assertEqual(suggested,AccountingPeriod(2026,7))
+        self.assertEqual(suggested,AccountingPeriod(2026,8))
 
     def test_latest_statement_month_drives_target_even_if_current_month_also_matches(self):
         current=AccountingPeriod(2026,8)
@@ -37,7 +37,7 @@ class UISafetyTests(unittest.TestCase):
             current,
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
         )
-        self.assertEqual(suggested,AccountingPeriod(2026,8))
+        self.assertEqual(suggested,AccountingPeriod(2026,9))
 
     def test_no_auto_suggestion_when_statement_files_share_no_month(self):
         current=AccountingPeriod(2026,9)
@@ -60,7 +60,7 @@ class UISafetyTests(unittest.TestCase):
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
             [[AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
         )
-        self.assertEqual(period,AccountingPeriod(2026,7))
+        self.assertEqual(period,AccountingPeriod(2026,8))
         self.assertEqual(source,"statement+raw")
 
     def test_latest_same_statement_raw_month_wins(self):
@@ -68,10 +68,10 @@ class UISafetyTests(unittest.TestCase):
             [[AccountingPeriod(2026,5),AccountingPeriod(2026,6),AccountingPeriod(2026,7)]],
             [[AccountingPeriod(2026,6),AccountingPeriod(2026,7),AccountingPeriod(2026,8)]],
         )
-        self.assertEqual(period,AccountingPeriod(2026,7))
+        self.assertEqual(period,AccountingPeriod(2026,8))
         self.assertEqual(source,"statement+raw")
 
-    def test_period_evidence_rejects_coincidental_raw_month_noise(self):
+    def test_period_evidence_uses_previous_statement_and_current_journal(self):
         from openpyxl import Workbook
         with tempfile.TemporaryDirectory() as tmp:
             prior=Path(tmp)/"prior.xlsx"; wb=Workbook(); ws=wb.active; ws.title="26.07"
@@ -84,13 +84,13 @@ class UISafetyTests(unittest.TestCase):
             ws.append(["2026-08-03","25301","미지급금-일반","001001","가상A","7월 비용",100,0])
             wb.save(raw)
 
-            exact,shared=period_alignment_evidence([prior],[raw],{"25301"},AccountingPeriod(2026,7))
-            self.assertEqual((exact,shared),(0,0))
+            exact,shared=period_alignment_evidence([prior],[raw],{"25301"},AccountingPeriod(2026,8))
+            self.assertEqual((exact,shared),(1,1))
 
     def test_statement_raw_month_conflict_is_not_guessed(self):
         period,source=infer_period_from_inputs(
             [[AccountingPeriod(2026,7)]],
-            [[AccountingPeriod(2026,8)]],
+            [[AccountingPeriod(2026,7)]],
         )
         self.assertIsNone(period)
         self.assertEqual(source,"conflict")
