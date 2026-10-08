@@ -113,6 +113,57 @@ class TemplateMonthEndTests(unittest.TestCase):
             self.assertEqual(len(read.items),2)
             self.assertEqual(len(read.issues),0)
 
+    def test_real_group_subtotal_style_moves_with_insertions_and_deletions(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/"prior.xlsx"; o=Path(folder)/"draft.xlsx"
+            wb=Workbook()
+            ws=wb.active;ws.title="26.07"
+            ws.append(["가상 물류 거래처별 명세"])
+            ws.append(["코드","거래처","날짜","적요","금액"])
+            ws.append(["","","2026-07-31","7월 지급완료",100])
+            ws.append(["","","2026-07-31","7월 미지급",200])
+            ws.append(["001111","가상A","소계","",300])
+            ws.append(["","","2026-07-31","7월 모두지급",80])
+            ws.append(["002222","가상B","소계","",80])
+            yellow=PatternFill(fill_type="solid",fgColor="FFF2A6")
+            for row in (5,7):
+                for c in ws[row][:5]:
+                    c.fill=yellow
+                    c.font=c.font.copy(name="굴림",bold=True)
+            ws["D3"].font=ws["D3"].font.copy(name="굴림",size=10)
+            wb.save(p)
+            a1=payable("001111","가상A","7월 지급완료","100",3)
+            a2=payable("001111","가상A","7월 미지급","200",4)
+            b1=payable("002222","가상B","7월 모두지급","80",6)
+            fresh=NewPayable(
+                JournalLine("003333","가상신규","25301","미지급금",
+                            "8월 새 운임",Decimal(0),Decimal(50),"2026-08-21",9),
+                Decimal(50),"당월 신규 발생",True,
+            )
+            write_month_end_statement(
+                o,[p],[ReconcileResult(Status.MATCHED,a1),
+                       ReconcileResult(Status.UNPAID,a2),
+                       ReconcileResult(Status.MATCHED,b1)],
+                [fresh],[],TARGET,
+            )
+            wb=load_workbook(o)
+            try:
+                ws=wb["26.08"]
+                self.assertEqual(ws.max_row,6)
+                self.assertEqual([ws.cell(r,3).value for r in (4,6)],["소계","소계"])
+                self.assertEqual([ws.cell(r,1).value for r in (4,6)],["001111","003333"])
+                self.assertEqual([ws.cell(r,5).value for r in (3,5)],[200,50])
+                self.assertEqual(ws["C5"].value,"2026-08-21")
+                self.assertEqual(ws["E4"].value,"=SUM(E3:E3)")
+                self.assertEqual(ws["E6"].value,"=SUM(E5:E5)")
+                for row in (4,6):
+                    self.assertEqual(ws.cell(row,5).fill.fgColor.rgb,"00FFF2A6")
+                    self.assertEqual(ws.cell(row,5).font.name,"굴림")
+                self.assertEqual(ws["D3"].font.name,"굴림")
+                self.assertEqual(ws["D5"].font.name,"굴림")
+            finally:
+                wb.close()
+
     def test_uncertain_new_credit_is_excluded_and_listed(self):
         with tempfile.TemporaryDirectory() as folder:
             p=Path(folder)/"prior.xlsx"; o=Path(folder)/"draft.xlsx"
@@ -125,8 +176,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],[],[new],[],TARGET)
             wb=load_workbook(o)
             try:
-                self.assertTrue(all(not any(v is not None for v in row)
-                                    for row in list(wb["26.08"].values)[2:]))
+                self.assertEqual(wb["26.08"].max_row,2)
                 self.assertIn("당월 신규 확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
             finally:
                 wb.close()
@@ -167,7 +217,6 @@ class TemplateMonthEndTests(unittest.TestCase):
             note["A1"].fill=PatternFill(fill_type="solid",fgColor="AACCEE")
             wb.save(p)
             before=load_workbook(p)
-            prior_style=before["26.07"]["E4"].style_id
             original_merge=[str(r) for r in before["26.07"].merged_cells.ranges]
             before.close()
             item=payable("000011","가상A","이월 비용","100",3)
@@ -176,11 +225,11 @@ class TemplateMonthEndTests(unittest.TestCase):
             try:
                 self.assertEqual(wb.sheetnames,["26.08","기존 안내","검토필요","변경내역"])
                 ws=wb["26.08"]
-                self.assertEqual(ws["E4"].style_id,prior_style)
-                self.assertEqual(ws["E4"].fill.fgColor.rgb,"00ABCDEF")
-                self.assertEqual(ws.row_dimensions[4].height,37)
+                self.assertEqual(ws["E3"].fill.fgColor.rgb,"00DDEEFF")
+                self.assertEqual(ws.max_row,3)
                 self.assertEqual(ws.sheet_view.zoomScale,77)
                 self.assertEqual(ws.freeze_panes,"C3")
+                self.assertIn("$A$1:$E$3",str(ws.print_area))
                 self.assertEqual([str(r) for r in ws.merged_cells.ranges],original_merge)
                 self.assertEqual(wb["기존 안내"]["A1"].value,"전월 원본 참고 자료")
                 self.assertEqual(wb["기존 안내"]["A1"].fill.fgColor.rgb,"00AACCEE")
