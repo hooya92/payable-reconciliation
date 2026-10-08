@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 import re
 import struct
+from itertools import islice
 
 try:
     import xlrd
@@ -281,8 +282,10 @@ def _select_prior_sheets(wb, groups, period):
 
 
 def _header_row(ws, required_groups, max_rows=30):
-    for r in range(1, min(ws.max_row, max_rows) + 1):
-        vals=[_header(ws.cell(r,c).value) for c in range(1,ws.max_column+1)]
+    # Stream rows once; repeated ws.cell() calls reparse read-only .xlsx sheets.
+    limit=min(ws.max_row, max_rows)
+    for r, row in enumerate(islice(ws.iter_rows(min_row=1, values_only=True), limit), start=1):
+        vals=[_header(value) for value in row]
         if all(any(name in vals for name in group) for group in required_groups):
             return r, vals
     return None, []
@@ -291,8 +294,9 @@ def _header_row(ws, required_groups, max_rows=30):
 def _partial_header_row(ws, required_groups, min_groups, max_rows=30):
     """Detect a likely data table whose headers changed enough that we should not silently ignore it."""
     best=(None,0)
-    for r in range(1, min(ws.max_row, max_rows) + 1):
-        vals=[_header(ws.cell(r,c).value) for c in range(1,ws.max_column+1)]
+    limit=min(ws.max_row, max_rows)
+    for r, row in enumerate(islice(ws.iter_rows(min_row=1, values_only=True), limit), start=1):
+        vals=[_header(value) for value in row]
         matched=sum(any(_header(name) in vals for name in group) for group in required_groups)
         if matched>best[1]:
             best=(r,matched)
