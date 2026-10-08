@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: include signed manager-statement netting, subtotal checks and review-only exceptions
+# Release trigger: rerun verified October month-end reconciliation release after green CI
 
 on:
   workflow_dispatch:
