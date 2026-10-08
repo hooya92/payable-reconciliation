@@ -604,7 +604,9 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
 
                     negatives=[rec for rec in pending if rec["amount"] < 0]
                     if negatives:
-                        if subtotal > 0:
+                        # Preserve a verified zero opening too: current-month debits
+                        # may then create an overpayment that must not disappear.
+                        if subtotal >= 0:
                             positive_total=sum(rec["amount"] for rec in pending if rec["amount"] > 0)
                             negative_total=sum(rec["amount"] for rec in negatives)
                             balance=PayableItem(
