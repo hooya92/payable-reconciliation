@@ -255,6 +255,11 @@ def _select_prior_sheets(wb, groups, period):
             )
 
     if len(full)==1:
+        detected = _period_from_sheet_title(full[0][0].title)
+        if period is not None and detected is not None and detected != period:
+            raise ValueError(
+                f"전월 명세서는 {period.label}이어야 하지만 선택된 시트는 {detected.label}입니다."
+            )
         return full
     if len(full)>1:
         names=", ".join(x[0].title for x in full)
