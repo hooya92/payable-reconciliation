@@ -59,7 +59,7 @@ def prepare_status_header(sheet, header_row, status_col, example_header_col):
         target._style=copy(sheet.cell(header_row,example_header_col)._style)
     target.value="처리상태"
     letter=get_column_letter(status_col)
-    if not sheet.column_dimensions[letter].customWidth:
+    if sheet.column_dimensions[letter].width==13.0:
         sheet.column_dimensions[letter].width=18
 
 
@@ -67,8 +67,9 @@ def write_status(sheet, row, column, amount_column, status, *, subtotal=False):
     cell=sheet.cell(row,column)
     # Row styles are cloned by the Excel writer. The status cell receives the
     # same base font/border, before only its status-specific fill is applied.
-    if cell.style_id==0:
-        cell._style=copy(sheet.cell(row,amount_column)._style)
+    # Always clone the source detail/subtotal style; a pre-existing F-cell
+    # format must not introduce mismatched fonts or borders in generated rows.
+    cell._style=copy(sheet.cell(row,amount_column)._style)
     if subtotal:
         cell.value="소계"
         return
