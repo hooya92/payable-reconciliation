@@ -144,15 +144,10 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if values[fields["desc"]-1] is not None and values[fields["amount"]-1] is not None:
                 continue
             raise ValueError("전월 명세서 본문에 일반 내역·소계 외의 행이 있습니다. 원본 양식을 임의로 삭제하지 않도록 중단합니다.")
-        # Clearing contents preserves all pre-existing formatting/row heights.
-        for row in ws.iter_rows(min_row=header+1,max_row=last_template_row):
-            for cell in row:
-                if cell.value is not None:
-                    cell.value=None
-                if cell.comment is not None:
-                    cell.comment=None
-                if cell.hyperlink is not None:
-                    cell.hyperlink=None
+        # Capture the *original* row archetypes before physically deleting rows.
+        # Detail and subtotal rows must retain different formatting (yellow subtotal
+        # background, borders, fonts, number format), including when row counts change.
+        # The named sheet is kept: only the original data rows are rebuilt.
         _change_heading(ws,header,period.previous(),period)
 
         # Keep review opening balances unchanged; *never* assume suspected payments
@@ -208,16 +203,42 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
 
         # One stable vendor group makes it possible to delete any detail row in Excel.
         records.sort(key=lambda x:(str(x[1]),str(x[0]),str(x[4]),str(x[8])))
+        # Count the exact number of physical rows needed, including subtotal
+        # rows. Remove obsolete physical rows rather than leaving blank gaps.
+        vendor_keys={(rec[0],rec[1]) for rec in records}
+        required_rows=len(records)+(len(vendor_keys) if grouped else 0)
+        if last_template_row>header:
+            ws.delete_rows(header+1,last_template_row-header)
+            for idx in list(ws.row_dimensions):
+                if idx>header:
+                    del ws.row_dimensions[idx]
+        if required_rows:
+            ws.insert_rows(header+1,amount=required_rows)
+
+        # Keep the original print-range columns; resize only the bottom row
+        # when the number of data rows changes.
+        old_print_area=str(ws.print_area or "")
+        if old_print_area and required_rows != last_template_row-header:
+            from openpyxl.utils.cell import range_boundaries, get_column_letter
+            try:
+                print_bounds=old_print_area.split("!")[-1].replace("$","")
+                min_col,min_row,max_col,max_row=range_boundaries(print_bounds)
+            except (TypeError,ValueError):
+                raise ValueError("인쇄영역이 복잡한 양식은 범위를 보존할 수 없어 자동 생성을 중단합니다.")
+            if max_row != last_template_row:
+                raise ValueError("전월 명세서 인쇄영역이 상세 내역 외 행을 포함합니다. 양식 보존을 위해 중단합니다.")
+            ws.print_area=(
+                f"{get_column_letter(min_col)}{min_row}:"
+                f"{get_column_letter(max_col)}{header+required_rows}"
+            )
+
         row_no=header+1
         def write_row(values,styles,height):
             nonlocal row_no
-            # Existing rows retain every formatting attribute exactly.
-            # Appended rows reuse a row style from the original template.
-            if row_no>last_template_row:
-                for column,style in enumerate(styles,1):
-                    ws.cell(row_no,column)._style=copy(style)
-                if height is not None:
-                    ws.row_dimensions[row_no].height=height
+            for column,style in enumerate(styles,1):
+                ws.cell(row_no,column)._style=copy(style)
+            if height is not None:
+                ws.row_dimensions[row_no].height=height
             for column,value in values.items():
                 ws.cell(row_no,column).value=value
             row_no+=1
@@ -260,6 +281,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             vendor=current
         if vendor is not None:
             finish_subtotal(vendor,start,total)
+        if row_no != header+required_rows+1:
+            raise AssertionError("당월 명세서 행 수와 실제 생성 행 수가 일치하지 않습니다.")
 
         # No extra columns or hard-to-erase tags in the original template sheet.
         summary=wb.create_sheet("검토필요")
