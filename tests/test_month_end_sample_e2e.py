@@ -73,17 +73,20 @@ class ExampleMonthEndFlowTests(unittest.TestCase):
             self.assertTrue(all(x.auto_carry for x in run.new_items))
 
             write_month_end_statement(
-                output,[prior],run.results,run.new_items,run.issues,period
+                output,[prior],run.results,run.new_items,run.issues,period,
+                standalone_debits=run.standalone_debits,
+                standalone_debit_sources=run.standalone_debit_sources,
+                journal_items=run.journal_items,
             )
             self.assertEqual(prior.read_bytes(),original)
             wb=load_workbook(output)
             ws=wb["26.08"]
             try:
-                self.assertEqual(ws.max_row,22)  # 12 detail rows + 7 subtotals + 3 header rows
+                self.assertEqual(ws.max_row,17)  # 8 remaining detail rows + 6 subtotals + 3 header rows
                 details=[ws.cell(i,4).value for i in range(4,ws.max_row+1)
                          if ws.cell(i,3).value!="소계"]
-                self.assertIn("7월 운송비",details)
-                self.assertIn("7월 복합기 임차료",details)
+                self.assertNotIn("7월 운송비",details)
+                self.assertNotIn("7월 복합기 임차료",details)
                 self.assertIn("7월 주차비",details)
                 self.assertIn("7월 청소비",details)
                 self.assertIn("8월 추가 소모품",details)
@@ -91,10 +94,9 @@ class ExampleMonthEndFlowTests(unittest.TestCase):
                             for i in range(4,ws.max_row+1)
                             if ws.cell(i,3).value=="소계"]
                 self.assertEqual([x[0] for x in subtotals],
-                                 ["001111","002222","003333","004444","005555","006666","007777"])
-                self.assertEqual(ws["C5"].value,"2026-08-05")
-                self.assertEqual(ws["E5"].value,-120000)
-                self.assertEqual(sum(ws.cell(i,5).value for i in range(4,23)
+                                 ["001111","002222","004444","005555","006666","007777"])
+                self.assertEqual(ws["C5"].value,"2026-08-18")
+                self.assertEqual(sum(ws.cell(i,5).value for i in range(4,18)
                                      if ws.cell(i,3).value!="소계"),570000)
                 for _,formula,idx in subtotals:
                     self.assertTrue(formula.startswith("=SUM(E"))
