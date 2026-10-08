@@ -5,7 +5,6 @@ review explanations and change history live on removable companion sheets.
 """
 from __future__ import annotations
 
-from collections import defaultdict
 from copy import copy
 from datetime import date, datetime
 from decimal import Decimal
@@ -14,7 +13,6 @@ import calendar
 import re
 
 from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
 
 from adapters.excel.reader import _first, _header, _is_summary_label, _select_prior_sheets
 from domain.models import Status
@@ -27,8 +25,6 @@ _PRIOR_HEADERS=[
     ("적요","내역","내용"),
     ("금액","미지급금","잔액"),
 ]
-_REVIEW=PatternFill(fill_type="solid",fgColor="FFF2CC")
-_NEW=PatternFill(fill_type="solid",fgColor="EDE7F6")
 
 
 def _amount(value):
@@ -121,23 +117,43 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             raise ValueError("거래처코드/거래처명/적요/금액 열을 안전하게 식별하지 못했습니다.")
         grouped,detail_style,subtotal_style,subtotal_label=_template_shapes(original,header,fields)
 
-        # Work only on a copy, so template content/styles stay unmodified.
-        ws=wb.copy_worksheet(original)
-        ws.title=target_name
-        # The openpyxl worksheet copier does not preserve every merged range.
-        for region in original.merged_cells.ranges:
-            if region.max_row<=header and str(region) not in ws.merged_cells:
-                ws.merge_cells(str(region))
-        ws.sheet_view.showGridLines=False
-        for region in list(ws.merged_cells.ranges):
+        # Retain the original worksheet object, not a worksheet copy:
+        # openpyxl's copy_worksheet loses drawings and some sheet properties.
+        # Only data cell values and the period heading are changed in the output.
+        ws=original
+        if ws.protection.sheet:
+            raise ValueError("잠금 설정된 명세서 시트는 양식을 유지한 채 자동 편집할 수 없습니다.")
+        if ws._images or ws._charts or ws._pivots:
+            raise ValueError("이미지·차트·피벗이 포함된 양식은 보존 여부를 확인할 수 없어 자동 생성을 중단합니다.")
+        for region in ws.merged_cells.ranges:
             if region.max_row>header:
-                if region.min_row<=header:
-                    raise ValueError("양식의 병합 셀이 헤더와 상세 행에 걸쳐 있어 자동 재구성이 어렵습니다.")
-                ws.unmerge_cells(str(region))
-        if ws.max_row>header:
-            ws.delete_rows(header+1,ws.max_row-header)
+                raise ValueError("명세서 본문에 병합 셀이 있어 양식 변경 없이 자동 생성할 수 없습니다.")
+        if ws.tables:
+            raise ValueError("엑셀 표(Table)로 지정된 명세서는 표 범위 보존을 위해 자동 생성을 중단합니다.")
+        # The selected month is replaced *only in the newly saved workbook*.
+        # Keep all other workbook sheets, their styles, print settings and layouts.
+        ws.title=target_name
+        last_template_row=ws.max_row
+        # Reject unrecognized content instead of deleting a footer or other data.
+        for row in ws.iter_rows(min_row=header+1,max_row=last_template_row):
+            values=[cell.value for cell in row]
+            if not any(value is not None for value in values):
+                continue
+            if any(_is_summary_label(values[i-1]) for i in (fields["date"],fields["desc"],fields["name"]) if i):
+                continue
+            if values[fields["desc"]-1] is not None and values[fields["amount"]-1] is not None:
+                continue
+            raise ValueError("전월 명세서 본문에 일반 내역·소계 외의 행이 있습니다. 원본 양식을 임의로 삭제하지 않도록 중단합니다.")
+        # Clearing contents preserves all pre-existing formatting/row heights.
+        for row in ws.iter_rows(min_row=header+1,max_row=last_template_row):
+            for cell in row:
+                if cell.value is not None:
+                    cell.value=None
+                if cell.comment is not None:
+                    cell.comment=None
+                if cell.hyperlink is not None:
+                    cell.hyperlink=None
         _change_heading(ws,header,period.previous(),period)
-        ws.auto_filter.ref=None
 
         # Keep review opening balances unchanged; *never* assume suspected payments
         # or corrections are approved. Unverifiable new credits stay off the draft.
@@ -193,18 +209,17 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # One stable vendor group makes it possible to delete any detail row in Excel.
         records.sort(key=lambda x:(str(x[1]),str(x[0]),str(x[4]),str(x[8])))
         row_no=header+1
-        def write_row(values,styles,height,highlight=None):
+        def write_row(values,styles,height):
             nonlocal row_no
-            for column in range(1,max(len(styles),max(value for value in fields.values() if value))+1):
-                cell=ws.cell(row_no,column)
-                if column<=len(styles):
-                    cell._style=copy(styles[column-1])
-                if column in values:
-                    cell.value=values[column]
-            if highlight:
-                ws.cell(row_no,fields["amount"]).fill=copy(highlight)
-            if height is not None:
-                ws.row_dimensions[row_no].height=height
+            # Existing rows retain every formatting attribute exactly.
+            # Appended rows reuse a row style from the original template.
+            if row_no>last_template_row:
+                for column,style in enumerate(styles,1):
+                    ws.cell(row_no,column)._style=copy(style)
+                if height is not None:
+                    ws.row_dimensions[row_no].height=height
+            for column,value in values.items():
+                ws.cell(row_no,column).value=value
             row_no+=1
 
         def finish_subtotal(vendor,start,total):
@@ -240,14 +255,13 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if not grouped:
                 values[fields["code"]]=code
                 values[fields["name"]]=name
-            write_row(values,*detail_style,highlight=_REVIEW if kind=="검토보류" else _NEW if kind=="신규" else None)
+            write_row(values,*detail_style)
             total+=Decimal(amount)
             vendor=current
         if vendor is not None:
             finish_subtotal(vendor,start,total)
 
         # No extra columns or hard-to-erase tags in the original template sheet.
-        ws.sheet_properties.tabColor="FFD966" if reviews else "70AD47"
         summary=wb.create_sheet("검토필요")
         summary.append(["검토 상태","거래처코드","거래처명","적요·원본값","금액","사유","원본파일","원본행"])
         summary["J1"]="MONTH_END_DRAFT_REVIEW"
@@ -273,10 +287,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             extra.column_dimensions["H"].width=12
         changes.column_dimensions["J"].width=75
 
-        for sheet in list(wb.worksheets):
-            if sheet not in (ws,summary,changes):
-                wb.remove(sheet)
-        wb.active=0
+        wb.active=wb.worksheets.index(ws)
         wb.save(out)
     finally:
         wb.close()
