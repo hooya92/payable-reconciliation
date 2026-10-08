@@ -249,8 +249,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # No extra columns or hard-to-erase tags in the original template sheet.
         ws.sheet_properties.tabColor="FFD966" if reviews else "70AD47"
         summary=wb.create_sheet("검토필요")
-        summary["J1"]="MONTH_END_DRAFT_REVIEW"
         summary.append(["검토 상태","거래처코드","거래처명","적요·원본값","금액","사유","원본파일","원본행"])
+        summary["J1"]="MONTH_END_DRAFT_REVIEW"
         for record in reviews:
             summary.append(record)
         summary.freeze_panes="A2"
