@@ -19,7 +19,8 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
         raise ValueError("원본 Excel에는 저장할 수 없습니다.")
     wb=Workbook(); ws=wb.active; ws.title="확인필요"
     ws.append(["상태","사유","원본파일","원본시트","원본행","거래처코드","거래처명","명세서적요","명세서금액","더존거래처","더존적요","더존차변","더존행"])
-    review_results=[x for x in results if x.status != Status.MATCHED]
+    auto_statuses=(Status.MATCHED,Status.SIGNED_NET_AUTO)
+    review_results=[x for x in results if x.status not in auto_statuses]
     for x in review_results:
         j=x.journal
         ws.append([x.status.value,x.reason,x.prior.source.file_name,x.prior.source.sheet,x.prior.source.row,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount), j.vendor_name if j else "",j.description if j else "",int(j.debit) if j else "",j.row_number if j else ""])
@@ -36,6 +37,14 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
             p=x.prior
             draft_rows.append(["미지급이월",p.vendor_code,p.vendor_name,p.date,p.description,int(p.amount),
                                "당월 더존 대응 차변 없음",f"{p.source.file_name} · {p.source.row}행"])
+        elif x.status == Status.SIGNED_NET_AUTO and x.closing_balance is not None and x.closing_balance > 0:
+            p=x.prior
+            draft_rows.append([
+                "거래처순잔액",p.vendor_code,p.vendor_name,p.date,
+                "거래처 미지급금 잔액(개별 청구 건 배분 미확정)",
+                int(x.closing_balance),x.reason,
+                f"{p.source.file_name} · {p.source.sheet} · {p.source.row}행",
+            ])
 
     for item in new_items:
         if not item.auto_carry or item.remaining <= 0:
@@ -70,9 +79,12 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
         if x.status == Status.MATCHED:
             note=x.reason if x.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" else ""
             ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number,note])
+        elif x.status == Status.SIGNED_NET_AUTO:
+            ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,
+                       int(x.closing_balance), "",x.reason])
     info=wb.create_sheet("요약",0)
-    matched_count=sum(x.status == Status.MATCHED for x in results)
-    reconciliation_review=sum(x.status != Status.MATCHED for x in results)
+    matched_count=sum(x.status in auto_statuses for x in results)
+    reconciliation_review=sum(x.status not in auto_statuses for x in results)
     total_review=reconciliation_review+len(new_items)
     info.append(["대상 회계월",period_label])
     info.append(["명세서 대사 대상",len(results)])
@@ -83,9 +95,9 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     info.append(["입력 데이터 확인",len(issues)])
     info.append(["당월말 명세 초안",len(draft_rows)])
     info.append(["당월말 명세 금액",sum(r[5] for r in draft_rows)])
-    info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID) for x in results)+sum(not x.auto_carry for x in new_items)])
+    info.append(["초안 제외 검토건",sum(x.status not in (Status.MATCHED,Status.UNPAID,Status.SIGNED_NET_AUTO) for x in results)+sum(not x.auto_carry for x in new_items)])
     info.append(["대사 기준","전월 말 명세서 ↔ 당월 더존 Raw / 거래처코드+금액·적요 중심"])
-    info.append(["초안 원칙","확실한 전월 미지급·당월 신규 잔액만 반영 / 부분지급 의심 및 불명확한 건은 확인 필요"])
+    info.append(["초안 원칙","검증된 전월 거래처 소계 + 당월 대변 - 당월 차변은 거래처별 순잔액으로 반영 / 불명확한 개별 건은 확인 필요"])
 
     style_workbook(wb, draft, info)
     wb.save(out)
