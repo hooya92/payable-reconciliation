@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: include program guide image
+# Release trigger: refresh latest Windows EXE with month-end matching and partial-payment review
 
 on:
   workflow_dispatch:
