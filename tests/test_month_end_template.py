@@ -125,7 +125,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],[],[new],[],TARGET)
             wb=load_workbook(o)
             try:
-                self.assertEqual(wb["26.08"].max_row,2)
+                self.assertTrue(all(not any(v is not None for v in row)\n                                    for row in list(wb["26.08"].values)[2:]))
                 self.assertIn("당월 신규 확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
             finally:
                 wb.close()
@@ -148,6 +148,56 @@ class TemplateMonthEndTests(unittest.TestCase):
             wb.remove(wb["검토필요"])
             wb.save(output)
             self.assertEqual(len(read_prior(output,period=TARGET).items),1)
+
+    def test_original_sheet_layout_and_unrelated_sheets_are_preserved(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/"prior.xlsx"; o=Path(folder)/"draft.xlsx"
+            write_flat(p)
+            wb=load_workbook(p)
+            ws=wb["26.07"]
+            ws.sheet_view.zoomScale=77
+            ws.freeze_panes="C3"
+            ws.print_options.horizontalCentered=True
+            ws.print_area="A1:E5"
+            ws.row_dimensions[4].height=37
+            ws["E4"].fill=PatternFill(fill_type="solid",fgColor="ABCDEF")
+            note=wb.create_sheet("기존 안내")
+            note["A1"]="전월 원본 참고 자료"
+            note["A1"].fill=PatternFill(fill_type="solid",fgColor="AACCEE")
+            wb.save(p)
+            before=load_workbook(p)
+            prior_style=before["26.07"]["E4"].style_id
+            original_merge=[str(r) for r in before["26.07"].merged_cells.ranges]
+            before.close()
+            item=payable("000011","가상A","이월 비용","100",3)
+            write_month_end_statement(o,[p],[ReconcileResult(Status.UNPAID,item)],[],[],TARGET)
+            wb=load_workbook(o)
+            try:
+                self.assertEqual(wb.sheetnames,["26.08","기존 안내","검토필요","변경내역"])
+                ws=wb["26.08"]
+                self.assertEqual(ws["E4"].style_id,prior_style)
+                self.assertEqual(ws["E4"].fill.fgColor.rgb,"00ABCDEF")
+                self.assertEqual(ws.row_dimensions[4].height,37)
+                self.assertEqual(ws.sheet_view.zoomScale,77)
+                self.assertEqual(ws.freeze_panes,"C3")
+                self.assertEqual([str(r) for r in ws.merged_cells.ranges],original_merge)
+                self.assertEqual(wb["기존 안내"]["A1"].value,"전월 원본 참고 자료")
+                self.assertEqual(wb["기존 안내"]["A1"].fill.fgColor.rgb,"00AACCEE")
+            finally:
+                wb.close()
+
+    def test_merged_cells_in_body_are_rejected_without_affecting_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/"prior.xlsx"; o=Path(folder)/"draft.xlsx"
+            write_flat(p)
+            wb=load_workbook(p)
+            wb["26.07"].merge_cells("B4:C4")
+            wb.save(p)
+            initial=p.read_bytes()
+            with self.assertRaisesRegex(ValueError,"병합 셀"):
+                write_month_end_statement(o,[p],[],[],[],TARGET)
+            self.assertEqual(p.read_bytes(),initial)
+            self.assertFalse(o.exists())
 
     def test_does_not_overwrite_source_or_guess_an_already_present_month(self):
         with tempfile.TemporaryDirectory() as folder:
