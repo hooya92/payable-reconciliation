@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: rerun verified October month-end reconciliation release after green CI
+# Release trigger: publish tested Windows EXE without missing optional guide image chunks
 
 on:
   workflow_dispatch:
@@ -39,44 +39,18 @@ jobs:
           python -m PyInstaller --noconfirm --clean --windowed --onefile --name "명세서대사" app.py
           Copy-Item "dist/명세서대사.exe" "dist/statement-reconciliation.exe"
 
-      - name: Prepare program guide
-        shell: pwsh
-        run: |
-          $parts = Get-ChildItem ".release-assets/guide-small/part_*.b64" | Sort-Object Name
-          if ($parts.Count -ne 8) {
-            throw "Expected 8 guide image chunks, found $($parts.Count)."
-          }
-          $base64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ""
-          $guide = "dist/statement-reconciliation-guide.jpg"
-          [IO.File]::WriteAllBytes($guide, [Convert]::FromBase64String($base64))
-
-          $size = (Get-Item $guide).Length
-          if ($size -ne 65872) {
-            throw "Guide image size mismatch: $size bytes"
-          }
-          $sha = (Get-FileHash $guide -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($sha -ne "e24a5bd150909965aee3bf43b09dfc80ec83983692d0b257d71b249712fed4f3") {
-            throw "Guide image SHA256 mismatch: $sha"
-          }
-          Write-Host "Prepared $guide ($size bytes, SHA256 $sha)"
-
       - name: Verify release files
         shell: pwsh
         run: |
           $exe = "dist/statement-reconciliation.exe"
-          $guide = "dist/statement-reconciliation-guide.jpg"
           if (-not (Test-Path $exe)) {
             throw "Release EXE was not created."
-          }
-          if (-not (Test-Path $guide)) {
-            throw "Program guide image was not created."
           }
           $size = (Get-Item $exe).Length
           if ($size -lt 1000000) {
             throw "Release EXE is unexpectedly small: $size bytes"
           }
           Write-Host "Built $exe ($size bytes)"
-          Write-Host "Guide $guide ($((Get-Item $guide).Length) bytes)"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -84,7 +58,6 @@ jobs:
           name: statement-reconciliation-windows
           path: |
             dist/statement-reconciliation.exe
-            dist/statement-reconciliation-guide.jpg
           if-no-files-found: error
           retention-days: 30
 
@@ -95,12 +68,11 @@ jobs:
         run: |
           $tag = "download-latest"
           $asset = "dist/statement-reconciliation.exe"
-          $guide = "dist/statement-reconciliation-guide.jpg"
-          $notes = "Windows 실행파일과 프로그램 사용 안내 이미지 최신 배포본입니다. Build: $env:GITHUB_SHA"
+          $notes = "Windows 실행파일 최신 배포본입니다. Build: $env:GITHUB_SHA"
           gh release view $tag --repo "$env:GITHUB_REPOSITORY" *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $asset $guide --clobber --repo "$env:GITHUB_REPOSITORY"
+            gh release upload $tag $asset --clobber --repo "$env:GITHUB_REPOSITORY"
             gh release edit $tag --title "명세서 대사 최신 버전" --notes $notes --repo "$env:GITHUB_REPOSITORY"
           } else {
-            gh release create $tag $asset $guide --target "$env:GITHUB_SHA" --title "명세서 대사 최신 버전" --notes $notes --repo "$env:GITHUB_REPOSITORY"
+            gh release create $tag $asset --target "$env:GITHUB_SHA" --title "명세서 대사 최신 버전" --notes $notes --repo "$env:GITHUB_REPOSITORY"
           }
