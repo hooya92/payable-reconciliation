@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: publish tested Windows EXE without missing optional guide image chunks
+# Release trigger: verified signed subtotal auto-netting with no duplicate current credits
 
 on:
   workflow_dispatch:
