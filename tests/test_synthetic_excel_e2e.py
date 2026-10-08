@@ -25,7 +25,7 @@ class SyntheticExcelE2ETests(unittest.TestCase):
             self.assertEqual(sum(x.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" for x in result),expected["MATCHED_WITH_NOTE"])
             self.assertEqual(counts[Status.UNPAID],expected["UNPAID"])
             self.assertEqual(counts[Status.VENDOR_MISMATCH],expected["VENDOR_MISMATCH"])
-            self.assertEqual(len(new_payables(dz.items)),expected["new_payables"])
+            self.assertEqual(len(new_payables(dz.items,result)),expected["new_payables"])
 
     def test_split_raw_files_behave_like_one_input(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -47,7 +47,7 @@ class SyntheticExcelE2ETests(unittest.TestCase):
             result=reconcile(prior,journal); counts=Counter(x.status for x in result)
             self.assertEqual(counts[Status.MATCHED],expected["MATCHED"])
             self.assertEqual(sum(x.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" for x in result),expected["MATCHED_WITH_NOTE"])
-            self.assertEqual(len(new_payables(journal)),expected["new_payables"])
+            self.assertEqual(len(new_payables(journal,result)),expected["new_payables"])
 
 if __name__=="__main__":
     unittest.main()
