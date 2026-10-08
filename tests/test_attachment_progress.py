@@ -74,6 +74,7 @@ class AttachmentProgressTests(unittest.TestCase):
             def _refresh_file_counts(self): pass
             def _invalidate_results(self): pass
             def _maybe_align_period_from_inputs(self, detected=None): pass
+            def _set_banner(self, kind, title, detail): pass
 
         obj=Stub()
         obj.prior_paths=[]
