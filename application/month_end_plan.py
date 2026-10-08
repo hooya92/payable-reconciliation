@@ -3,15 +3,32 @@
 No Excel/openpyxl dependency. The writer only applies rows and native styles.
 """
 from dataclasses import dataclass
+from typing import NamedTuple
 from decimal import Decimal
 
 from domain.models import Status
 from domain.normalization import normalize_code, normalize_text
 
 
+class StatementRow(NamedTuple):
+    """Stable interface between reconciliation planning and Excel rendering.
+
+    NamedTuple preserves backwards-compatible tuple access in older tests
+    while making each field's meaning explicit at module boundaries.
+    """
+    vendor_code: str
+    vendor_name: str
+    description: str
+    amount: Decimal
+    date: object
+    status: str
+    source_row: int
+    extras: dict
+
+
 @dataclass
 class MonthEndPlan:
-    records: list
+    records: list[StatementRow]
     audits: list
     offsets: list
     reviews: list
@@ -39,7 +56,8 @@ def _amount(value):
 
 
 def build_month_end_plan(opening, results, new_items, issues, source_name, source_sheet,
-                         standalone_debits=(), standalone_debit_sources=None, journal_items=()):
+                         standalone_debits=(), standalone_debit_sources=None,
+                         journal_items=(), journal_sources=None):
     """Keep original detail history, then append each selected current RAW entry once.
 
     A debit is negative in the one-column statement; a credit is positive.
@@ -74,7 +92,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         if result is None:
             result=net_vendors.get(normalize_code(code))
         status=_status_for_opening(result)
-        records.append((code,name,desc,amount,when,status,source_row,extras))
+        records.append(StatementRow(code,name,desc,amount,when,status,source_row,extras))
         audits.append((status,code,name,desc,_amount(amount),
                        "전월 명세서 원본 행 유지",source_name,source_row))
         if status in ("확인 필요","오타 의심"):
@@ -84,7 +102,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
 
     # Each accepted period/account-code Douzone RAW line is appended once.
     # The status is informational, never a declaration of payment approval.
-    source_debits=standalone_debit_sources or {}
+    source_files=journal_sources if journal_sources is not None else (standalone_debit_sources or {})
     matched_debits={}
     review_debits={}
     for result in results:
@@ -101,7 +119,10 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
             review_debits[id(result.journal)]=result
     fresh_by_id={id(item.journal):item for item in new_items}
     standalone_ids={id(line) for line in standalone_debits}
-    raw=[]
+    # One vendor-code group must stay one group, even if separate RAW exports
+    # use inconsistent names. The first name becomes display text; disagreement
+    # is explicitly listed for review, never silently approved.
+    current_vendor_by_code={}
     seen=set()
     sources=list(journal_items)
     if not sources:
@@ -139,23 +160,26 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         # Keep the original vendor grouping even if the RAW spells the name
         # differently. Do not silently approve the name discrepancy.
         source_vendor=(line.vendor_code,line.vendor_name)
-        vendor=opening_vendor_by_code.get(normalize_code(line.vendor_code),source_vendor)
+        vendor_code=normalize_code(line.vendor_code)
+        vendor=current_vendor_by_code.setdefault(
+            vendor_code,opening_vendor_by_code.get(vendor_code,source_vendor)
+        )
         if normalize_text(vendor[1]) != normalize_text(line.vendor_name):
             status="확인 필요"
             reason += f" · 원장 거래처명 '{line.vendor_name}' ↔ 명세서 '{vendor[1]}' 확인"
         vendor_order.setdefault(vendor,len(vendor_order))
-        records.append((vendor[0],vendor[1],line.description,
-                        amount,line.date,status,line.row_number,{}))
+        records.append(StatementRow(vendor[0],vendor[1],line.description,
+                                    amount,line.date,status,line.row_number,{}))
         audits.append((status,line.vendor_code,line.vendor_name,line.description,
                        _amount(amount),reason,
-                       source_debits.get(id(line),"더존 Raw"),line.row_number))
+                       source_files.get(id(line),"더존 Raw"),line.row_number))
         if status in ("확인 필요","오타 의심","원장 단독"):
             reviews.append((status,line.vendor_code,line.vendor_name,line.description,
                             _amount(amount),reason,
-                            source_debits.get(id(line),"더존 Raw"),line.row_number))
+                            source_files.get(id(line),"더존 Raw"),line.row_number))
 
     for issue in issues:
         reviews.append(("입력 데이터 확인","","",str(issue.raw_value),"",
                         issue.reason,issue.source,issue.row))
-    records.sort(key=lambda record:vendor_order[(record[0],record[1])])
+    records.sort(key=lambda record:vendor_order[(record.vendor_code,record.vendor_name)])
     return MonthEndPlan(records,audits,offsets,reviews,len(seen))
