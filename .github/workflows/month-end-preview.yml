@@ -1,6 +1,14 @@
 name: Month-end Template Preview EXE
 
 on:
+  push:
+    branches: [feature/month-end-statement-template]
+    paths:
+      - "app.py"
+      - "adapters/excel/month_end_statement.py"
+      - "adapters/excel/reader.py"
+      - "tests/test_month_end_template.py"
+      - ".github/workflows/month-end-preview.yml"
   pull_request:
     paths:
       - "app.py"
@@ -11,7 +19,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   preview:
@@ -30,15 +38,34 @@ jobs:
           python -m pip install "pyinstaller>=6,<7"
       - name: Run regression tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
-      - name: Build preview EXE (NO public release)
+      - name: Build preview EXE (separate from stable release)
         shell: pwsh
         run: |
           python -m PyInstaller --noconfirm --clean --windowed --onefile --name "당월명세서-미리보기" app.py
           Copy-Item "dist/당월명세서-미리보기.exe" "dist/month-end-preview.exe"
-      - name: Upload preview artifact only
+      - name: Upload preview artifact
         uses: actions/upload-artifact@v4
         with:
           name: month-end-preview-windows
           path: dist/month-end-preview.exe
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish separate preview release (never touch download-latest)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/feature/month-end-statement-template'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "month-end-preview"
+          $exe = "dist/month-end-preview.exe"
+          $notes = "개발 브랜치의 당월 명세서 생성 테스트 버전입니다. 정식 배포와 별개이며 검증 전 회계 확정 자료로 사용하지 마세요. Build: $env:GITHUB_SHA."
+          gh release view $tag --repo "$env:GITHUB_REPOSITORY" *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag $exe --clobber --repo "$env:GITHUB_REPOSITORY"
+            if ($LASTEXITCODE -ne 0) { throw "Preview asset upload failed" }
+            gh release edit $tag --title "당월 명세서 생성 · 테스트 버전" --notes $notes --prerelease --repo "$env:GITHUB_REPOSITORY"
+          } else {
+            gh release create $tag $exe --target "$env:GITHUB_SHA" --title "당월 명세서 생성 · 테스트 버전" --notes $notes --prerelease --repo "$env:GITHUB_REPOSITORY"
+          }
+          if ($LASTEXITCODE -ne 0) { throw "Preview release publish failed" }
