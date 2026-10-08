@@ -114,6 +114,47 @@ def _template_shapes(sheet, header, fields):
             detail[fields["date"]-1].value if fields["date"] else None)
 
 
+
+def _status_column(sheet, header_row):
+    """Place the status immediately after the rightmost actual header.
+    
+    A previous generated sheet may already have one. If the user appended
+    another column later, move just our status values to the new right edge;
+    the other columns and their values are never shifted or overwritten.
+    """
+    values=[(cell.column, str(cell.value).strip()) for cell in sheet[header_row]
+            if cell.value is not None]
+    existing=[col for col,txt in values if txt=="처리상태"]
+    if len(existing)>1:
+        raise ValueError("처리상태 열이 여러 개입니다. 명세서 헤더를 확인해주세요.")
+    right=max((col for col,txt in values if txt!="처리상태"),default=0)
+    if not right:
+        raise ValueError("명세서 표의 마지막 열을 식별하지 못했습니다.")
+    destination=max(right+1,existing[0] if existing else 0)
+    # If the status header is to the left of a newly added user column, move
+    # the generated status to the right, leaving all business columns intact.
+    if existing and existing[0]<right:
+        destination=right+1
+        for row in sheet.iter_rows(min_row=header_row):
+            row[existing[0]-1].value=None
+    return destination
+
+
+def _status_for_opening(result):
+    if result is None:
+        return "확인 필요"
+    if result.status==Status.MATCHED:
+        return ("확인 필요" if result.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE"
+                else "대사 일치")
+    if result.status==Status.UNPAID:
+        return "전월 이월"
+    if result.status==Status.INPUT_TYPO_SUSPECT:
+        return "오타 의심"
+    if result.status==Status.SIGNED_NET_AUTO:
+        return "순잔액 대사"
+    return "확인 필요"
+
+
 def write_month_end_statement(path, prior_paths, results, new_items, issues, period:AccountingPeriod,
                               standalone_debits=(), standalone_debit_sources=None,
                               journal_items=()):
@@ -180,127 +221,150 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # The named sheet is kept: only the original data rows are rebuilt.
         _change_heading(ws,header,period.previous(),period)
 
-        # Keep review opening balances unchanged; *never* assume suspected payments
-        # or corrections are approved. Unverifiable new credits stay off the draft.
+        # Preserve *all* original detail lines (including negative rows).
+        # The previous statement is a running record; matching a debit by
+        # amount does not prove which invoice it settles. No auto-deletion.
+        status_column=_status_column(ws,header)
+        original_result_rows={
+            r.prior.source.row:r for r in results
+            if r.prior.source.sheet==ws.title or
+               r.prior.source.sheet==original.title or
+               r.prior.source.file_name==template_path.name
+        }
+        net_vendors={
+            normalize_code(r.prior.vendor_code):r for r in results
+            if r.status in (Status.SIGNED_NET_AUTO,Status.SIGNED_OPENING_REVIEW)
+        }
+        opening=[]
+        pending=[]
+        for idx in range(header+1,last_template_row+1):
+            values=[cell.value for cell in ws[idx]]
+            if not any(v is not None for v in values):
+                continue
+            summary=any(_is_summary_label(values[col-1]) for col in
+                        (fields["date"],fields["desc"],fields["name"]) if col)
+            if grouped and summary:
+                code=values[fields["code"]-1]
+                name=values[fields["name"]-1]
+                if not code or not name:
+                    raise ValueError("거래처 소계 행에 코드 또는 거래처명이 없습니다.")
+                for source_row,desc,amount,when in pending:
+                    opening.append((str(code),str(name),desc,amount,when,source_row))
+                pending=[]
+                continue
+            desc=values[fields["desc"]-1]
+            amount=values[fields["amount"]-1]
+            if desc is None or amount is None:
+                raise ValueError("원본 명세서 상세 행의 적요 또는 금액이 비어 있습니다.")
+            if isinstance(amount,bool):
+                raise ValueError("명세서 상세 금액은 숫자여야 합니다.")
+            try:
+                amount=Decimal(str(amount))
+            except (ValueError,ArithmeticError) as exc:
+                raise ValueError(f"명세서 {idx}행 금액을 안전하게 읽을 수 없습니다.") from exc
+            entry=(idx,str(desc),amount,
+                   values[fields["date"]-1] if fields["date"] else None)
+            if grouped:
+                pending.append(entry)
+            else:
+                code=values[fields["code"]-1]
+                name=values[fields["name"]-1]
+                if not code or not name:
+                    raise ValueError(f"명세서 {idx}행의 거래처가 비어 있습니다.")
+                opening.append((str(code),str(name),entry[1],entry[2],entry[3],idx))
+        if pending:
+            raise ValueError("거래처 소계가 없는 상세 행이 있어 자동 생성할 수 없습니다.")
+
         records=[]
         audits=[]
         offsets=[]
         reviews=[]
-        standalone_debit_sources=standalone_debit_sources or {}
-        for result in results:
-            p=result.prior
-            status=result.status
-            if status==Status.MATCHED:
-                if result.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" and result.journal is not None:
-                    # Matching amount alone is enough for reconciliation status,
-                    # but a changed invoice description/name should not trigger
-                    # irreversible removal from a human-edited month-end draft.
-                    records.append((p.vendor_code,p.vendor_name,None,None,p.description,p.amount,
-                                    p.source.file_name,"검토보류",p.source.row,p.date))
-                    reviews.append(("대사 참고사항 확인",p.vendor_code,p.vendor_name,p.description,
-                                    _amount(p.amount),result.reason,p.source.file_name,p.source.row))
-                    audits.append(("검토 전 보존",p.vendor_code,p.vendor_name,p.description,
-                                   _amount(p.amount),result.reason,p.source.file_name,p.source.row))
-                    continue
-                if result.journal is not None:
-                    j=result.journal
-                    offsets.append(("전월 전액 상계",p.vendor_code,p.vendor_name,p.description,
-                                    _amount(p.amount),p.date,p.source.file_name,p.source.row,
-                                    j.description,j.date,_amount(j.debit),0,j.row_number))
-                    audits.append(("전액 상계·본문 제외",p.vendor_code,p.vendor_name,p.description,
-                                   _amount(p.amount),result.reason,p.source.file_name,p.source.row))
-                else:
-                    audits.append(("지급 완료 제외",p.vendor_code,p.vendor_name,p.description,
-                                   _amount(p.amount),result.reason,p.source.file_name,p.source.row))
-                # The positive opening and its equal verified debit cancel:
-                # neither should remain in the outstanding balance statement.
-                continue
-            if status==Status.SIGNED_NET_AUTO:
-                if result.closing_balance is None:
-                    reviews.append(("거래처 순잔액 미확정",p.vendor_code,p.vendor_name,p.description,_amount(p.amount),result.reason,p.source.file_name,p.source.row))
-                    continue
-                if result.closing_balance<=0:
-                    audits.append(("순잔액 0원 제외",p.vendor_code,p.vendor_name,p.description,
-                                   _amount(p.amount),result.reason,p.source.file_name,p.source.row))
-                    continue
-                description="거래처 미지급 순잔액 (개별 청구 건 배분 미확정)"
-                records.append((p.vendor_code,p.vendor_name,period.year,period.month,description,
-                                result.closing_balance,p.source.file_name,"거래처순잔액",p.source.row))
-                audits.append(("거래처 순잔액 반영",p.vendor_code,p.vendor_name,description,
-                               _amount(result.closing_balance),result.reason,p.source.file_name,p.source.row))
-                continue
-
-            reason=("당월 더존 대응 차변 없음" if status==Status.UNPAID
-                    else result.reason or status.value)
-            kind="이월" if status==Status.UNPAID else "검토보류"
-            records.append((p.vendor_code,p.vendor_name,None,None,p.description,p.amount,
-                            p.source.file_name,kind,p.source.row,p.date))
-            audits.append((kind,p.vendor_code,p.vendor_name,p.description,_amount(p.amount),
-                           reason,p.source.file_name,p.source.row))
-            if kind=="검토보류":
-                reviews.append((status.value,p.vendor_code,p.vendor_name,p.description,
-                                _amount(p.amount),reason,p.source.file_name,p.source.row))
-        for item in new_items:
-            j=item.journal
-            if not item.auto_carry:
-                reviews.append(("당월 신규 확인 필요",j.vendor_code,j.vendor_name,j.description,
-                                _amount(j.credit),item.reason,"더존 Raw",j.row_number))
-                continue
-            if item.remaining<j.credit:
-                # These offsets were independently validated by new_payables().
-                # Audit them even if the remaining balance is zero and no detail
-                # row is carried to the closing statement.
-                debits=[
-                    d for d in journal_items
-                    if (normalize_code(d.vendor_code)==normalize_code(j.vendor_code)
-                        and normalize_text(d.description)==normalize_text(j.description)
-                        and d.debit>0)
-                ]
-                for debit in debits:
-                    offsets.append(("당월 발생·차변 상계",j.vendor_code,j.vendor_name,j.description,
-                                    _amount(j.credit),j.date,"더존 Raw",j.row_number,
-                                    debit.description,debit.date,_amount(debit.debit),
-                                    _amount(item.remaining),debit.row_number))
-            if item.remaining<=0:
-                audits.append(("당월 발생분 전액 상계",j.vendor_code,j.vendor_name,j.description,
-                               _amount(j.credit),item.reason,"더존 Raw",j.row_number))
-                continue
-            records.append((j.vendor_code,j.vendor_name,None,None,j.description,
-                            item.remaining,"더존 Raw","신규",j.row_number,j.date))
-            audits.append(("당월 신규 반영",j.vendor_code,j.vendor_name,j.description,
-                           _amount(item.remaining),item.reason,"더존 Raw",j.row_number))
-
-        for j in standalone_debits:
-            if j.debit<=0:
-                continue
-            # Preserve the exact Douzone description and date rather than
-            # fabricating the purpose of the unmatched payment/adjustment.
-            source_name=standalone_debit_sources.get(id(j),"더존 Raw")
-            records.append((j.vendor_code,j.vendor_name,None,None,j.description,
-                            -j.debit,source_name,"원장단독차변",j.row_number,j.date))
-            audits.append(("더존 단독 차변 반영",j.vendor_code,j.vendor_name,j.description,
-                           _amount(-j.debit),"전월·당월 대응 발생 없음 / RAW 기재 내역 그대로 반영",
-                           source_name,j.row_number))
-            # A negative payable balance is not a confirmed ordinary payable.
-            # Do not silently approve it as next month's opening balance.
-            reviews.append(("음수 순잔액 참고",j.vendor_code,j.vendor_name,j.description,
-                            _amount(-j.debit),"RAW 내역은 반영됨. 음수 잔액이므로 다음 달 확정 전 확인",
-                            source_name,j.row_number))
-        for issue in issues:
-            reviews.append(("입력 데이터 확인", "", "", str(issue.raw_value),
-                            "",issue.reason,issue.source,issue.row))
-
-        # Preserve the previous statement's vendor order and invoice order.
-        # New invoices for an existing vendor join its group; truly new vendors
-        # are appended in the order they first appeared in the Douzone RAW.
         vendor_order={}
+        for code,name,desc,amount,when,source_row in opening:
+            vendor=(code,name)
+            vendor_order.setdefault(vendor,len(vendor_order))
+            result=original_result_rows.get(source_row)
+            if result is None:
+                result=net_vendors.get(normalize_code(code))
+            status=_status_for_opening(result)
+            records.append((code,name,desc,amount,when,status,source_row))
+            audits.append((status,code,name,desc,_amount(amount),
+                           "전월 명세서 원본 행 유지",template_path.name,source_row))
+            if status in ("확인 필요","오타 의심"):
+                reason=(result.reason if result else "전월 원본 상세 행과 대사결과 연결 확인 필요")
+                reviews.append((status,code,name,desc,_amount(amount),
+                                reason,template_path.name,source_row))
+
+        # Each accepted period/account-code Douzone RAW line is appended once.
+        # The status is informational, never a declaration of payment approval.
+        source_debits=standalone_debit_sources or {}
+        matched_debits={}
+        review_debits={}
         for result in results:
-            vendor=(result.prior.vendor_code,result.prior.vendor_name)
+            if result.journal is None:
+                continue
+            if result.status==Status.MATCHED and result.rule!="CODE_AMOUNT_UNIQUE_WITH_NOTE":
+                matched_debits[id(result.journal)]=result
+                p=result.prior
+                j=result.journal
+                offsets.append(("대사 일치 후보",p.vendor_code,p.vendor_name,p.description,
+                                _amount(p.amount),p.date,p.source.file_name,p.source.row,
+                                j.description,j.date,_amount(j.debit),None,j.row_number))
+            else:
+                review_debits[id(result.journal)]=result
+        fresh_by_id={id(item.journal):item for item in new_items}
+        standalone_ids={id(line) for line in standalone_debits}
+        raw=[]
+        seen=set()
+        sources=list(journal_items)
+        if not sources:
+            sources=([r.journal for r in results if r.journal is not None]
+                     +[item.journal for item in new_items]+list(standalone_debits))
+        for line in sources:
+            if id(line) in seen:
+                continue
+            seen.add(id(line))
+            if line.credit>0 and line.debit>0:
+                raise ValueError("더존 RAW 전표에 차변과 대변이 동시에 있습니다.")
+            if line.credit==0 and line.debit==0:
+                continue
+            if line.credit>0:
+                amount=line.credit
+                new=fresh_by_id.get(id(line))
+                status="당월 발생" if new and new.auto_carry else "확인 필요"
+                reason=(new.reason if new else "신규 발생의 대사 조건을 확인해주세요.")
+            else:
+                amount=-line.debit
+                if id(line) in matched_debits:
+                    status="대사 일치"
+                    reason=matched_debits[id(line)].reason
+                elif id(line) in review_debits:
+                    result=review_debits[id(line)]
+                    status=("오타 의심" if result.status==Status.INPUT_TYPO_SUSPECT
+                            else "확인 필요")
+                    reason=result.reason
+                elif id(line) in standalone_ids:
+                    status="원장 단독"
+                    reason="전월 명세서 대응 건 없음 · RAW 차변 그대로 반영"
+                else:
+                    status="당월 지급"
+                    reason="더존 RAW 차변 · 개별 전월 발생건과 연결 미확정"
+            vendor=(line.vendor_code,line.vendor_name)
             vendor_order.setdefault(vendor,len(vendor_order))
-        for item in new_items:
-            vendor=(item.journal.vendor_code,item.journal.vendor_name)
-            vendor_order.setdefault(vendor,len(vendor_order))
-        records.sort(key=lambda row:vendor_order[(row[0],row[1])])
+            records.append((line.vendor_code,line.vendor_name,line.description,
+                            amount,line.date,status,line.row_number))
+            audits.append((status,line.vendor_code,line.vendor_name,line.description,
+                           _amount(amount),reason,
+                           source_debits.get(id(line),"더존 Raw"),line.row_number))
+            if status in ("확인 필요","오타 의심","원장 단독"):
+                reviews.append((status,line.vendor_code,line.vendor_name,line.description,
+                                _amount(amount),reason,
+                                source_debits.get(id(line),"더존 Raw"),line.row_number))
+
+        for issue in issues:
+            reviews.append(("입력 데이터 확인","","",str(issue.raw_value),"",
+                            issue.reason,issue.source,issue.row))
+        records.sort(key=lambda record:vendor_order[(record[0],record[1])])
         # Count the exact number of physical rows needed, including subtotal
         # rows. Remove obsolete physical rows rather than leaving blank gaps.
         vendor_keys={(rec[0],rec[1]) for rec in records}
@@ -330,8 +394,14 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 f"{get_column_letter(max_col)}{header+required_rows}"
             )
 
+        # Header lives exactly one column to the right of the original table.
+        header_status=ws.cell(header,status_column)
+        header_status._style=copy(ws.cell(header,status_column-1)._style)
+        header_status.value="처리상태"
+        ws.column_dimensions[header_status.column_letter].width=17
+
         row_no=header+1
-        def write_row(values,styles,dimension):
+        def write_row(values,styles,dimension,status):
             nonlocal row_no
             # _style captures font, border, fill, alignment, number format
             # and protection. Match the original row's height and visibility too.
@@ -342,6 +412,25 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             ws.row_dimensions[row_no]=row_dim
             for column,value in values.items():
                 ws.cell(row_no,column).value=value
+            state_cell=ws.cell(row_no,status_column)
+            if status_column>len(styles):
+                state_cell._style=copy(ws.cell(row_no,status_column-1)._style)
+            if status:
+                from openpyxl.styles import Alignment,PatternFill
+                state_cell.value=status
+                state_cell.alignment=Alignment(horizontal="center",vertical="center")
+                state_cell.number_format="General"
+                colors={
+                    "대사 일치":"E2F0D9",
+                    "전월 이월":"E9EDF4",
+                    "순잔액 대사":"E2F0D9",
+                    "당월 발생":"EEE3FF",
+                    "당월 지급":"E6F2FF",
+                    "원장 단독":"FFF2CC",
+                    "확인 필요":"FFE4CC",
+                    "오타 의심":"FADBD8",
+                }
+                state_cell.fill=PatternFill(fill_type="solid",fgColor=colors.get(status,"FFFFFF"))
             row_no+=1
 
         def finish_subtotal(vendor,start,total):
@@ -353,12 +442,12 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 fields["amount"]:f"=SUM({column_letter}{start}:{column_letter}{row_no-1})",
             }
             values[fields["date"] if subtotal_label=="date" else fields["desc"]]="소계"
-            write_row(values,*subtotal_style)
+            write_row(values,*subtotal_style,status="소계")
         vendor=None
         start=None
         total=Decimal(0)
         for rec in records:
-            code,name,_,_,desc,amount,source,kind,source_row,*dates=rec
+            code,name,desc,amount,row_date,status,source_row=rec
             current=(code,name)
             if vendor is not None and current!=vendor:
                 finish_subtotal(vendor,start,total)
@@ -366,10 +455,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 total=Decimal(0)
             if start is None:
                 start=row_no
-            if len(dates):
-                row_date=dates[0]
-            else:
-                # Grouped signed balance uses the month-end date.
+            if row_date is None:
                 row_date=f"{period.year}-{period.month:02d}-{calendar.monthrange(period.year,period.month)[1]}"
             values={fields["desc"]:desc,fields["amount"]:_amount(amount)}
             if fields["date"]:
@@ -377,7 +463,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if not grouped:
                 values[fields["code"]]=code
                 values[fields["name"]]=name
-            write_row(values,*detail_style)
+            write_row(values,*detail_style,status=status)
             total+=Decimal(amount)
             vendor=current
         if vendor is not None:
@@ -387,11 +473,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
 
         # Fully offset details are absent from the main statement but every
         # source/target pair remains traceable in this removable auxiliary tab.
-        offset_sheet=wb.create_sheet("상계내역")
+        offset_sheet=wb.create_sheet("대사내역")
         offset_sheet.append([
             "구분","거래처코드","거래처명","원본 적요","발생 금액","발생 일자",
             "원본파일","원본행","더존 RAW 적요","더존 기표일자",
-            "더존 차변(상계)","상계 후 잔액","더존 RAW 행",
+            "더존 차변","상계 확정 여부","더존 RAW 행",
         ])
         for row in offsets:
             offset_sheet.append(row)
@@ -415,9 +501,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         for record in audits:
             changes.append(record)
         changes.freeze_panes="A2"
-        changes["J1"]="※ 검토용 초안: 미확정 행은 원금액 유지 / 검토필요 시트 확인 후 확정"
-        changes["J2"]="상계내역·검토필요·변경내역은 검토 후 삭제할 수 있습니다. 검토 보류건 확정 전에는 다음 달 대사에 사용하지 마세요."
-        changes["J3"]=f"검토 필요 {len(reviews)}건 · 본문 미확정 항목 {sum(rec[7]=='검토보류' for rec in records)}건"
+        changes["J1"]="※ 검토용 초안: 발생·지급은 모두 보존하며 대사 일치는 실제 상계 확정과 다릅니다."
+        changes["J2"]="대사내역·검토필요·변경내역은 검토 후 삭제할 수 있습니다. 검토 보류건 확정 전에는 다음 달 대사에 사용하지 마세요."
+        changes["J3"]=f"검토 필요 {len(reviews)}건 · RAW 전표 {len(seen)}건 · 일치 후보 {len(offsets)}건"
         for extra in (summary,changes):
             extra.column_dimensions["A"].width=23
             extra.column_dimensions["B"].width=16
