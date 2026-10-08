@@ -191,7 +191,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         row_no=header+1
         def write_row(values,styles,height,highlight=None):
             nonlocal row_no
-            for column in range(1,max(len(styles),max(fields.values()) or 0)+1):
+            for column in range(1,max(len(styles),max(value for value in fields.values() if value))+1):
                 cell=ws.cell(row_no,column)
                 if column<=len(styles):
                     cell._style=copy(styles[column-1])
