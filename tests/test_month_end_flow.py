@@ -9,9 +9,9 @@ from openpyxl import Workbook, load_workbook
 from app import infer_period_from_inputs
 from application.service import run_reconciliation
 from adapters.excel.writer import write_result
-from domain.models import JournalLine, Status
+from domain.models import JournalLine, PayableItem, Status
 from domain.period import AccountingPeriod
-from domain.reconciliation import new_payables
+from domain.reconciliation import new_payables, reconcile
 
 
 def raw_line(description, debit=0, credit=0, vendor="051330"):
@@ -50,6 +50,17 @@ class MonthEndTests(unittest.TestCase):
         self.assertTrue(all(not x.auto_carry for x in duplicate))
         mismatch=new_payables([credit,raw_line("다른 적요",debit=20)],[])
         self.assertFalse(mismatch[0].auto_carry)
+
+    def test_current_credit_is_not_auto_net_when_opening_partial_needs_review(self):
+        prior=PayableItem("051330","가상물류","8월 운송",Decimal("100"))
+        candidate=raw_line("8월 운송",debit=40)
+        prior_results=reconcile([prior],[candidate])
+        credit=raw_line("9월 운송",credit=50)
+        debit=raw_line("9월 운송",debit=20)
+        new=new_payables([candidate,credit,debit],prior_results)
+        self.assertEqual(prior_results[0].status,Status.PARTIAL)
+        self.assertFalse(new[0].auto_carry)
+        self.assertIn("전월 대사 확인필요",new[0].reason)
 
     def test_september_selection_reads_august_statement_and_reviews_partial(self):
         with tempfile.TemporaryDirectory() as folder:
