@@ -1,0 +1,44 @@
+name: Month-end Template Preview EXE
+
+on:
+  pull_request:
+    paths:
+      - "app.py"
+      - "adapters/excel/month_end_statement.py"
+      - "adapters/excel/reader.py"
+      - "tests/test_month_end_template.py"
+      - ".github/workflows/month-end-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test/build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install "pyinstaller>=6,<7"
+      - name: Run regression tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Build preview EXE (NO public release)
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --windowed --onefile --name "당월명세서-미리보기" app.py
+          Copy-Item "dist/당월명세서-미리보기.exe" "dist/month-end-preview.exe"
+      - name: Upload preview artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: month-end-preview-windows
+          path: dist/month-end-preview.exe
+          if-no-files-found: error
+          retention-days: 14
