@@ -212,6 +212,12 @@ class SignedStatementTests(unittest.TestCase):
                 self.assertEqual(signed[0][5],110)
                 self.assertIn("소계 120원 검증 완료",signed[0][6])
                 self.assertEqual(len([row for row in draft[1:] if row[1]=="001234" and row[0]=="소계"]),1)
+                subtotals={row[1]:row[5] for row in draft[1:] if row[0]=="소계"}
+                self.assertEqual(subtotals,{"001234":110,"009999":100})
+                total=[row[5] for row in draft[1:] if row[0]=="전체합계"]
+                self.assertEqual(total,[210])
+                summary=dict(result["요약"].iter_rows(min_col=1,max_col=2,values_only=True))
+                self.assertEqual(summary["당월말 명세 금액"],210)
                 self.assertTrue(any(row[1]=="009999" for row in draft[1:]))
                 new_rows=list(result["당월신규명세"].values)
                 self.assertFalse(any(row[3]=="001234" for row in new_rows[1:]))
