@@ -102,7 +102,7 @@ class SignedStatementTests(unittest.TestCase):
             self.assertEqual([x.vendor_code for x in result.items],["009999"])
             self.assertTrue(any("순잔액 확인 전" in x.reason for x in result.issues))
 
-    def test_signed_balance_is_visible_in_review_and_excluded_from_draft(self):
+    def test_signed_balance_is_carried_once_as_vendor_net(self):
         with tempfile.TemporaryDirectory() as directory:
             prior=Path(directory)/"prior.xlsx"
             raw=Path(directory)/"journal.xlsx"
@@ -125,24 +125,29 @@ class SignedStatementTests(unittest.TestCase):
 
             run=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,10))
             self.assertEqual(run.prior_count,2)
-            balance=[r for r in run.results if r.status==Status.SIGNED_OPENING_REVIEW]
+            balance=[r for r in run.results if r.status==Status.SIGNED_NET_AUTO]
             self.assertEqual(len(balance),1)
             self.assertEqual(balance[0].prior.amount,Decimal("120"))
+            self.assertEqual(balance[0].closing_balance,Decimal("110"))  # 120 + 90 - 100
             self.assertEqual(balance[0].prior.vendor_code,"001234")
-            self.assertTrue(all(not item.auto_carry
-                                for item in run.new_items if item.journal.vendor_code=="001234"))
+            self.assertFalse(any(item.journal.vendor_code=="001234" for item in run.new_items))
             write_result(output,run.results,run.new_items,run.issues,[prior,raw],"2026년 10월")
             result=load_workbook(output,data_only=True,read_only=True)
             try:
                 reviews=list(result["확인필요"].values)
-                signed=[row for row in reviews[1:] if row[0]=="전월 음수·소계 확인"]
-                self.assertEqual(len(signed),1)
-                self.assertEqual(signed[0][8],120)
-                self.assertIn("소계 120원 검증 완료",signed[0][1])
-                self.assertIn("당월말 잠정 순잔액 110원",signed[0][1])
+                self.assertFalse(any(row[5]=="001234" for row in reviews[1:]))
                 draft=list(result["당월말명세서 초안"].values)
-                self.assertTrue(all(row[1]!="001234" for row in draft[1:]))
+                signed=[row for row in draft[1:] if row[1]=="001234" and row[0]!="소계"]
+                self.assertEqual(len(signed),1)
+                self.assertEqual(signed[0][0],"거래처순잔액")
+                self.assertEqual(signed[0][5],110)
+                self.assertIn("소계 120원 검증 완료",signed[0][6])
+                self.assertEqual(len([row for row in draft[1:] if row[1]=="001234" and row[0]=="소계"]),1)
                 self.assertTrue(any(row[1]=="009999" for row in draft[1:]))
+                new_rows=list(result["당월신규명세"].values)
+                self.assertFalse(any(row[3]=="001234" for row in new_rows[1:]))
+                complete=list(result["자동대사완료"].values)
+                self.assertTrue(any(row[1]=="001234" and row[4]==110 for row in complete[1:]))
             finally:
                 result.close()
 
