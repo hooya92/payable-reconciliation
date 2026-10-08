@@ -125,7 +125,8 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],[],[new],[],TARGET)
             wb=load_workbook(o)
             try:
-                self.assertTrue(all(not any(v is not None for v in row)\n                                    for row in list(wb["26.08"].values)[2:]))
+                self.assertTrue(all(not any(v is not None for v in row)
+                                    for row in list(wb["26.08"].values)[2:]))
                 self.assertIn("당월 신규 확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
             finally:
                 wb.close()
