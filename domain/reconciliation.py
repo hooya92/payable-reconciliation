@@ -244,9 +244,18 @@ def new_payables(
     for line in credits:
         credit_counts[(normalize_code(line.vendor_code), normalize_text(line.description))] += 1
 
+    # Signed opening vendors already include *all* current debits/credits
+    # in their verified aggregate closing balance. Do not carry their credits
+    # separately or they would be counted twice in the draft.
+    aggregate_vendors = {
+        normalize_code(r.prior.vendor_code) for r in prior_results
+        if r.status == Status.SIGNED_NET_AUTO
+    }
     new_items = []
     for line in credits:
         code = normalize_code(line.vendor_code)
+        if code in aggregate_vendors:
+            continue
         key = (code, normalize_text(line.description))
         vendor_debits = [d for d in spare_debits if normalize_code(d.vendor_code) == code]
         same_desc_debits = [d for d in vendor_debits if normalize_text(d.description) == key[1]]
