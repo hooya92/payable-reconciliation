@@ -84,10 +84,8 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
     used: set[int] = set()
     results: list[ReconcileResult] = []
     prior_key_counts: dict[tuple[str, Decimal], int] = defaultdict(int)
-    prior_desc_counts: dict[tuple[str, str], int] = defaultdict(int)
     for item in prior_items:
         prior_key_counts[(normalize_code(item.vendor_code), item.amount)] += 1
-        prior_desc_counts[(normalize_code(item.vendor_code), normalize_text(item.description))] += 1
 
     for item in prior_items:
         key = (normalize_code(item.vendor_code), item.amount)
@@ -175,34 +173,11 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
                 continue
 
             partial = [x for x in remaining_vendor_debits if x.debit < item.amount]
-            exact_partial = [
-                x for x in partial
-                if normalize_text(x.description) == normalize_text(item.description)
-            ]
-            if (
-                len(exact_partial) == 1
-                and len(remaining_vendor_debits) == 1
-                and prior_desc_counts[(key[0], normalize_text(item.description))] == 1
-                and not any(
-                    other is not item
-                    and normalize_code(other.vendor_code) == key[0]
-                    and other.amount == exact_partial[0].debit
-                    for other in prior_items
-                )
-            ):
-                line = exact_partial[0]
-                used.add(id(line))
-                balance = item.amount - line.debit
-                results.append(ReconcileResult(
-                    Status.PARTIAL, item, line,
-                    f"전월 {item.amount:,.0f}원 중 당월 {line.debit:,.0f}원 지급 · 잔액 {balance:,.0f}원 이월",
-                    "PARTIAL_UNIQUE"
-                ))
-                continue
             if partial:
                 results.append(ReconcileResult(
-                    Status.AMBIGUOUS, item, partial[0],
-                    "동일 거래처에 더 작은 차변이 있어 부분지급 가능성 확인 필요", "POSSIBLE_PARTIAL"
+                    Status.PARTIAL, item, partial[0],
+                    "동일 거래처에 더 작은 차변이 있어 부분지급 가능성 확인 필요 · 자동 차감/이월 제외",
+                    "POSSIBLE_PARTIAL"
                 ))
                 continue
 
@@ -250,7 +225,7 @@ def new_payables(
     credits = [line for line in journal_lines if line.credit > 0]
     used_debits = {
         id(r.journal) for r in prior_results
-        if r.status in (Status.MATCHED, Status.PARTIAL) and r.journal is not None
+        if r.status == Status.MATCHED and r.journal is not None
     }
     spare_debits = [
         line for line in journal_lines
