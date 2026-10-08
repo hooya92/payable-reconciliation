@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 
 from adapters.excel.reader import _first, _header, _is_summary_label, _select_prior_sheets
 from domain.models import Status
+from domain.normalization import normalize_code, normalize_text
 from domain.period import AccountingPeriod
 
 
@@ -113,7 +114,9 @@ def _template_shapes(sheet, header, fields):
             detail[fields["date"]-1].value if fields["date"] else None)
 
 
-def write_month_end_statement(path, prior_paths, results, new_items, issues, period:AccountingPeriod):
+def write_month_end_statement(path, prior_paths, results, new_items, issues, period:AccountingPeriod,
+                              standalone_debits=(), standalone_debit_sources=None,
+                              journal_items=()):
     """Write a *draft*, never a final approved statement. No source is mutated."""
     if not prior_paths:
         raise ValueError("전월 명세서 양식 파일이 필요합니다.")
@@ -181,27 +184,36 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # or corrections are approved. Unverifiable new credits stay off the draft.
         records=[]
         audits=[]
+        offsets=[]
         reviews=[]
+        standalone_debit_sources=standalone_debit_sources or {}
         for result in results:
             p=result.prior
             status=result.status
             if status==Status.MATCHED:
-                if grouped and result.journal is not None and result.journal.debit==p.amount:
-                    # A grouped signed statement keeps the opening and appends
-                    # only a *confirmed* Douzone debit with opposite sign.
-                    # Both rows cancel; the original history remains visible.
-                    j=result.journal
+                if result.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" and result.journal is not None:
+                    # Matching amount alone is enough for reconciliation status,
+                    # but a changed invoice description/name should not trigger
+                    # irreversible removal from a human-edited month-end draft.
                     records.append((p.vendor_code,p.vendor_name,None,None,p.description,p.amount,
-                                    p.source.file_name,"이월",p.source.row,p.date))
-                    records.append((p.vendor_code,p.vendor_name,None,None,j.description,-j.debit,
-                                    "더존 Raw","확정차변",j.row_number,j.date))
-                    audits.append(("더존 차변 반영",p.vendor_code,p.vendor_name,j.description,
-                                   _amount(-j.debit),result.reason,"더존 Raw",j.row_number))
+                                    p.source.file_name,"검토보류",p.source.row,p.date))
+                    reviews.append(("대사 참고사항 확인",p.vendor_code,p.vendor_name,p.description,
+                                    _amount(p.amount),result.reason,p.source.file_name,p.source.row))
+                    audits.append(("검토 전 보존",p.vendor_code,p.vendor_name,p.description,
+                                   _amount(p.amount),result.reason,p.source.file_name,p.source.row))
+                    continue
+                if result.journal is not None:
+                    j=result.journal
+                    offsets.append(("전월 전액 상계",p.vendor_code,p.vendor_name,p.description,
+                                    _amount(p.amount),p.date,p.source.file_name,p.source.row,
+                                    j.description,j.date,_amount(j.debit),0,j.row_number))
+                    audits.append(("전액 상계·본문 제외",p.vendor_code,p.vendor_name,p.description,
+                                   _amount(p.amount),result.reason,p.source.file_name,p.source.row))
                 else:
-                    # Flat templates do not have a verified group subtotal;
-                    # never introduce a negative row they cannot safely import.
                     audits.append(("지급 완료 제외",p.vendor_code,p.vendor_name,p.description,
-                                   _amount(p.amount),"더존 차변 일치",p.source.file_name,p.source.row))
+                                   _amount(p.amount),result.reason,p.source.file_name,p.source.row))
+                # The positive opening and its equal verified debit cancel:
+                # neither should remain in the outstanding balance statement.
                 continue
             if status==Status.SIGNED_NET_AUTO:
                 if result.closing_balance is None:
@@ -230,14 +242,50 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                                 _amount(p.amount),reason,p.source.file_name,p.source.row))
         for item in new_items:
             j=item.journal
-            if not item.auto_carry or item.remaining<=0:
+            if not item.auto_carry:
                 reviews.append(("당월 신규 확인 필요",j.vendor_code,j.vendor_name,j.description,
                                 _amount(j.credit),item.reason,"더존 Raw",j.row_number))
+                continue
+            if item.remaining<j.credit:
+                # These offsets were independently validated by new_payables().
+                # Audit them even if the remaining balance is zero and no detail
+                # row is carried to the closing statement.
+                debits=[
+                    d for d in journal_items
+                    if (normalize_code(d.vendor_code)==normalize_code(j.vendor_code)
+                        and normalize_text(d.description)==normalize_text(j.description)
+                        and d.debit>0)
+                ]
+                for debit in debits:
+                    offsets.append(("당월 발생·차변 상계",j.vendor_code,j.vendor_name,j.description,
+                                    _amount(j.credit),j.date,"더존 Raw",j.row_number,
+                                    debit.description,debit.date,_amount(debit.debit),
+                                    _amount(item.remaining),debit.row_number))
+            if item.remaining<=0:
+                audits.append(("당월 발생분 전액 상계",j.vendor_code,j.vendor_name,j.description,
+                               _amount(j.credit),item.reason,"더존 Raw",j.row_number))
                 continue
             records.append((j.vendor_code,j.vendor_name,None,None,j.description,
                             item.remaining,"더존 Raw","신규",j.row_number,j.date))
             audits.append(("당월 신규 반영",j.vendor_code,j.vendor_name,j.description,
                            _amount(item.remaining),item.reason,"더존 Raw",j.row_number))
+
+        for j in standalone_debits:
+            if j.debit<=0:
+                continue
+            # Preserve the exact Douzone description and date rather than
+            # fabricating the purpose of the unmatched payment/adjustment.
+            source_name=standalone_debit_sources.get(id(j),"더존 Raw")
+            records.append((j.vendor_code,j.vendor_name,None,None,j.description,
+                            -j.debit,source_name,"원장단독차변",j.row_number,j.date))
+            audits.append(("더존 단독 차변 반영",j.vendor_code,j.vendor_name,j.description,
+                           _amount(-j.debit),"전월·당월 대응 발생 없음 / RAW 기재 내역 그대로 반영",
+                           source_name,j.row_number))
+            # A negative payable balance is not a confirmed ordinary payable.
+            # Do not silently approve it as next month's opening balance.
+            reviews.append(("음수 순잔액 참고",j.vendor_code,j.vendor_name,j.description,
+                            _amount(-j.debit),"RAW 내역은 반영됨. 음수 잔액이므로 다음 달 확정 전 확인",
+                            source_name,j.row_number))
         for issue in issues:
             reviews.append(("입력 데이터 확인", "", "", str(issue.raw_value),
                             "",issue.reason,issue.source,issue.row))
@@ -337,6 +385,24 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         if row_no != header+required_rows+1:
             raise AssertionError("당월 명세서 행 수와 실제 생성 행 수가 일치하지 않습니다.")
 
+        # Fully offset details are absent from the main statement but every
+        # source/target pair remains traceable in this removable auxiliary tab.
+        offset_sheet=wb.create_sheet("상계내역")
+        offset_sheet.append([
+            "구분","거래처코드","거래처명","원본 적요","발생 금액","발생 일자",
+            "원본파일","원본행","더존 RAW 적요","더존 기표일자",
+            "더존 차변(상계)","상계 후 잔액","더존 RAW 행",
+        ])
+        for row in offsets:
+            offset_sheet.append(row)
+        offset_sheet.freeze_panes="A2"
+        for column,width in {"A":24,"B":17,"C":26,"D":37,"E":18,"F":18,
+                             "G":35,"H":12,"I":37,"J":18,"K":20,"L":20,"M":15}.items():
+            offset_sheet.column_dimensions[column].width=width
+        for row in offset_sheet.iter_rows(min_row=2):
+            for idx in (4,10,11):
+                row[idx].number_format="#,##0;[Red](#,##0);-"
+
         # No extra columns or hard-to-erase tags in the original template sheet.
         summary=wb.create_sheet("검토필요")
         summary.append(["검토 상태","거래처코드","거래처명","적요·원본값","금액","사유","원본파일","원본행"])
@@ -350,7 +416,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             changes.append(record)
         changes.freeze_panes="A2"
         changes["J1"]="※ 검토용 초안: 미확정 행은 원금액 유지 / 검토필요 시트 확인 후 확정"
-        changes["J2"]="검토필요·변경내역 시트는 검토 후 통째로 삭제할 수 있습니다. 검토 보류건 확정 전에는 다음 달 대사에 사용하지 마세요."
+        changes["J2"]="상계내역·검토필요·변경내역은 검토 후 삭제할 수 있습니다. 검토 보류건 확정 전에는 다음 달 대사에 사용하지 마세요."
         changes["J3"]=f"검토 필요 {len(reviews)}건 · 본문 미확정 항목 {sum(rec[7]=='검토보류' for rec in records)}건"
         for extra in (summary,changes):
             extra.column_dimensions["A"].width=23
