@@ -13,9 +13,9 @@ class UISafetyTests(unittest.TestCase):
         self.assertTrue(callable(getattr(App,"_add_classified_files",None)))
 
     def test_reconciliation_breakdown_separates_auto_review_and_input(self):
-        counts=Counter({Status.MATCHED:4,Status.AMBIGUOUS:2,Status.UNPAID:1})
+        counts=Counter({Status.MATCHED:4,Status.PARTIAL:1,Status.AMBIGUOUS:2,Status.UNPAID:1})
         result=reconciliation_breakdown(counts,new_count=3,issue_count=2)
-        self.assertEqual(result,{"matched":4,"review":6,"issues":2,"new":3})
+        self.assertEqual(result,{"matched":4,"review":7,"issues":2,"new":3})
 
     def test_completion_detail_explicitly_reports_auto_matches(self):
         counts=Counter({Status.MATCHED:4})
