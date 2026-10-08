@@ -66,10 +66,20 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
 
     issues=prior_issues+dz_issues
     results=reconcile(prior_items,journal_items)
-    results.extend(
-        ReconcileResult(Status.SIGNED_OPENING_REVIEW, item, None, reason, "SIGNED_OPENING_NET")
-        for item,reason in opening_reviews
-    )
+    for item, reason in opening_reviews:
+        vendor=normalize_code(item.vendor_code)
+        activity=[line for line in journal_items if normalize_code(line.vendor_code)==vendor]
+        debits=sum((line.debit for line in activity),start=0)
+        credits=sum((line.credit for line in activity),start=0)
+        net=item.amount + credits - debits
+        reason += (
+            f" · 당월 차변 {debits:,.0f}원 / 대변 {credits:,.0f}원"
+            f" → 당월말 잠정 순잔액 {net:,.0f}원"
+            " (거래처 단위 참고값, 개별 미지급 확정 전 자동 이월 제외)"
+        )
+        results.append(ReconcileResult(
+            Status.SIGNED_OPENING_REVIEW, item, None, reason, "SIGNED_OPENING_NET"
+        ))
     if dz_issues:
         for result in results:
             if result.status in (Status.UNPAID, Status.PARTIAL):
