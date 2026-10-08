@@ -8,6 +8,7 @@ on:
     paths:
       - ".github/workflows/build-validation-exe.yml"
       - "app.py"
+      - "adapters/excel/reader.py"
 
 permissions:
   contents: write
