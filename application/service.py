@@ -68,7 +68,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     results=reconcile(prior_items,journal_items)
     if dz_issues:
         for result in results:
-            if result.status==Status.UNPAID:
+            if result.status in (Status.UNPAID, Status.PARTIAL):
                 result.status=Status.RAW_INPUT_INCOMPLETE
                 result.reason="더존 대상월/계정 데이터에 자동 제외된 행이 있어 지급 여부를 확정할 수 없음"
                 result.rule="RAW_INPUT_INCOMPLETE"
