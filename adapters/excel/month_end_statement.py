@@ -13,6 +13,9 @@ import calendar
 import re
 
 from openpyxl import load_workbook
+from openpyxl.comments import Comment
+from openpyxl.utils.cell import quote_sheetname
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 from adapters.excel.reader import _first, _header, _is_summary_label, _select_prior_sheets
 from domain.models import Status, DataQuality
@@ -319,6 +322,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         prepare_status_header(ws,header,status_column,fields["amount"])
 
         row_no=header+1
+        source_targets={}
         def write_row(values,styles,dimension):
             nonlocal row_no
             # The original cell style carries font, border, fill, number format,
@@ -379,6 +383,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if not grouped:
                 values[fields["code"]]=rec.vendor_code
                 values[fields["name"]]=rec.vendor_name
+            source_ref=plan.record_sources.get(id(rec))
+            if source_ref is not None:
+                source_targets.setdefault(source_ref,[]).append(row_no)
             write_row(values,*(original_style or detail_style))
             write_status(ws,row_no-1,status_column,fields["amount"],rec.status,
                          reason=plan.status_reasons.get(id(rec),""))
@@ -389,8 +396,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         if row_no != header+required_rows+1:
             raise AssertionError("당월 명세서 행 수와 실제 생성 행 수가 일치하지 않습니다.")
 
-        # Fully offset details are absent from the main statement but every
-        # source/target pair remains traceable in this removable auxiliary tab.
+        # Original detail and payment rows remain traceable in this auxiliary tab.
         offset_sheet=wb.create_sheet("대사내역")
         offset_sheet.append([
             "구분","거래처코드","거래처명","원본 적요","발생 금액","발생 일자",
@@ -432,6 +438,31 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             extra.column_dimensions["G"].width=32
             extra.column_dimensions["H"].width=12
         changes.column_dimensions["J"].width=75
+
+        def link_source_rows(sheet):
+            sheet["H1"].comment=Comment(
+                "행 번호는 원본 파일 기준입니다. 클릭하면 생성된 당월 명세서의 해당 거래 행으로 이동합니다.",
+                "대사 안내"
+            )
+            for row in sheet.iter_rows(min_row=2,max_col=8):
+                source=row[6].value
+                if source=="명세서":
+                    source=template_path.name
+                targets=source_targets.get((source,row[7].value),[])
+                # Never guess when different inputs have the same file/row identity.
+                if len(targets)!=1:
+                    continue
+                destination=f"{quote_sheetname(ws.title)}!{ws.cell(targets[0],fields['desc']).coordinate}"
+                cell=row[7]
+                cell.hyperlink=Hyperlink(ref=cell.coordinate,location=destination,
+                                        tooltip="당월 명세서의 해당 거래로 이동")
+                font=copy(cell.font)
+                font.color="0563C1"
+                font.underline="single"
+                cell.font=font
+
+        for extra in (offset_sheet,summary,changes):
+            link_source_rows(extra)
 
         # Let Excel recalculate all copied per-vendor subtotal formulas on open.
         from openpyxl.workbook.properties import CalcProperties

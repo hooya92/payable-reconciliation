@@ -34,6 +34,7 @@ class MonthEndPlan:
     reviews: list
     raw_count: int
     status_reasons: dict = field(default_factory=dict)
+    record_sources: dict = field(default_factory=dict)
 
 
 def _status_for_opening(result):
@@ -78,6 +79,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
     offsets=[]
     reviews=[]
     status_reasons={}
+    record_sources={}
     journal_items=list(journal_items)
     raw_codes={normalize_code(line.vendor_code) for line in journal_items}
     raw_name_codes={}
@@ -115,6 +117,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                 reason=(f"거래처코드 차이: 명세서 {code} / 원장 {', '.join(candidates)}"
                         " · 거래처명은 같지만 같은 업체인지 확인 필요")
         records.append(StatementRow(code,name,desc,amount,when,status,source_row,extras))
+        record_sources[id(records[-1])]=(source_name,source_row)
         if status in ("확인 필요","오타 의심"):
             status_reasons[id(records[-1])]=reason
         audits.append((status,code,name,desc,_amount(amount),
@@ -197,6 +200,9 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         vendor_order.setdefault(vendor,len(vendor_order))
         records.append(StatementRow(vendor[0],vendor[1],line.description,
                                     amount,line.date,status,line.row_number,{}))
+        record_sources[id(records[-1])]=(
+            source_files.get(id(line),"더존 Raw"),line.row_number
+        )
         if status in ("확인 필요","오타 의심","원장 단독","당월 지급"):
             status_reasons[id(records[-1])]=reason
         audits.append((status,line.vendor_code,line.vendor_name,line.description,
@@ -211,4 +217,4 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         reviews.append(("입력 데이터 확인","","",str(issue.raw_value),"",
                         issue.reason,issue.source,issue.row))
     records.sort(key=lambda record:vendor_order[(record.vendor_code,record.vendor_name)])
-    return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons)
+    return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons,record_sources)
