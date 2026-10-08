@@ -106,7 +106,7 @@ class ExampleMonthEndFlowTests(unittest.TestCase):
                 self.assertEqual(ws["F3"].value,"처리상태")
                 self.assertIn("당월 발생",[ws.cell(i,6).value for i in range(4,24)])
                 self.assertIn("대사 일치",[ws.cell(i,6).value for i in range(4,24)])
-                self.assertTrue(any("부분지급" in str(row[0])
+                self.assertTrue(any("부분지급" in str(row[5])
                                     for row in list(wb["검토필요"].values)[1:]))
             finally:
                 wb.close()
