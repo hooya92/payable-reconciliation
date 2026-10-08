@@ -70,8 +70,8 @@ def find_duplicate_files(prior_paths, douzone_paths, digests=None):
 
 
 def reconciliation_breakdown(counts, new_count=0, issue_count=0):
-    matched=counts.get(Status.MATCHED,0)
-    review=sum(v for k,v in counts.items() if k!=Status.MATCHED)+new_count
+    matched=counts.get(Status.MATCHED,0)+counts.get(Status.PARTIAL,0)
+    review=sum(v for k,v in counts.items() if k not in (Status.MATCHED,Status.PARTIAL))+new_count
     return {
         "matched":matched,
         "review":review,
@@ -96,7 +96,7 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
     common=set.intersection(*groups)
     if not common:
         return None
-    return max(common)
+    return max(common).next()
 
 
 def infer_period_from_inputs(statement_period_groups, raw_period_groups):
@@ -108,7 +108,7 @@ def infer_period_from_inputs(statement_period_groups, raw_period_groups):
     raw_periods=set().union(*raw_groups) if raw_groups else set()
 
     if statement_common:
-        target=max(statement_common)
+        target=max(statement_common).next()
         if raw_periods:
             return (target,"statement+raw") if target in raw_periods else (None,"conflict")
         return target,"statement"
@@ -125,7 +125,7 @@ def period_alignment_evidence(prior_paths, douzone_paths, account_codes, period)
     raw_codes=set()
     try:
         for path in prior_paths:
-            rr=read_prior(path,Path(path).stem,period)
+            rr=read_prior(path,Path(path).stem,period.previous())
             for item in rr.items:
                 prior_pairs[(item.vendor_code,item.amount)]+=1
                 prior_codes.add(item.vendor_code)
@@ -234,7 +234,7 @@ class App(ctk.CTk):
             text_color=TEXT,anchor="w"
         ).grid(row=0,column=0,sticky="sw",padx=(22,0),pady=(24,0))
         ctk.CTkLabel(
-            hero,text="명세서와 더존 전표를 같은 회계월 기준으로 빠르게 대사합니다.",
+            hero,text="전월 말 명세서를 당월 더존 전표와 대사해 당월 말 명세서를 만듭니다.",
             font=("Segoe UI",13),text_color=MUTED,anchor="w"
         ).grid(row=1,column=0,sticky="nw",padx=(22,0),pady=(3,24))
 
@@ -567,8 +567,8 @@ class App(ctk.CTk):
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             self.period_badge_text.set(p.label)
             self.period_text.set(
-                f"{p.label} 명세서  ↔  {p.label} 더존 전표\n"
-                "명세서와 Raw에서 같은 회계월을 자동 감지합니다."
+                f"{p.previous().label} 말 명세서  ↔  {p.label} 더존 전표\n"
+                "전월 말 명세서와 당월 더존 Raw를 기준으로 대사합니다."
             )
         except Exception:
             self.period_badge_text.set("자동 감지 대기")
@@ -608,7 +608,7 @@ class App(ctk.CTk):
             self.raw_count_text.set("선택된 파일 없음")
             return
         try:
-            needed=AccountingPeriod(int(self.year.get()),int(self.month.get())).label
+            needed=AccountingPeriod(int(self.year.get()),int(self.month.get())).previous().label
             prior_state=f"{len(self.prior_paths)}개 파일 선택" if self.prior_paths else "선택된 파일 없음"
             self.prior_count_text.set(f"필요: {needed} · {prior_state}" if self.prior_paths else prior_state)
         except Exception:
@@ -660,24 +660,10 @@ class App(ctk.CTk):
                     self._set_banner(
                         "warning",
                         "회계월 자동 설정 보류",
-                        f"명세서 월({statement_text})과 더존 Raw 월({raw_text})에서 같은 회계월을 찾지 못했습니다."
+                        f"전월 명세서({statement_text})와 당월 더존 Raw({raw_text})가 이어지지 않습니다."
                     )
                 return False
             return None
-
-        if source=="statement+raw" and self.prior_paths and self.douzone_paths:
-            exact,shared_codes=period_alignment_evidence(
-                self.prior_paths,self.douzone_paths,codes,suggested
-            )
-            if exact==0 and shared_codes==0:
-                if show_banner:
-                    self._set_banner(
-                        "warning",
-                        "회계월 자동 설정 보류",
-                        f"{suggested.label}이 양쪽 파일에 존재하지만 명세서와 Raw의 거래처코드가 하나도 겹치지 않습니다. "
-                        "오래된 테스트 파일이나 다른 회계월 파일인지 확인해주세요."
-                    )
-                return False
 
         current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
         if suggested!=current:
@@ -688,9 +674,9 @@ class App(ctk.CTk):
 
         if show_banner:
             if source=="statement+raw":
-                detail=f"{suggested.label} 명세서 + {suggested.label} 더존 Raw를 확인해 대상 회계월을 자동 설정했습니다."
+                detail=f"{suggested.previous().label} 명세서 + {suggested.label} 더존 Raw를 확인해 대상 회계월을 자동 설정했습니다."
             elif source=="statement":
-                detail=f"명세서 월을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
+                detail=f"전월 명세서 기준으로 당월 회계월을 {suggested.label}로 자동 설정했습니다."
             else:
                 detail=f"더존 Raw의 미지급금 전표월을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
             self._refresh_file_counts()
@@ -829,8 +815,8 @@ class App(ctk.CTk):
     def _update_view_buttons(self):
         if not hasattr(self,"review_view_btn"):
             return
-        matched=sum(1 for x in self.results if x.status==Status.MATCHED)
-        review=sum(1 for x in self.results if x.status!=Status.MATCHED)
+        matched=sum(1 for x in self.results if x.status in (Status.MATCHED,Status.PARTIAL))
+        review=sum(1 for x in self.results if x.status not in (Status.MATCHED,Status.PARTIAL))
 
         def style(btn,active,label):
             btn.configure(
@@ -847,13 +833,13 @@ class App(ctk.CTk):
     def _refresh_detail(self):
         self._clear_detail()
         if self.result_view=="matched":
-            rows=[x for x in self.results if x.status==Status.MATCHED]
+            rows=[x for x in self.results if x.status in (Status.MATCHED,Status.PARTIAL)]
             self.detail_hint_text.set(
                 "자동 대사된 항목입니다. 이름·적요 차이가 있었던 경우에도 참고 사유를 함께 남깁니다."
                 if rows else "자동 대사된 항목이 없습니다."
             )
         elif self.result_view=="review":
-            rows=[x for x in self.results if x.status!=Status.MATCHED]
+            rows=[x for x in self.results if x.status not in (Status.MATCHED,Status.PARTIAL)]
             self.detail_hint_text.set(
                 "사람이 확인해야 하는 명세서 항목만 표시합니다."
                 if rows else "검토할 명세서 항목이 없습니다."
@@ -866,14 +852,14 @@ class App(ctk.CTk):
             )
 
         for x in rows:
-            tag="matched" if x.status==Status.MATCHED else "review"
+            tag="matched" if x.status in (Status.MATCHED,Status.PARTIAL) else "review"
             self.detail.insert(
                 "","end",
                 values=(
                     x.prior.source.owner or x.prior.source.file_name,
                     x.prior.vendor_name,
                     f"{int(x.prior.amount):,}",
-                    ("● " + x.status.value) if x.status==Status.MATCHED else x.status.value,
+                    ("● " + x.status.value) if x.status in (Status.MATCHED,Status.PARTIAL) else x.status.value,
                     x.reason,
                 ),
                 tags=(tag,),
@@ -886,10 +872,10 @@ class App(ctk.CTk):
         self._invalidate_results()
         sync_state=self._maybe_align_period_from_inputs(show_banner=False)
         if sync_state is False:
-            self._set_banner("error","대사 중단","명세서 월과 더존 Raw 월이 서로 맞지 않습니다.")
+            self._set_banner("error","대사 중단","전월 명세서와 당월 더존 Raw의 회계월이 맞지 않습니다.")
             messagebox.showerror(
                 "회계월 확인",
-                "명세서와 더존 Raw에서 서로 연결되는 같은 회계월을 찾지 못했습니다.\n파일의 월을 확인해주세요."
+                "전월 말 명세서와 당월 더존 Raw가 이어지는 월인지 확인해주세요.\n파일의 월을 확인해주세요."
             )
             return
         self._set_banner("running","대사 중","사전검사와 자동 대사를 진행하고 있습니다...")
@@ -926,7 +912,7 @@ class App(ctk.CTk):
                 text_color=(WARN if self.issues else GREEN),
             )
 
-            self.result_view="review" if any(x.status!=Status.MATCHED for x in self.results) else "matched"
+            self.result_view="review" if any(x.status not in (Status.MATCHED,Status.PARTIAL) for x in self.results) else "matched"
             self._update_view_buttons()
             self._refresh_detail()
 
