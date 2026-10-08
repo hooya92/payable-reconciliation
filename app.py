@@ -391,7 +391,7 @@ class App(ctk.CTk):
         ).pack(side="left",padx=(12,8),pady=9)
         ctk.CTkLabel(
             guide,
-            text="명세서는 대상 회계월과 같은 월의 시트를 자동 선택합니다.  ·  행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
+            text="명세서는 대상 회계월의 전월 말 시트를 선택합니다.  ·  행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
             font=("Segoe UI",11),text_color="#667085",anchor="w"
         ).pack(side="left",fill="x",expand=True,padx=(0,12),pady=9)
 
