@@ -251,6 +251,16 @@ class TemplateMonthEndTests(unittest.TestCase):
             self.assertEqual(p.read_bytes(),initial)
             self.assertFalse(o.exists())
 
+    def test_multiple_prior_files_cannot_silently_lose_other_owners(self):
+        with tempfile.TemporaryDirectory() as folder:
+            p=Path(folder)/"prior.xlsx"; q=Path(folder)/"other.xlsx"
+            write_flat(p)
+            write_grouped(q)
+            target=Path(folder)/"draft.xlsx"
+            with self.assertRaisesRegex(ValueError,"여러 담당자 양식"):
+                write_month_end_statement(target,[p,q],[],[],[],TARGET)
+            self.assertFalse(target.exists())
+
     def test_does_not_overwrite_source_or_guess_an_already_present_month(self):
         with tempfile.TemporaryDirectory() as folder:
             p=Path(folder)/"prior.xlsx"; write_flat(p)
