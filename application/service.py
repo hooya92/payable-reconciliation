@@ -24,7 +24,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
     prior_items=[]; prior_issues=[]
     for path in prior_paths:
-        rr=read_prior(path,Path(path).stem,period)
+        rr=read_prior(path,Path(path).stem,period.previous())
         prior_items.extend(rr.items); prior_issues.extend(rr.issues)
 
     cross_seen={}
@@ -72,6 +72,6 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 result.status=Status.RAW_INPUT_INCOMPLETE
                 result.reason="더존 대상월/계정 데이터에 자동 제외된 행이 있어 지급 여부를 확정할 수 없음"
                 result.rule="RAW_INPUT_INCOMPLETE"
-    fresh=new_payables(journal_items)
+    fresh=new_payables(journal_items, results, allow_auto=not issues)
     counts=Counter(x.status for x in results)
     return ReconciliationRun(period,len(prior_items),results,fresh,issues,counts)
