@@ -1,4 +1,4 @@
-"""Dynamic right-edge status and source-column preservation tests."""
+"""Preserve original note columns and move analysis states to auxiliary sheets."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -34,7 +34,7 @@ def opening(path):
                   "2026-07-31",3,SourceRef(path.name,"26.07",3,"담당"))
     return [ReconcileResult(Status.UNPAID,p,None,"차변 없음","NO_DEBIT")]
 
-class StatusColumnTests(unittest.TestCase):
+class StatementColumnPreservationTests(unittest.TestCase):
     def test_append_to_rightmost_real_column_without_overwriting_memo(self):
         with tempfile.TemporaryDirectory() as temp:
             p=Path(temp)/"prior.xlsx";o=Path(temp)/"out.xlsx"
@@ -46,9 +46,10 @@ class StatusColumnTests(unittest.TestCase):
                 self.assertEqual(ws["F2"].value,"담당자 메모")
                 self.assertEqual(ws["F3"].value,"원본 메모")
                 self.assertEqual(ws["F4"].value,"소계 메모")
-                self.assertEqual(ws["G2"].value,"처리상태")
-                self.assertEqual(ws["G3"].value,"전월 이월")
-                self.assertEqual(ws["G4"].value,"소계")
+                self.assertIsNone(ws["G2"].value)
+                self.assertIsNone(ws["G3"].value)
+                self.assertIsNone(ws["G4"].value)
+                self.assertIn("전월 이월", [x[0] for x in list(wb["변경내역"].values)[1:]])
                 self.assertEqual(ws["E3"].number_format,"#,##0")
                 self.assertEqual(ws["E4"].fill.fgColor.rgb,"00FFFF99")
             finally:
@@ -65,11 +66,11 @@ class StatusColumnTests(unittest.TestCase):
                 self.assertEqual(ws["G2"].value,"비고")
                 self.assertEqual(ws["G3"].value,"추가 유지")
                 self.assertEqual(ws["G4"].value,"소계 유지")
-                self.assertEqual(ws["H2"].value,"처리상태")
-                self.assertEqual(ws["H3"].value,"전월 이월")
-                self.assertEqual(ws["H4"].value,"소계")
-                self.assertIsNone(ws["F2"].value)
-                self.assertIsNone(ws["F3"].value)
+                self.assertIsNone(ws["H2"].value)
+                self.assertIsNone(ws["H3"].value)
+                self.assertIsNone(ws["H4"].value)
+                self.assertEqual(ws["F2"].value,"처리상태")
+                self.assertEqual(ws["F3"].value,"전월 이월")
             finally:
                 wb.close()
 
@@ -90,17 +91,18 @@ class StatusColumnTests(unittest.TestCase):
             wb=load_workbook(o)
             try:
                 ws=wb["26.08"]
-                details=[(ws.cell(row,4).value,ws.cell(row,5).value,ws.cell(row,7).value)
+                details=[(ws.cell(row,4).value,ws.cell(row,5).value)
                          for row in range(3,ws.max_row+1)
                          if ws.cell(row,3).value!="소계"]
                 self.assertEqual(details,[
-                    ("유류비",1000000,"오타 의심"),
-                    ("유류비",-1000000,"오타 의심"),
-                    ("당월 청구",350000,"확인 필요"),
+                    ("유류비",1000000),
+                    ("유류비",-1000000),
+                    ("당월 청구",350000),
                 ])
-                self.assertTrue(any(r[0]=="오타 의심"
-                                    for r in list(wb["검토필요"].values)[1:]))
-                self.assertEqual(ws["G2"].value,"처리상태")
+                states=[r[0] for r in list(wb["검토필요"].values)[1:]]
+                self.assertIn("오타 의심",states)
+                self.assertIn("확인 필요",states)
+                self.assertIsNone(ws["G2"].value)
             finally:
                 wb.close()
 
