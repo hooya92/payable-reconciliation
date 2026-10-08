@@ -1,6 +1,6 @@
 from collections import defaultdict
 from decimal import Decimal
-from .models import JournalLine, PayableItem, ReconcileResult, Status
+from .models import JournalLine, NewPayable, PayableItem, ReconcileResult, Status
 from .normalization import normalize_code, normalize_text
 
 
@@ -84,8 +84,10 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
     used: set[int] = set()
     results: list[ReconcileResult] = []
     prior_key_counts: dict[tuple[str, Decimal], int] = defaultdict(int)
+    prior_desc_counts: dict[tuple[str, str], int] = defaultdict(int)
     for item in prior_items:
         prior_key_counts[(normalize_code(item.vendor_code), item.amount)] += 1
+        prior_desc_counts[(normalize_code(item.vendor_code), normalize_text(item.description))] += 1
 
     for item in prior_items:
         key = (normalize_code(item.vendor_code), item.amount)
@@ -101,6 +103,21 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
         exact = [x for x in candidates if normalize_text(x.description) == normalize_text(item.description)]
         if len(candidates) == 1:
             line=candidates[0]
+            # A same-amount debit might settle a different opening item partially.
+            competing_prior = any(
+                other is not item
+                and normalize_code(other.vendor_code) == key[0]
+                and other.amount > line.debit
+                and normalize_text(other.description) == normalize_text(line.description)
+                for other in prior_items
+            )
+            if competing_prior and normalize_text(item.description) != normalize_text(line.description):
+                results.append(ReconcileResult(
+                    Status.AMBIGUOUS, item, line,
+                    "동일 차변이 다른 전월 항목의 부분지급일 수 있어 자동 배정하지 않음",
+                    "COMPETING_PARTIAL"
+                ))
+                continue
             used.add(id(line))
 
             same_name=normalize_text(line.vendor_name) == normalize_text(item.vendor_name)
@@ -158,6 +175,30 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
                 continue
 
             partial = [x for x in remaining_vendor_debits if x.debit < item.amount]
+            exact_partial = [
+                x for x in partial
+                if normalize_text(x.description) == normalize_text(item.description)
+            ]
+            if (
+                len(exact_partial) == 1
+                and len(remaining_vendor_debits) == 1
+                and prior_desc_counts[(key[0], normalize_text(item.description))] == 1
+                and not any(
+                    other is not item
+                    and normalize_code(other.vendor_code) == key[0]
+                    and other.amount == exact_partial[0].debit
+                    for other in prior_items
+                )
+            ):
+                line = exact_partial[0]
+                used.add(id(line))
+                balance = item.amount - line.debit
+                results.append(ReconcileResult(
+                    Status.PARTIAL, item, line,
+                    f"전월 {item.amount:,.0f}원 중 당월 {line.debit:,.0f}원 지급 · 잔액 {balance:,.0f}원 이월",
+                    "PARTIAL_UNIQUE"
+                ))
+                continue
             if partial:
                 results.append(ReconcileResult(
                     Status.AMBIGUOUS, item, partial[0],
@@ -200,5 +241,55 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
     return results
 
 
-def new_payables(journal_lines: list[JournalLine]) -> list[JournalLine]:
-    return [line for line in journal_lines if line.credit > 0]
+def new_payables(
+    journal_lines: list[JournalLine],
+    prior_results: list[ReconcileResult],
+    allow_auto: bool = True,
+) -> list[NewPayable]:
+    """Only carry current credits whose same-month settlement is unambiguous."""
+    credits = [line for line in journal_lines if line.credit > 0]
+    used_debits = {
+        id(r.journal) for r in prior_results
+        if r.status in (Status.MATCHED, Status.PARTIAL) and r.journal is not None
+    }
+    spare_debits = [
+        line for line in journal_lines
+        if line.debit > 0 and id(line) not in used_debits
+    ]
+    credit_counts = defaultdict(int)
+    prior_keys = {
+        (normalize_code(r.prior.vendor_code), normalize_text(r.prior.description))
+        for r in prior_results
+    }
+    for line in credits:
+        credit_counts[(normalize_code(line.vendor_code), normalize_text(line.description))] += 1
+
+    new_items = []
+    for line in credits:
+        code = normalize_code(line.vendor_code)
+        key = (code, normalize_text(line.description))
+        vendor_debits = [d for d in spare_debits if normalize_code(d.vendor_code) == code]
+        same_desc_debits = [d for d in vendor_debits if normalize_text(d.description) == key[1]]
+        reason = ""
+        if not allow_auto:
+            reason = "입력 데이터 확인 항목이 있어 신규 발생분 자동 이월 보류"
+        elif credit_counts[key] != 1 or key in prior_keys:
+            reason = "전월 항목과 중복 또는 당월 동일 적요 대변 중복 가능성 확인 필요"
+        elif len(same_desc_debits) > 1 or len(vendor_debits) != len(same_desc_debits):
+            reason = "당월 차변을 신규 대변에 안전하게 배정할 수 없어 확인 필요"
+        elif sum(d.debit for d in same_desc_debits) > line.credit:
+            reason = "당월 차변 합계가 신규 대변보다 커서 확인 필요"
+
+        if reason:
+            new_items.append(NewPayable(line, line.credit, reason, False))
+        else:
+            remaining = line.credit - sum(d.debit for d in same_desc_debits)
+            description = (
+                "당월 차변과 전액 상계"
+                if remaining == 0 else
+                "당월 차변 일부 상계 후 잔액 이월"
+                if same_desc_debits else
+                "당월 신규 발생 미지급금 이월"
+            )
+            new_items.append(NewPayable(line, remaining, description, True))
+    return new_items
