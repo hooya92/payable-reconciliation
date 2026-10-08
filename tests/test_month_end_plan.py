@@ -18,6 +18,25 @@ def journal(code,desc,debit=0,credit=0,row=5):
 
 
 class MonthlyPlannerTests(unittest.TestCase):
+    def test_verified_signed_vendor_credit_is_not_mistaken_for_missing_new_item(self):
+        p=opening("920000")
+        credit=journal("001111","8월 운송비",credit=65000)
+        result=ReconcileResult(Status.SIGNED_NET_AUTO,p,None,
+                               "거래처 순잔액 계산 검증","SIGNED_OPENING_NET")
+        plan=build_month_end_plan(
+            [("001111",p.vendor_name,p.description,p.amount,p.date,4,{})],
+            [result],[],[],"전월.xlsx","26.07",journal_items=[credit]
+        )
+        self.assertEqual(plan.records[-1].status,"당월 발생")
+        self.assertEqual(plan.reviews,[])
+        self.assertIn("개별 청구 건 배분 미확정",plan.audits[-1][5])
+        result.status=Status.SIGNED_OPENING_REVIEW
+        plan=build_month_end_plan(
+            [("001111",p.vendor_name,p.description,p.amount,p.date,4,{})],
+            [result],[],[],"전월.xlsx","26.07",journal_items=[credit]
+        )
+        self.assertEqual(plan.records[-1].status,"확인 필요")
+
     def test_same_name_with_different_raw_code_is_reviewed_without_changing_code(self):
         p=opening("100")
         p=PayableItem("00111",p.vendor_name,p.description,p.amount,p.date,4,p.source)

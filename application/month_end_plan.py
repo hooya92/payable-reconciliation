@@ -162,8 +162,12 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         if line.credit>0:
             amount=line.credit
             new=fresh_by_id.get(id(line))
-            status="당월 발생" if new and new.auto_carry else "확인 필요"
-            reason=(new.reason if new else "신규 발생의 대사 조건을 확인해주세요.")
+            aggregate=net_vendors.get(normalize_code(line.vendor_code))
+            verified_net=aggregate is not None and aggregate.status==Status.SIGNED_NET_AUTO
+            status="당월 발생" if (new and new.auto_carry) or verified_net else "확인 필요"
+            reason=(new.reason if new else
+                    "검증된 거래처 순잔액 계산에 포함된 당월 RAW 대변 · 개별 청구 건 배분 미확정"
+                    if verified_net else "신규 발생의 대사 조건을 확인해주세요.")
         else:
             amount=-line.debit
             if id(line) in matched_debits:

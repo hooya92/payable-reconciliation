@@ -47,14 +47,20 @@ class FullTemplateStyleTests(unittest.TestCase):
 
     def test_signed_literal_formula_is_preserved_without_evaluating_references(self):
         from tests.test_month_end_template import write_grouped
+        from adapters.excel.reader import read_prior
         with tempfile.TemporaryDirectory() as folder:
             prior=Path(folder)/"original.xlsx"
             output=Path(folder)/"generated.xlsx"
             write_grouped(prior)
             wb=load_workbook(prior);ws=wb["26.07"]
+            ws["E3"]=1120000
             ws["E4"]="=-280000"
+            ws["E5"]="=SUM(E3:E4)"
             wb.save(prior);wb.close()
             before=prior.read_bytes()
+            read=read_prior(prior,period=AccountingPeriod(2026,7))
+            self.assertEqual(read.issues,[])
+            self.assertEqual(read.review_items[0][0].amount,Decimal("840000"))
             write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
             wb=load_workbook(output)
             self.assertEqual(wb["26.08"]["E4"].value,"=-280000")
@@ -64,6 +70,7 @@ class FullTemplateStyleTests(unittest.TestCase):
             wb.save(prior);wb.close()
             with self.assertRaisesRegex(ValueError,"4행.*지원하지 않는 수식"):
                 write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+            self.assertTrue(read_prior(prior,period=AccountingPeriod(2026,7)).issues)
 
     def test_retained_rows_keep_individual_styles_and_original_dates(self):
         from tests.test_month_end_template import write_grouped

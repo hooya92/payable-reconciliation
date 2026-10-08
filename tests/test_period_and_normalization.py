@@ -1,7 +1,7 @@
 import unittest
 from decimal import Decimal
 from domain.models import DataQuality
-from domain.normalization import normalize_text, parse_amount
+from domain.normalization import normalize_text, parse_amount, parse_literal_amount_formula
 from domain.period import AccountingPeriod, prior_period_for
 
 
@@ -26,6 +26,12 @@ class PeriodTests(unittest.TestCase):
 
 
 class AmountTests(unittest.TestCase):
+    def test_literal_formulas_do_not_evaluate_references_or_expressions(self):
+        self.assertEqual(parse_literal_amount_formula("=-280000"),Decimal("-280000"))
+        self.assertEqual(parse_literal_amount_formula("= 0 "),Decimal(0))
+        for value in ("=-E3","=SUM(E3:E5)","=1+2","=1/0","=1,000","=NaN"):
+            self.assertIsNone(parse_literal_amount_formula(value))
+
     def test_accounting_sign_spacing_is_not_an_amount_error(self):
         for value in ("-500,000","-    500,000","-\u00a0\u00a0500,000","− 500,000"):
             with self.subTest(value=value):

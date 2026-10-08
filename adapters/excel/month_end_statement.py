@@ -16,7 +16,7 @@ from openpyxl import load_workbook
 
 from adapters.excel.reader import _first, _header, _is_summary_label, _select_prior_sheets
 from domain.models import Status, DataQuality
-from domain.normalization import parse_amount
+from domain.normalization import parse_amount, parse_literal_amount_formula
 from application.month_end_plan import build_month_end_plan
 from adapters.excel.month_end_status import (
     find_status_column, prepare_status_header, write_status,
@@ -232,13 +232,13 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if isinstance(amount,str) and amount.startswith("="):
                 # A literal has no references or stale calculation cache.
                 # Other formulas require review rather than guessed evaluation.
-                literal=amount[1:].strip()
-                if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?",literal):
+                literal=parse_literal_amount_formula(amount)
+                if literal is None:
                     raise ValueError(
                         f"명세서 {idx}행 금액에 지원하지 않는 수식이 있습니다. "
                         "원본은 그대로 두고, 복사본에서 확인한 숫자 값으로 바꾼 뒤 다시 실행해 주세요."
                     )
-                amount=Decimal(literal)
+                amount=literal
             elif isinstance(amount,str):
                 parsed=parse_amount(amount)
                 if parsed.quality==DataQuality.SUSPICIOUS or parsed.value is None:

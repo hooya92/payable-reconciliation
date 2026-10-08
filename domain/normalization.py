@@ -18,6 +18,13 @@ def normalize_text(value: object) -> str:
     text = "" if value is None else str(value)
     return re.sub(r"\s+", " ", text.strip().casefold())
 
+def parse_literal_amount_formula(value: object) -> Decimal | None:
+    """Read only a formula containing a signed numeric constant, never references."""
+    if not isinstance(value,str):
+        return None
+    match=re.fullmatch(r"=\s*([+-]?\d+(?:\.\d+)?)\s*",value)
+    return Decimal(match.group(1)) if match else None
+
 
 def parse_amount(value: object) -> NormalizedAmount:
     """Parse only deterministic formats. Suspicious separators/units are never auto-approved."""

@@ -17,7 +17,7 @@ from openpyxl import load_workbook as _openpyxl_load_workbook
 from openpyxl.utils import get_column_letter
 
 from domain.models import DataQuality, JournalLine, PayableItem, SourceRef
-from domain.normalization import normalize_code, parse_amount
+from domain.normalization import normalize_code, parse_amount, parse_literal_amount_formula
 from domain.period import AccountingPeriod, parse_date
 
 
@@ -562,13 +562,14 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 # this contiguous detail group. Compute it ourselves rather
                 # than trusting a possibly stale formula cache.
                 simple_sum=False
+                literal_amount=parse_literal_amount_formula(amount_cell.value)
                 if code and vendor_name and summary_label and pending and _is_formula(amount_cell):
                     column=get_column_letter(cols["amount"])
                     expected=f"=SUM({column}{pending[0]['row']}:{column}{pending[-1]['row']})"
                     actual=str(amount_cell.value).replace(" ", "").replace("$", "").upper()
                     simple_sum=(actual==expected)
                 if any(_is_formula(cell) for cell in relevant_cells
-                       if cell is not amount_cell or not simple_sum):
+                       if cell is not amount_cell or not (simple_sum or literal_amount is not None)):
                     if pending:
                         flush_pending_as_issues("그룹 중간에 수식 셀이 있어 거래처를 안전하게 확정할 수 없음")
                     out.issues.append(InputIssue("명세서",ws.title,r,"수식",amount_cell.value,
@@ -577,7 +578,10 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                         group_tainted=False
                     continue
 
-                a=parse_amount(sum(rec["amount"] for rec in pending) if simple_sum else amount_cell.value)
+                amount_value=(sum(rec["amount"] for rec in pending) if simple_sum
+                              else literal_amount if literal_amount is not None
+                              else amount_cell.value)
+                a=parse_amount(amount_value)
                 if not code and not vendor_name and not desc and (a.value or 0)==0:
                     if pending:
                         flush_pending_as_issues("거래처 소계 전에 빈 행이 있어 그룹 범위를 확정할 수 없음")
