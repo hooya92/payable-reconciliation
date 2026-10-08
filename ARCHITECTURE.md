@@ -1,0 +1,33 @@
+# 모듈 경계 및 변경 원칙
+
+당월 명세서 기능은 `feature/month-end-statement-template`에서 검증합니다. 
+정식 `main` 및 `download-latest`를 테스트용 배포로 덮어쓰지 않습니다.
+
+## 의존성 및 책임
+
+| 모듈 | 책임 | 피해야 할 일 |
+|---|---|---|
+| `domain/models.py`, `domain/reconciliation.py` | 대사 상태, 차변/대변 매칭, 순수 판단 | Excel, UI, 파일 대화상자 import |
+| `adapters/excel/reader.py` | 입력 파일 검증·계정/월 필터·정규화 | 대사 결정, 서식 출력 |
+| `application/service.py` | 파일별 수집, 대사 실행, 단일 `ReconciliationRun` 반환, 원본 추적 | UI 상태 업데이트, Excel 서식 |
+| `application/month_end_plan.py` | 전월 원본과 당월 RAW를 `StatementRow` 목록으로 계획, 검토·이력 생성 | `openpyxl` 호출, 셀/파일 수정 |
+| `adapters/excel/month_end_statement.py` | 원본 양식 행/소계 복제, 계획 적용, 보조 시트 저장 | 거래 금액/매칭 판정 다시 구현 |
+| `adapters/excel/writer.py`, `styles.py` | 기존 대사 결과서 작성 및 결과서 디자인 | 전월 원본 양식 스타일 덮어쓰기 |
+| `app.py` | UI, 입력 선택, 저장 경로, 결과 표시 | 독자적인 회계 계산 및 RAW 재파싱 |
+
+`ReconciliationRun`은 서비스 ↔ UI 간의 결과 계약입니다. RAW 파일명을 포함한 출처 정보는 `journal_sources`로 전체 라인에 유지합니다.
+`StatementRow`는 계획 ↔ 당월 Excel 렌더러 간의 계약이며 필드 순서를 임의로 바꾸지 마세요.
+검토대상 플래그는 원본 명세서에 열을 추가하지 않고 별도 보조 시트에 기록합니다.
+
+## 안전 규칙
+
+1. 전월 원본은 절대 덮어쓰지 않습니다. 지원하지 않는 병합/보호/테이블 등은 추측해 편집하지 않고 중단합니다.
+2. 명세서 단일 금액 열: **당월 RAW 대변은 양수, 차변은 음수**, 소계는 전월 행과 RAW 행 전체의 합입니다. 이 표시는 특정 청구 건의 지급 배분을 확정한다는 뜻이 아닙니다.
+3. 거래처명 차이·부분지급·오타 등은 검토내역으로 전달합니다. 같은 거래처코드는 하나의 소계 그룹만 구성해야 합니다.
+4. 여러 전월 양식 첨부는 누락 방지를 위해 자동 생성에서 거절합니다(대사 자체는 기존처럼 수행).
+5. 변경 시 도메인 단위 → 서비스 → 계획 → Excel → UI 순으로 검증하고, 먼저 기존 함수를 재사용합니다. 불필요한 새 의존성/추상화는 도입하지 않습니다.
+6. `python -m unittest discover -s tests -p "test_*.py" -v`를 통과시킨 뒤 Windows 미리보기 Release의 커밋 SHA를 확인합니다.
+7. 브랜치 미리보기 `month-end-preview`와 정식 `download-latest`는 별도입니다. PR은 현업 양식 회귀 검증 전까지 draft/미병합으로 둡니다.
+
+참고: 현재 UI(`app.py`)와 입력 파서(`reader.py`)는 파일 크기가 큽니다. 단순 분량을 줄이려 대규모로 쪼개지 말고,
+수정 대상이 되는 실제 기능 단위에서만 단계적으로 추출하며 동작 테스트를 먼저 추가합니다.
