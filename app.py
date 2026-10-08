@@ -118,6 +118,10 @@ def infer_period_from_inputs(statement_period_groups, raw_period_groups, preferr
             return (target,"statement+raw") if target in raw_periods else (None,"conflict")
         return target,"statement"
     if raw_periods:
+        # A manually selected month must not be replaced by the latest month
+        # in an annual Raw when the statement tab has no readable month.
+        if preferred is not None and preferred in raw_periods:
+            return preferred,"raw"
         return max(raw_periods),"raw"
     return None,"unknown"
 
