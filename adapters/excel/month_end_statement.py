@@ -128,6 +128,11 @@ def _status_column(sheet, header_row):
     if len(existing)>1:
         raise ValueError("처리상태 열이 여러 개입니다. 명세서 헤더를 확인해주세요.")
     right=max((col for col,txt in values if txt!="처리상태"),default=0)
+    # Also protect data columns whose headings are blank: the next generated
+    # status must not overwrite the user's content.
+    for cell in sheet._cells.values():
+        if cell.row>=header_row and cell.value is not None and cell.column not in existing:
+            right=max(right,cell.column)
     if not right:
         raise ValueError("명세서 표의 마지막 열을 식별하지 못했습니다.")
     destination=max(right+1,existing[0] if existing else 0)
@@ -237,6 +242,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         }
         opening=[]
         pending=[]
+        business_columns={col for col in fields.values() if col}
+        business_columns.add(status_column)
+        subtotal_extra={}
         for idx in range(header+1,last_template_row+1):
             values=[cell.value for cell in ws[idx]]
             if not any(v is not None for v in values):
@@ -248,8 +256,13 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 name=values[fields["name"]-1]
                 if not code or not name:
                     raise ValueError("거래처 소계 행에 코드 또는 거래처명이 없습니다.")
-                for source_row,desc,amount,when in pending:
-                    opening.append((str(code),str(name),desc,amount,when,source_row))
+                for source_row,desc,amount,when,extras in pending:
+                    opening.append((str(code),str(name),desc,amount,when,source_row,extras))
+                for col,val in enumerate(values,1):
+                    if col not in business_columns and val is not None:
+                        if isinstance(val,str) and val.startswith("="):
+                            raise ValueError("추가 열의 소계 수식을 자동 이동하면 참조가 바뀔 수 있어 중단합니다.")
+                        subtotal_extra[(str(code),str(name),col)]=val
                 pending=[]
                 continue
             desc=values[fields["desc"]-1]
@@ -262,8 +275,10 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 amount=Decimal(str(amount))
             except (ValueError,ArithmeticError) as exc:
                 raise ValueError(f"명세서 {idx}행 금액을 안전하게 읽을 수 없습니다.") from exc
+            extras={col:val for col,val in enumerate(values,1)
+                    if col not in business_columns and val is not None}
             entry=(idx,str(desc),amount,
-                   values[fields["date"]-1] if fields["date"] else None)
+                   values[fields["date"]-1] if fields["date"] else None,extras)
             if grouped:
                 pending.append(entry)
             else:
@@ -271,7 +286,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 name=values[fields["name"]-1]
                 if not code or not name:
                     raise ValueError(f"명세서 {idx}행의 거래처가 비어 있습니다.")
-                opening.append((str(code),str(name),entry[1],entry[2],entry[3],idx))
+                opening.append((str(code),str(name),entry[1],entry[2],entry[3],idx,extras))
         if pending:
             raise ValueError("거래처 소계가 없는 상세 행이 있어 자동 생성할 수 없습니다.")
 
@@ -280,14 +295,14 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         offsets=[]
         reviews=[]
         vendor_order={}
-        for code,name,desc,amount,when,source_row in opening:
+        for code,name,desc,amount,when,source_row,extras in opening:
             vendor=(code,name)
             vendor_order.setdefault(vendor,len(vendor_order))
             result=original_result_rows.get(source_row)
             if result is None:
                 result=net_vendors.get(normalize_code(code))
             status=_status_for_opening(result)
-            records.append((code,name,desc,amount,when,status,source_row))
+            records.append((code,name,desc,amount,when,status,source_row,extras))
             audits.append((status,code,name,desc,_amount(amount),
                            "전월 명세서 원본 행 유지",template_path.name,source_row))
             if status in ("확인 필요","오타 의심"):
@@ -352,7 +367,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             vendor=(line.vendor_code,line.vendor_name)
             vendor_order.setdefault(vendor,len(vendor_order))
             records.append((line.vendor_code,line.vendor_name,line.description,
-                            amount,line.date,status,line.row_number))
+                            amount,line.date,status,line.row_number,{}))
             audits.append((status,line.vendor_code,line.vendor_name,line.description,
                            _amount(amount),reason,
                            source_debits.get(id(line),"더존 Raw"),line.row_number))
@@ -442,12 +457,15 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 fields["amount"]:f"=SUM({column_letter}{start}:{column_letter}{row_no-1})",
             }
             values[fields["date"] if subtotal_label=="date" else fields["desc"]]="소계"
+            for (code,name,column),value in subtotal_extra.items():
+                if (code,name)==vendor:
+                    values[column]=value
             write_row(values,*subtotal_style,status="소계")
         vendor=None
         start=None
         total=Decimal(0)
         for rec in records:
-            code,name,desc,amount,row_date,status,source_row=rec
+            code,name,desc,amount,row_date,status,source_row,extras=rec
             current=(code,name)
             if vendor is not None and current!=vendor:
                 finish_subtotal(vendor,start,total)
@@ -458,6 +476,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if row_date is None:
                 row_date=f"{period.year}-{period.month:02d}-{calendar.monthrange(period.year,period.month)[1]}"
             values={fields["desc"]:desc,fields["amount"]:_amount(amount)}
+            values.update(extras)
             if fields["date"]:
                 values[fields["date"]]=_template_date(row_date,sample_date)
             if not grouped:
