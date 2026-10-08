@@ -99,7 +99,7 @@ def suggest_reconciliation_period(current_period, statement_period_groups):
     return max(common).next()
 
 
-def infer_period_from_inputs(statement_period_groups, raw_period_groups):
+def infer_period_from_inputs(statement_period_groups, raw_period_groups, preferred=None):
     """Infer the target month without falling back to an older coincidental overlap."""
     statement_groups=[set(group) for group in statement_period_groups if group]
     raw_groups=[set(group) for group in raw_period_groups if group]
@@ -109,6 +109,10 @@ def infer_period_from_inputs(statement_period_groups, raw_period_groups):
 
     if statement_common:
         target=max(statement_common).next()
+        if preferred is not None and preferred.previous() in statement_common and (
+            not raw_periods or preferred in raw_periods
+        ):
+            target=preferred
         if raw_periods:
             return (target,"statement+raw") if target in raw_periods else (None,"conflict")
         return target,"statement"
@@ -651,7 +655,8 @@ class App(ctk.CTk):
                 raw_groups.append(periods)
                 raw_labels.extend(periods)
 
-        suggested,source=infer_period_from_inputs(statement_groups,raw_groups)
+        current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
+        suggested,source=infer_period_from_inputs(statement_groups,raw_groups,preferred=current)
         if suggested is None:
             if source=="conflict":
                 if show_banner:
@@ -665,7 +670,6 @@ class App(ctk.CTk):
                 return False
             return None
 
-        current=AccountingPeriod(int(self.year.get()),int(self.month.get()))
         if suggested!=current:
             # Set both variables without leaving a stale result behind.
             self.year.set(suggested.year)
