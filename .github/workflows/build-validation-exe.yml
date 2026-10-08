@@ -41,36 +41,6 @@ jobs:
           python -m PyInstaller --noconfirm --clean --windowed --onefile --name "명세서대사" app.py
           Copy-Item "dist/명세서대사.exe" "dist/statement-reconciliation.exe"
 
-      # Optional, stable self-signed Authenticode certificate. Generate it once locally,
-      # then store its PFX (base64) and password in GitHub Actions secrets.
-      # Self-signed signatures do NOT establish SmartScreen reputation or public trust.
-      - name: Sign EXE when certificate is configured
-        shell: pwsh
-        env:
-          SIGNING_PFX_BASE64: ${{ secrets.SIGNING_PFX_BASE64 }}
-          SIGNING_PFX_PASSWORD: ${{ secrets.SIGNING_PFX_PASSWORD }}
-        run: |
-          if (-not $env:SIGNING_PFX_BASE64 -or -not $env:SIGNING_PFX_PASSWORD) {
-            Write-Host "No signing secrets configured: publishing unsigned EXE with build attestation."
-            exit 0
-          }
-          $pfx = Join-Path $env:RUNNER_TEMP "code-signing.pfx"
-          try {
-            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
-            $password = ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force
-            $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password -ErrorAction Stop
-            if (-not $cert.HasPrivateKey) { throw "Signing certificate has no private key." }
-            $signature = Set-AuthenticodeSignature -FilePath "dist/statement-reconciliation.exe" -Certificate $cert -HashAlgorithm SHA256 -TimestampServer "http://timestamp.digicert.com" -ErrorAction Stop
-            if (-not $signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $cert.Thumbprint) {
-              throw "Authenticode signature was not applied."
-            }
-            if ($signature.Status -in @("NotSigned", "HashMismatch")) { throw "EXE signature check failed: $($signature.Status)" }
-            Export-Certificate -Cert $cert -FilePath "dist/code-signing-public.cer" | Out-Null
-            Write-Host "EXE signed. Certificate thumbprint: $($cert.Thumbprint); status on runner: $($signature.Status)"
-          } finally {
-            Remove-Item $pfx -Force -ErrorAction SilentlyContinue
-          }
-
       - name: Create SHA-256 checksum
         shell: pwsh
         run: |
@@ -102,7 +72,6 @@ jobs:
           path: |
             dist/statement-reconciliation.exe
             dist/SHA256SUMS.txt
-            dist/code-signing-public.cer
           if-no-files-found: error
           retention-days: 30
 
@@ -113,8 +82,7 @@ jobs:
         run: |
           $tag = "download-latest"
           $assets = @("dist/statement-reconciliation.exe", "dist/SHA256SUMS.txt")
-          if (Test-Path "dist/code-signing-public.cer") { $assets += "dist/code-signing-public.cer" }
-          $notes = "Windows 실행파일 최신 배포본입니다. Build: $env:GITHUB_SHA. SHA256SUMS.txt로 무결성을 확인하세요. 자체 서명은 Windows/SmartScreen 신뢰를 보장하지 않습니다."
+          $notes = "Windows 실행파일 최신 배포본입니다. Build: $env:GITHUB_SHA. SHA256SUMS.txt로 무결성을 확인하세요."
           gh release view $tag --repo "$env:GITHUB_REPOSITORY" *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --clobber --repo "$env:GITHUB_REPOSITORY"
