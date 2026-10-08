@@ -79,7 +79,7 @@ class TemplateMonthEndTests(unittest.TestCase):
                 self.assertEqual(ws.column_dimensions["D"].width,44)
                 data=list(ws.iter_rows(min_row=3,values_only=True))
                 self.assertEqual({r[3] for r in data},{"이월 비용","지급완료","검토 대상","신규 비용"})
-                self.assertIsNone(ws["F2"].value)  # No new columns in original template
+                self.assertEqual(ws["F2"].value,"처리상태")  # Adjacent, removable status column
                 self.assertEqual(sum(r[4] for r in data),1000)
                 self.assertEqual(len(list(wb["검토필요"].values)),2)
                 self.assertIn("당월 발생",[r[0] for r in list(wb["변경내역"].values)[1:]])
@@ -178,7 +178,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             wb=load_workbook(o)
             try:
                 self.assertEqual(wb["26.08"].max_row,6)
-                self.assertIsNone(wb["26.08"]["F6"].value)
+                self.assertEqual(wb["26.08"]["F6"].value,"확인 필요")
                 self.assertIn("확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
             finally:
                 wb.close()
