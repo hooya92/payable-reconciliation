@@ -2,6 +2,7 @@ from __future__ import annotations
 import tkinter as tk
 import customtkinter as ctk
 import hashlib
+import os
 import queue
 import threading
 import sys
@@ -45,6 +46,12 @@ def file_digest(path):
         for chunk in iter(lambda:f.read(1024*1024),b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def open_saved_folder(path):
+    """Show the output directory in Windows Explorer without opening Excel."""
+    if sys.platform=="win32":
+        os.startfile(str(Path(path).resolve().parent))
 
 
 def snapshot_file_digests(paths):
@@ -1064,8 +1071,19 @@ class App(ctk.CTk):
                 "파일·폴더의 읽기 전용 설정과 쓰기 권한도 확인해 주세요.\n\n"
                 f"문제 파일: {e.filename or path}"
             )
+            return
         except Exception as e:
             messagebox.showerror("당월 명세서 생성 실패",str(e))
+            return
+        try:
+            open_saved_folder(path)
+        except OSError:
+            messagebox.showwarning(
+                "저장 완료 · 폴더 열기 실패",
+                "당월 명세서는 정상적으로 저장했습니다.\n"
+                "저장 폴더를 자동으로 열지 못했습니다. 아래 위치를 확인해 주세요.\n\n"
+                f"저장 위치: {Path(path).resolve()}"
+            )
 
     def export(self):
         if self.last_period is None:
