@@ -27,6 +27,10 @@ class MonthEndTests(unittest.TestCase):
         august=AccountingPeriod(2026,8)
         self.assertEqual(infer_period_from_inputs([[july]], [[august]]), (august,"statement+raw"))
         self.assertEqual(infer_period_from_inputs([[august]], [[august]]), (None,"conflict"))
+        self.assertEqual(
+            infer_period_from_inputs([[july, august]], [[august, august.next()]], preferred=august),
+            (august,"statement+raw"),
+        )
         self.assertEqual(infer_period_from_inputs([[AccountingPeriod(2025,12)]], [[AccountingPeriod(2026,1)]]),
                          (AccountingPeriod(2026,1),"statement+raw"))
 
