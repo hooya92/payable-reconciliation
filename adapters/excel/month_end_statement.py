@@ -17,6 +17,9 @@ from openpyxl import load_workbook
 from adapters.excel.reader import _first, _header, _is_summary_label, _select_prior_sheets
 from domain.models import Status
 from application.month_end_plan import build_month_end_plan
+from adapters.excel.month_end_status import (
+    find_status_column, prepare_status_header, write_status,
+)
 from domain.period import AccountingPeriod
 
 
@@ -187,10 +190,13 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # The named sheet is kept: only the original data rows are rebuilt.
         _change_heading(ws,header,period.previous(),period)
 
-        # Carry through any original extra columns without adding to the template.
+        # Preserve all original business columns, including free-form notes.
+        # Only the optional processed-status column may be newly appended.
+        status_column=find_status_column(ws,header)
         opening=[]
         pending=[]
         business_columns={col for col in fields.values() if col}
+        business_columns.add(status_column)
         subtotal_extra={}
         for idx in range(header+1,last_template_row+1):
             values=[cell.value for cell in ws[idx]]
@@ -276,6 +282,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 f"{get_column_letter(max_col)}{header+required_rows}"
             )
 
+        prepare_status_header(ws,header,status_column,fields["amount"])
+
         row_no=header+1
         def write_row(values,styles,dimension):
             nonlocal row_no
@@ -303,6 +311,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 if (code,name)==vendor:
                     values[column]=value
             write_row(values,*subtotal_style)
+            write_status(ws,row_no-1,status_column,fields["amount"],"소계",subtotal=True)
         vendor=None
         start=None
         total=Decimal(0)
@@ -325,6 +334,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 values[fields["code"]]=rec.vendor_code
                 values[fields["name"]]=rec.vendor_name
             write_row(values,*detail_style)
+            write_status(ws,row_no-1,status_column,fields["amount"],rec.status)
             total+=Decimal(rec.amount)
             vendor=current
         if vendor is not None:
@@ -350,7 +360,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             for idx in (4,10,11):
                 row[idx].number_format="#,##0;[Red](#,##0);-"
 
-        # No extra columns or hard-to-erase tags in the original template sheet.
+        # Status is the sole optional extra column; detailed reasons stay removable.
         summary=wb.create_sheet("검토필요")
         summary.append(["검토 상태","거래처코드","거래처명","적요·원본값","금액","사유","원본파일","원본행"])
         summary["J1"]="MONTH_END_DRAFT_REVIEW"
