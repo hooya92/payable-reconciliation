@@ -72,7 +72,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(),before)
             wb=load_workbook(output)
             try:
-                self.assertEqual(wb.sheetnames,["26.08","검토필요","변경내역"])
+                self.assertEqual(wb.sheetnames,["26.08","상계내역","검토필요","변경내역"])
                 ws=wb["26.08"]
                 self.assertIn("2026년 8월",ws["A1"].value)
                 self.assertIn("A1:E1",[str(x) for x in ws.merged_cells.ranges])
@@ -223,7 +223,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],[ReconcileResult(Status.UNPAID,item)],[],[],TARGET)
             wb=load_workbook(o)
             try:
-                self.assertEqual(wb.sheetnames,["26.08","기존 안내","검토필요","변경내역"])
+                self.assertEqual(wb.sheetnames,["26.08","기존 안내","상계내역","검토필요","변경내역"])
                 ws=wb["26.08"]
                 self.assertEqual(ws["E3"].fill.fgColor.rgb,"00DDEEFF")
                 self.assertEqual(ws.max_row,3)
