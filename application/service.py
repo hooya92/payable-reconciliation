@@ -38,6 +38,16 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
             )
         review_vendor_seen[code]=item
 
+    # A verified vendor subtotal is the entire opening balance. Mixing it with
+    # separate detail balances for the same vendor would double-count opening.
+    overlapping={normalize_code(item.vendor_code) for item in prior_items} & set(review_vendor_seen)
+    if overlapping:
+        raise ValueError(
+            "전월 소계와 개별 명세가 중복될 수 있는 거래처가 있습니다: "
+            + ", ".join(sorted(overlapping))
+            + ". 중복 명세서/시트를 확인해주세요."
+        )
+
     cross_seen={}
     for item in prior_items:
         key=(item.vendor_code,item.amount,item.description.strip().casefold())
@@ -85,11 +95,19 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         net=item.amount + credits - debits
         reason += (
             f" · 당월 차변 {debits:,.0f}원 / 대변 {credits:,.0f}원"
-            f" → 당월말 잠정 순잔액 {net:,.0f}원"
-            " (거래처 단위 참고값, 개별 미지급 확정 전 자동 이월 제외)"
+            f" → 당월말 거래처 순잔액 {net:,.0f}원"
         )
+        if issues:
+            status=Status.SIGNED_OPENING_REVIEW
+            reason += " · 입력 확인 항목이 있어 자동 반영 보류"
+        elif net < 0:
+            status=Status.SIGNED_OPENING_REVIEW
+            reason += " · 음수 잔액(초과 지급/조정) 원인 확인 필요"
+        else:
+            status=Status.SIGNED_NET_AUTO
+            reason += " · 소계 검증 및 거래처 단위 자동계산 완료 (개별 청구 건 배분 미확정)"
         results.append(ReconcileResult(
-            Status.SIGNED_OPENING_REVIEW, item, None, reason, "SIGNED_OPENING_NET"
+            status, item, None, reason, "SIGNED_OPENING_NET",closing_balance=net
         ))
     if dz_issues:
         for result in results:
