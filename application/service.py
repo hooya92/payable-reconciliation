@@ -22,6 +22,7 @@ class ReconciliationRun:
     # fabricated payment allocations or confirmed clearing entries.
     standalone_debits: list = field(default_factory=list)
     standalone_debit_sources: dict = field(default_factory=dict)
+    journal_items: list = field(default_factory=list)
 
 
 def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
@@ -107,6 +108,8 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     credit_vendors={
         normalize_code(line.vendor_code) for line in journal_items if line.credit > 0
     }
+    opening_vendors={normalize_code(p.vendor_code) for p in prior_items}
+    opening_vendors.update(normalize_code(p.vendor_code) for p,_ in opening_reviews)
     standalone_debits=[]
     for line in journal_items:
         vendor=normalize_code(line.vendor_code)
@@ -114,8 +117,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 and vendor not in aggregate_vendors
                 and vendor not in reviewed_vendors
                 and vendor not in credit_vendors
-                and vendor not in {normalize_code(p.vendor_code) for p in prior_items}
-                and vendor not in {normalize_code(p.vendor_code) for p in opening_reviews}):
+                and vendor not in opening_vendors):
             # The account/period-scoped Douzone RAW itself is the evidence.
             # Keep the debit as a signed line in the *draft* even if no opening
             # positive item exists, rather than inventing an offset or hiding it.
@@ -155,4 +157,5 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         period,len(prior_items)+len(opening_reviews),results,fresh,issues,counts,
         standalone_debits,
         {id(line):journal_sources.get(id(line),"더존 Raw") for line in standalone_debits},
+        journal_items,
     )
