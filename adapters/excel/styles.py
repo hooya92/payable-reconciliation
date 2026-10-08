@@ -215,7 +215,7 @@ def style_workbook(wb, draft, info):
         completed.sheet_properties.tabColor=PALETTE["green"]
         _style_completed_sheet(completed)
 
-    if "차월명세서 초안" in wb.sheetnames:
+    if "당월말명세서 초안" in wb.sheetnames:
         draft.sheet_properties.tabColor="A5A5A5"
 
     for rr in range(2,draft.max_row+1):
@@ -223,7 +223,8 @@ def style_workbook(wb, draft, info):
         fill={
             "전월이월":PALETTE["yellow_light"],
             "미지급이월":PALETTE["yellow_light"],
-            "당월신규":PALETTE["green_light"],
+            "부분지급잔액":PALETTE["yellow_light"],
+            "당월신규":PALETTE["purple_light"],
             "소계":PALETTE["subtotal"],
             "전체합계":PALETTE["total"],
         }.get(kind)
