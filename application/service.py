@@ -1,5 +1,5 @@
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from adapters.excel.reader import InputIssue, read_douzone, read_prior
@@ -17,6 +17,11 @@ class ReconciliationRun:
     new_items: list
     issues: list
     counts: Counter
+    # Positive and negative rows outside the opening match need distinct
+    # treatment. These are unpaired *actual* Douzone debit entries, not
+    # fabricated payment allocations or confirmed clearing entries.
+    standalone_debits: list = field(default_factory=list)
+    standalone_debit_sources: dict = field(default_factory=dict)
 
 
 def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
@@ -102,17 +107,19 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     credit_vendors={
         normalize_code(line.vendor_code) for line in journal_items if line.credit > 0
     }
+    standalone_debits=[]
     for line in journal_items:
         vendor=normalize_code(line.vendor_code)
         if (line.debit > 0 and id(line) not in referenced_debits
                 and vendor not in aggregate_vendors
                 and vendor not in reviewed_vendors
-                and vendor not in credit_vendors):
-            dz_issues.append(InputIssue(
-                journal_sources.get(id(line),"더존 Raw"),"",line.row_number,
-                "차변",line.debit,
-                "전월 미지급금 명세서 및 당월 신규 대변에 대응하지 않는 차변 전표 — 미확인 지급/조정 확인 필요"
-            ))
+                and vendor not in credit_vendors
+                and vendor not in {normalize_code(p.vendor_code) for p in prior_items}
+                and vendor not in {normalize_code(p.vendor_code) for p in opening_reviews}):
+            # The account/period-scoped Douzone RAW itself is the evidence.
+            # Keep the debit as a signed line in the *draft* even if no opening
+            # positive item exists, rather than inventing an offset or hiding it.
+            standalone_debits.append(line)
     issues=prior_issues+dz_issues
     for item, reason in opening_reviews:
         vendor=normalize_code(item.vendor_code)
@@ -144,4 +151,8 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 result.rule="RAW_INPUT_INCOMPLETE"
     fresh=new_payables(journal_items, results, allow_auto=not issues)
     counts=Counter(x.status for x in results)
-    return ReconciliationRun(period,len(prior_items)+len(opening_reviews),results,fresh,issues,counts)
+    return ReconciliationRun(
+        period,len(prior_items)+len(opening_reviews),results,fresh,issues,counts,
+        standalone_debits,
+        {id(line):journal_sources.get(id(line),"더존 Raw") for line in standalone_debits},
+    )
