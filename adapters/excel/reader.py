@@ -494,6 +494,15 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
     verified_zero_groups=0
     groups=[("거래처코드","거래처 코드","코드"),("거래처명","거래처","업체명"),("적요","내역","내용"),("금액","미지급금","잔액")]
     try:
+        # Generated month-end drafts containing unresolved reviews must not be
+        # silently treated as approved opening balances in the next month.
+        pending=next((ws for ws in wb.worksheets if ws.title=="검토필요"),None)
+        if (pending is not None and pending.cell(1,10).value=="MONTH_END_DRAFT_REVIEW"
+                and pending.max_row>1):
+            raise ValueError(
+                "자동 생성된 명세서에 검토필요 항목이 남아 있습니다. "
+                "본문을 확인·수정한 뒤 검토필요 시트를 삭제하고 다음 달 대사를 진행해주세요."
+            )
         selected=_select_prior_sheets(wb,groups,period)
         for ws,hr,vals in selected:
             out.recognized_sheets.append(ws.title)
