@@ -182,6 +182,7 @@ class App(ctk.CTk):
         self.month_end_standalone_debits=[]
         self.month_end_standalone_sources={}
         self.month_end_journal_lines=[]
+        self.month_end_journal_sources={}
         self.last_period=None
         self.last_source_paths=[]
         self.last_source_digests={}
@@ -613,6 +614,7 @@ class App(ctk.CTk):
         self.month_end_standalone_debits=[]
         self.month_end_standalone_sources={}
         self.month_end_journal_lines=[]
+        self.month_end_journal_sources={}
         self.last_period=None
         self.last_source_paths=[]
         self.last_source_digests={}
@@ -997,6 +999,7 @@ class App(ctk.CTk):
             self.month_end_standalone_debits=run.standalone_debits
             self.month_end_standalone_sources=run.standalone_debit_sources
             self.month_end_journal_lines=run.journal_items
+            self.month_end_journal_sources=run.journal_sources
             counts=run.counts
             self._summary(counts)
 
@@ -1059,6 +1062,7 @@ class App(ctk.CTk):
                 standalone_debits=self.month_end_standalone_debits,
                 standalone_debit_sources=self.month_end_standalone_sources,
                 journal_items=self.month_end_journal_lines,
+                journal_sources=self.month_end_journal_sources,
             )
             self._set_banner(
                 "success","당월 명세서 초안 생성",
