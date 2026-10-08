@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from domain.models import Status
-from domain.normalization import normalize_code
+from domain.normalization import normalize_code, normalize_text
 
 
 @dataclass
@@ -59,8 +59,16 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
     offsets=[]
     reviews=[]
     vendor_order={}
+    opening_vendor_by_code={}
     for code,name,desc,amount,when,source_row,extras in opening:
         vendor=(code,name)
+        normalized=normalize_code(code)
+        previous=opening_vendor_by_code.setdefault(normalized,vendor)
+        if normalize_text(previous[1])!=normalize_text(name):
+            raise ValueError(
+                f"전월 명세서에 동일 거래처코드 {code}의 거래처명이 서로 다릅니다. "
+                "행을 자동 병합하지 않고 확인을 요청합니다."
+            )
         vendor_order.setdefault(vendor,len(vendor_order))
         result=original_result_rows.get(source_row)
         if result is None:
@@ -128,9 +136,15 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
             else:
                 status="당월 지급"
                 reason="더존 RAW 차변 · 개별 전월 발생건과 연결 미확정"
-        vendor=(line.vendor_code,line.vendor_name)
+        # Keep the original vendor grouping even if the RAW spells the name
+        # differently. Do not silently approve the name discrepancy.
+        source_vendor=(line.vendor_code,line.vendor_name)
+        vendor=opening_vendor_by_code.get(normalize_code(line.vendor_code),source_vendor)
+        if normalize_text(vendor[1]) != normalize_text(line.vendor_name):
+            status="확인 필요"
+            reason += f" · 원장 거래처명 '{line.vendor_name}' ↔ 명세서 '{vendor[1]}' 확인"
         vendor_order.setdefault(vendor,len(vendor_order))
-        records.append((line.vendor_code,line.vendor_name,line.description,
+        records.append((vendor[0],vendor[1],line.description,
                         amount,line.date,status,line.row_number,{}))
         audits.append((status,line.vendor_code,line.vendor_name,line.description,
                        _amount(amount),reason,
