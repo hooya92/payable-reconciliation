@@ -249,17 +249,18 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # No extra columns or hard-to-erase tags in the original template sheet.
         ws.sheet_properties.tabColor="FFD966" if reviews else "70AD47"
         summary=wb.create_sheet("검토필요")
+        summary["J1"]="MONTH_END_DRAFT_REVIEW"
         summary.append(["검토 상태","거래처코드","거래처명","적요·원본값","금액","사유","원본파일","원본행"])
         for record in reviews:
             summary.append(record)
         summary.freeze_panes="A2"
         changes=wb.create_sheet("변경내역")
-        changes.append(["구분","거래처코드","거래처명","적요","금액","근거","원본파일","원본행"])
+        changes.append(["구분","거래처코드","거래처명","명세 내용","금액","근거","원본파일","원본행"])
         for record in audits:
             changes.append(record)
         changes.freeze_panes="A2"
         changes["J1"]="※ 검토용 초안: 미확정 행은 원금액 유지 / 검토필요 시트 확인 후 확정"
-        changes["J2"]="검토필요·변경내역 시트는 검토 후 통째로 삭제할 수 있습니다."
+        changes["J2"]="검토필요·변경내역 시트는 검토 후 통째로 삭제할 수 있습니다. 검토 보류건 확정 전에는 다음 달 대사에 사용하지 마세요."
         changes["J3"]=f"검토 필요 {len(reviews)}건 · 본문 미확정 항목 {sum(rec[7]=='검토보류' for rec in records)}건"
         for extra in (summary,changes):
             extra.column_dimensions["A"].width=23
