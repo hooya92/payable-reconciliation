@@ -28,6 +28,7 @@
 압축을 풀면 `PayableRecon.exe`와 `사용설명서.txt`가 나옵니다. 실행파일을 열어 사용하세요.
 개별 실행파일: [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe)
 설명서 내용은 [사용설명서](docs/사용설명서.txt)에서 확인할 수 있습니다.
+설명서 개별 다운로드: [UserGuide.txt](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/UserGuide.txt). ZIP 안의 설명서 이름은 `사용설명서.txt`입니다.
 기존 `statement-reconciliation.exe` 다운로드 링크도 같은 버전으로 유지합니다.
 
 개발 브랜치의 테스트 버전은 별도 `month-end-preview` Release에서 배포합니다.
