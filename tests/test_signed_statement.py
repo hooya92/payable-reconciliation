@@ -75,6 +75,21 @@ class SignedStatementTests(unittest.TestCase):
             self.assertEqual(result.review_items,[])
             self.assertTrue(any(x.field=="수식" for x in result.issues))
 
+    def test_flat_negative_blocks_same_vendor_positive_entries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prior=Path(directory)/"prior.xlsx"
+            wb=Workbook()
+            ws=wb.active
+            ws.title="26.09"
+            ws.append(["코드","거래처","날짜","적요","금액"])
+            ws.append(["001234","가상물류","2026-09-30","청구",100])
+            ws.append(["001234","가상물류","2026-09-30","차감",-20])
+            ws.append(["009999","가상통신","2026-09-30","통신",30])
+            wb.save(prior)
+            result=read_prior(prior,"",AccountingPeriod(2026,9))
+            self.assertEqual([x.vendor_code for x in result.items],["009999"])
+            self.assertTrue(any("순잔액 확인 전" in x.reason for x in result.issues))
+
     def test_signed_balance_is_visible_in_review_and_excluded_from_draft(self):
         with tempfile.TemporaryDirectory() as directory:
             prior=Path(directory)/"prior.xlsx"
@@ -108,9 +123,11 @@ class SignedStatementTests(unittest.TestCase):
             result=load_workbook(output,data_only=True,read_only=True)
             try:
                 reviews=list(result["확인필요"].values)
-                self.assertEqual(reviews[1][0],"전월 음수·소계 확인")
-                self.assertEqual(reviews[1][8],120)
-                self.assertIn("소계 120원 검증 완료",reviews[1][1])
+                signed=[row for row in reviews[1:] if row[0]=="전월 음수·소계 확인"]
+                self.assertEqual(len(signed),1)
+                self.assertEqual(signed[0][8],120)
+                self.assertIn("소계 120원 검증 완료",signed[0][1])
+                self.assertIn("당월말 잠정 순잔액 110원",signed[0][1])
                 draft=list(result["당월말명세서 초안"].values)
                 self.assertTrue(all(row[1]!="001234" for row in draft[1:]))
                 self.assertTrue(any(row[1]=="009999" for row in draft[1:]))
