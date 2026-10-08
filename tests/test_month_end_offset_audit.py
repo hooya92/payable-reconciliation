@@ -82,26 +82,26 @@ class MonthEndOffsetAuditTests(unittest.TestCase):
             wb=load_workbook(path)
             try:
                 ws=wb["26.08"]
-                self.assertEqual(ws.max_row,6)
+                self.assertEqual(ws.max_row,8)
                 lines=[(ws.cell(i,4).value,ws.cell(i,5).value,ws.cell(i,3).value)
                        for i in range(3,ws.max_row+1)]
-                self.assertNotIn("유류비AA",[r[0] for r in lines])
+                self.assertEqual([r[0] for r in lines].count("유류비AA"),2)
                 self.assertIn(("유류비BB",-500000,"2026-08-12"),lines)
                 self.assertIn(("유류비CC",300000,"2026-07-31"),lines)
                 self.assertEqual(sum(r[1] for r in lines if r[2]!="소계"),-200000)
-                self.assertEqual(ws["E6"].value,"=SUM(E5:E5)")
-                self.assertEqual(ws["E6"].fill.fgColor.rgb,"00FFF2A6")
-                offsets=list(wb["상계내역"].values)
-                self.assertEqual(len(offsets),2)
+                self.assertEqual(ws["E7"].value,"=SUM(E6:E6)")
+                self.assertEqual(ws["E7"].fill.fgColor.rgb,"00FFF2A6")
+                offsets=list(wb["대사내역"].values)
+                self.assertEqual(len(offsets),1)
                 self.assertEqual(offsets[1][:5],
-                                 ("전월 전액 상계","001111","가상AA","유류비AA",1000000))
+                                 ("대사 일치 후보","001111","가상AA","유류비AA",1000000))
                 self.assertEqual(offsets[1][8:13],
-                                 ("유류비AA","2026-08-05",1000000,0,2))
+                                 ("유류비AA","2026-08-05",1000000,None,2))
                 changes=[r[0] for r in list(wb["변경내역"].values)[1:]]
-                self.assertIn("전액 상계·본문 제외",changes)
-                self.assertIn("더존 단독 차변 반영",changes)
+                self.assertIn("대사 일치",changes)
+                self.assertIn("원장 단독",changes)
                 reviews=[r[0] for r in list(wb["검토필요"].values)[1:]]
-                self.assertIn("음수 순잔액 참고",reviews)
+                self.assertIn("원장 단독",reviews)
             finally:
                 wb.close()
 
@@ -114,12 +114,12 @@ class MonthEndOffsetAuditTests(unittest.TestCase):
             wb=load_workbook(path)
             try:
                 entries=[r[3] for r in wb["26.08"].values]
-                self.assertNotIn("8월 청구",entries)
-                offsets=[r for r in list(wb["상계내역"].values)[1:]]
+                self.assertEqual(entries.count("8월 청구"),2)
+                offsets=[r for r in list(wb["대사내역"].values)[1:]]
                 self.assertEqual(len(offsets),2)
-                self.assertEqual(offsets[1][0],"당월 발생·차변 상계")
-                self.assertEqual(offsets[1][4],50000)
-                self.assertEqual(offsets[1][10:12],(50000,0))
+                self.assertEqual(offsets[0][0],"대사 일치 후보")
+                self.assertEqual(offsets[0][4],1000000)
+                self.assertEqual(offsets[0][10:12],(1000000,None))
             finally:
                 wb.close()
 
