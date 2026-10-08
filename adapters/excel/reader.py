@@ -142,12 +142,12 @@ class InputIssue:
 @dataclass
 class ReadResult:
     items: list = field(default_factory=list)
-    # Signed subtotal groups carry a verified vendor balance, but the negative
-    # entries cannot safely be assigned to individual invoices automatically.
-    review_items: list[tuple[PayableItem, str]] = field(default_factory=list)
     issues: list[InputIssue] = field(default_factory=list)
     detected_headers: list[str] = field(default_factory=list)
     recognized_sheets: list[str] = field(default_factory=list)
+    # Signed subtotal groups carry a verified vendor balance, but the negative
+    # entries cannot safely be assigned to individual invoices automatically.
+    review_items: list[tuple[PayableItem, str]] = field(default_factory=list)
 
 
 def _text(v): return "" if v is None else str(v).strip()
