@@ -92,7 +92,7 @@ class MonthEndOffsetAuditTests(unittest.TestCase):
                 self.assertEqual(ws["E9"].value,"=SUM(E8:E8)")
                 self.assertEqual(ws["E9"].fill.fgColor.rgb,"00FFF2A6")
                 offsets=list(wb["대사내역"].values)
-                self.assertEqual(len(offsets),1)
+                self.assertEqual(len(offsets),2)
                 self.assertEqual(offsets[1][:5],
                                  ("대사 일치 후보","001111","가상AA","유류비AA",1000000))
                 self.assertEqual(offsets[1][8:13],
