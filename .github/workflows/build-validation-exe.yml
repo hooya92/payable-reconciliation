@@ -1,5 +1,5 @@
 name: Build Windows Release EXE
-# Release trigger: verified signed subtotal auto-netting with no duplicate current credits
+# Release trigger: audited 108-test workflow with period, zero-subtotal and unmatched-debit fixes
 
 on:
   workflow_dispatch:
