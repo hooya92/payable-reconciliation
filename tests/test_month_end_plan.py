@@ -55,6 +55,37 @@ class MonthlyPlannerTests(unittest.TestCase):
                 [],[],[],"전월.xlsx","26.07",
             )
 
+    def test_new_vendor_conflicting_raw_names_do_not_split_subtotal(self):
+        first=JournalLine("009999","가상신규","25301","미지급금",
+                          "발생1",Decimal(0),Decimal(100),"2026-08-10",5)
+        second=JournalLine("009999","가상신규(주)","25301","미지급금",
+                           "발생2",Decimal(0),Decimal(50),"2026-08-11",6)
+        plan=build_month_end_plan(
+            [],[],[NewPayable(first,Decimal(100),"신규",True),
+                    NewPayable(second,Decimal(50),"신규",True)],
+            [],"전월.xlsx","26.07",journal_items=[first,second]
+        )
+        self.assertEqual({(r.vendor_code,r.vendor_name) for r in plan.records},
+                         {("009999","가상신규")})
+        self.assertEqual(len(plan.reviews),1)
+        self.assertIn("거래처명",plan.reviews[0][5])
+
+    def test_typed_plan_row_and_every_source_file_reach_audit(self):
+        debit=journal("001111","지급",debit=30)
+        credit=journal("002222","새 발생",credit=50,row=9)
+        plan=build_month_end_plan(
+            [],[],[NewPayable(credit,Decimal(50),"신규",True)],
+            [],"전월.xlsx","26.07",
+            journal_items=[debit,credit],
+            journal_sources={id(debit):"원장A.xlsx",id(credit):"원장B.xlsx"}
+        )
+        self.assertEqual([r.amount for r in plan.records],
+                         [Decimal(-30),Decimal(50)])
+        self.assertEqual({r[6] for r in plan.audits},
+                         {"원장A.xlsx","원장B.xlsx"})
+        self.assertEqual([r.vendor_name for r in plan.records],
+                         ["가상물류","신규업체"])
+
     def test_unverified_offset_is_not_claimed_matched(self):
         p=opening("100")
         wrong=journal("001111","전월 운송비",debit=90)
