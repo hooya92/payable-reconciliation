@@ -18,6 +18,21 @@ def journal(code,desc,debit=0,credit=0,row=5):
 
 
 class MonthlyPlannerTests(unittest.TestCase):
+    def test_same_name_with_different_raw_code_is_reviewed_without_changing_code(self):
+        p=opening("100")
+        p=PayableItem("00111",p.vendor_name,p.description,p.amount,p.date,4,p.source)
+        j=journal("001111","전월 운송비",debit=100)
+        plan=build_month_end_plan(
+            [("00111",p.vendor_name,p.description,p.amount,p.date,4,{})],
+            [ReconcileResult(Status.UNPAID,p,None,"대응하는 차변을 찾지 못함")],
+            [],[],"전월.xlsx","26.07",journal_items=[j]
+        )
+        row=plan.records[0]
+        self.assertEqual(row.vendor_code,"00111")
+        self.assertEqual(row.status,"확인 필요")
+        self.assertIn("명세서 00111 / 원장 001111",plan.status_reasons[id(row)])
+        self.assertIn("거래처코드 차이",plan.reviews[0][5])
+
     def test_original_rows_and_raw_debit_credit_are_all_traceable_once(self):
         p=opening("100")
         j=journal("001111","전월 운송비",debit=100)

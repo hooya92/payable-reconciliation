@@ -97,14 +97,16 @@ class StatementColumnPreservationTests(unittest.TestCase):
                          for row in range(3,ws.max_row+1)
                          if ws.cell(row,3).value!="소계"]
                 self.assertEqual(details,[
-                    ("유류비",1000000,"오타 의심"),
-                    ("유류비",-1000000,"오타 의심"),
-                    ("당월 청구",350000,"확인 필요"),
+                    ("유류비",1000000,"오타 의심 · 거래처코드 확인"),
+                    ("유류비",-1000000,"오타 의심 · 거래처코드 확인"),
+                    ("당월 청구",350000,"확인 필요 · 신규 확인 필요"),
                 ])
                 states=[r[0] for r in list(wb["검토필요"].values)[1:]]
                 self.assertIn("오타 의심",states)
                 self.assertIn("확인 필요",states)
                 self.assertEqual(ws["G2"].value,"처리상태")
+                self.assertEqual(ws["G3"].comment.text,"거래처 코드 오타 의심")
+                self.assertEqual(ws["G3"].fill.fgColor.rgb,"00FADBD8")
             finally:
                 wb.close()
 

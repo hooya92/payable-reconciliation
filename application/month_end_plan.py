@@ -2,7 +2,7 @@
 
 No Excel/openpyxl dependency. The writer only applies rows and native styles.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import NamedTuple
 from decimal import Decimal
 
@@ -33,6 +33,7 @@ class MonthEndPlan:
     offsets: list
     reviews: list
     raw_count: int
+    status_reasons: dict = field(default_factory=dict)
 
 
 def _status_for_opening(result):
@@ -76,6 +77,14 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
     audits=[]
     offsets=[]
     reviews=[]
+    status_reasons={}
+    journal_items=list(journal_items)
+    raw_codes={normalize_code(line.vendor_code) for line in journal_items}
+    raw_name_codes={}
+    for line in journal_items:
+        raw_name_codes.setdefault(normalize_text(line.vendor_name),set()).add(
+            normalize_code(line.vendor_code)
+        )
     vendor_order={}
     opening_vendor_by_code={}
     for code,name,desc,amount,when,source_row,extras in opening:
@@ -92,11 +101,25 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         if result is None:
             result=net_vendors.get(normalize_code(code))
         status=_status_for_opening(result)
+        reason=(result.reason if result else "전월 원본 상세 행과 대사결과 연결 확인 필요")
+        row_issues=[issue.reason for issue in issues
+                    if issue.source=="명세서" and issue.sheet==source_sheet
+                    and issue.row==source_row]
+        if row_issues:
+            status="확인 필요"
+            reason=" · ".join(row_issues)
+        if status=="전월 이월":
+            candidates=sorted(raw_name_codes.get(normalize_text(name),set())-{normalized})
+            if normalized not in raw_codes and candidates:
+                status="확인 필요"
+                reason=(f"거래처코드 차이: 명세서 {code} / 원장 {', '.join(candidates)}"
+                        " · 거래처명은 같지만 같은 업체인지 확인 필요")
         records.append(StatementRow(code,name,desc,amount,when,status,source_row,extras))
+        if status in ("확인 필요","오타 의심"):
+            status_reasons[id(records[-1])]=reason
         audits.append((status,code,name,desc,_amount(amount),
                        "전월 명세서 원본 행 유지",source_name,source_row))
         if status in ("확인 필요","오타 의심"):
-            reason=(result.reason if result else "전월 원본 상세 행과 대사결과 연결 확인 필요")
             reviews.append((status,code,name,desc,_amount(amount),
                             reason,source_name,source_row))
 
@@ -170,6 +193,8 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         vendor_order.setdefault(vendor,len(vendor_order))
         records.append(StatementRow(vendor[0],vendor[1],line.description,
                                     amount,line.date,status,line.row_number,{}))
+        if status in ("확인 필요","오타 의심","원장 단독","당월 지급"):
+            status_reasons[id(records[-1])]=reason
         audits.append((status,line.vendor_code,line.vendor_name,line.description,
                        _amount(amount),reason,
                        source_files.get(id(line),"더존 Raw"),line.row_number))
@@ -182,4 +207,4 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         reviews.append(("입력 데이터 확인","","",str(issue.raw_value),"",
                         issue.reason,issue.source,issue.row))
     records.sort(key=lambda record:vendor_order[(record.vendor_code,record.vendor_name)])
-    return MonthEndPlan(records,audits,offsets,reviews,len(seen))
+    return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons)

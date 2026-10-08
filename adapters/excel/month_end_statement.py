@@ -365,7 +365,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 values[fields["code"]]=rec.vendor_code
                 values[fields["name"]]=rec.vendor_name
             write_row(values,*(original_style or detail_style))
-            write_status(ws,row_no-1,status_column,fields["amount"],rec.status)
+            write_status(ws,row_no-1,status_column,fields["amount"],rec.status,
+                         reason=plan.status_reasons.get(id(rec),""))
             total+=Decimal(rec.amount)
             vendor=current
         if vendor is not None:
