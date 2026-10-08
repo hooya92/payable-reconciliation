@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from adapters.excel.reader import read_douzone, read_prior
-from domain.models import Status
+from domain.models import ReconcileResult, Status
 from domain.normalization import normalize_code, normalize_text
 from domain.period import AccountingPeriod
 from domain.reconciliation import new_payables, reconcile
@@ -22,10 +22,10 @@ class ReconciliationRun:
 def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     if not account_codes:
         raise ValueError("미지급금 계정코드를 1개 이상 지정해야 합니다.")
-    prior_items=[]; prior_issues=[]
+    prior_items=[]; opening_reviews=[]; prior_issues=[]
     for path in prior_paths:
         rr=read_prior(path,Path(path).stem,period.previous())
-        prior_items.extend(rr.items); prior_issues.extend(rr.issues)
+        prior_items.extend(rr.items); opening_reviews.extend(rr.review_items); prior_issues.extend(rr.issues)
 
     cross_seen={}
     for item in prior_items:
@@ -66,6 +66,10 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
 
     issues=prior_issues+dz_issues
     results=reconcile(prior_items,journal_items)
+    results.extend(
+        ReconcileResult(Status.SIGNED_OPENING_REVIEW, item, None, reason, "SIGNED_OPENING_NET")
+        for item,reason in opening_reviews
+    )
     if dz_issues:
         for result in results:
             if result.status in (Status.UNPAID, Status.PARTIAL):
@@ -74,4 +78,4 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 result.rule="RAW_INPUT_INCOMPLETE"
     fresh=new_payables(journal_items, results, allow_auto=not issues)
     counts=Counter(x.status for x in results)
-    return ReconciliationRun(period,len(prior_items),results,fresh,issues,counts)
+    return ReconciliationRun(period,len(prior_items)+len(opening_reviews),results,fresh,issues,counts)
