@@ -121,6 +121,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
     """Write a *draft*, never a final approved statement. No source is mutated."""
     if not prior_paths:
         raise ValueError("전월 명세서 양식 파일이 필요합니다.")
+    if len(prior_paths)!=1:
+        raise ValueError(
+            "당월 명세서 자동 생성은 현재 전월 양식 1개 파일만 지원합니다. "
+            "여러 담당자 양식 중 첫 파일만 사용하면 다른 거래처가 누락될 수 있어 생성을 중단합니다."
+        )
     out=Path(path).resolve()
     if any(out==Path(p).resolve() for p in prior_paths):
         raise ValueError("원본 명세서에는 덮어쓸 수 없습니다.")
