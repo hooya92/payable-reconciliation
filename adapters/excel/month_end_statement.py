@@ -124,6 +124,10 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # Work only on a copy, so template content/styles stay unmodified.
         ws=wb.copy_worksheet(original)
         ws.title=target_name
+        # The openpyxl worksheet copier does not preserve every merged range.
+        for region in original.merged_cells.ranges:
+            if region.max_row<=header and str(region) not in ws.merged_cells:
+                ws.merge_cells(str(region))
         ws.sheet_view.showGridLines=False
         for region in list(ws.merged_cells.ranges):
             if region.max_row>header:
