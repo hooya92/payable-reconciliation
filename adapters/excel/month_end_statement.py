@@ -120,7 +120,7 @@ def _template_shapes(sheet, header, fields):
 
 def write_month_end_statement(path, prior_paths, results, new_items, issues, period:AccountingPeriod,
                               standalone_debits=(), standalone_debit_sources=None,
-                              journal_items=(), journal_sources=None):
+                              journal_items=(), journal_sources=None, source_paths=()):
     """Write a *draft*, never a final approved statement. No source is mutated."""
     if not prior_paths:
         raise ValueError("전월 명세서 양식 파일이 필요합니다.")
@@ -130,8 +130,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             "여러 담당자 양식 중 첫 파일만 사용하면 다른 거래처가 누락될 수 있어 생성을 중단합니다."
         )
     out=Path(path).resolve()
-    if any(out==Path(p).resolve() for p in prior_paths):
-        raise ValueError("원본 명세서에는 덮어쓸 수 없습니다.")
+    if any(out==Path(p).resolve() for p in (*prior_paths, *source_paths)):
+        raise ValueError("원본 Excel에는 덮어쓸 수 없습니다.")
     template_path=Path(prior_paths[0])
     if template_path.suffix.lower()!=".xlsx":
         raise ValueError("원본 양식 보존은 .xlsx 명세서에서만 지원합니다. .xls/.xlsm은 Excel에서 .xlsx로 복사 저장해 주세요.")
@@ -198,6 +198,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         business_columns={col for col in fields.values() if col}
         business_columns.add(status_column)
         subtotal_extra={}
+        subtotal_styles={}
         for idx in range(header+1,last_template_row+1):
             values=[cell.value for cell in ws[idx]]
             if not any(v is not None for v in values):
@@ -209,6 +210,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 name=values[fields["name"]-1]
                 if not code or not name:
                     raise ValueError("거래처 소계 행에 코드 또는 거래처명이 없습니다.")
+                subtotal_styles[(str(code),str(name))]=(
+                    [copy(c._style) for c in ws[idx]],copy(ws.row_dimensions[idx])
+                )
                 for source_row,desc,amount,when,extras in pending:
                     opening.append((str(code),str(name),desc,amount,when,source_row,extras))
                 for col,val in enumerate(values,1):
@@ -224,6 +228,16 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 raise ValueError("원본 명세서 상세 행의 적요 또는 금액이 비어 있습니다.")
             if isinstance(amount,bool):
                 raise ValueError("명세서 상세 금액은 숫자여야 합니다.")
+            if isinstance(amount,str) and amount.startswith("="):
+                # A literal has no references or stale calculation cache.
+                # Other formulas require review rather than guessed evaluation.
+                literal=amount[1:].strip()
+                if not re.fullmatch(r"[+-]?\d+(?:\.\d+)?",literal):
+                    raise ValueError(
+                        f"명세서 {idx}행 금액에 지원하지 않는 수식이 있습니다. "
+                        "원본은 그대로 두고, 복사본에서 확인한 숫자 값으로 바꾼 뒤 다시 실행해 주세요."
+                    )
+                amount=literal
             try:
                 amount=Decimal(str(amount))
             except (ValueError,ArithmeticError) as exc:
@@ -243,6 +257,17 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         if pending:
             raise ValueError("거래처 소계가 없는 상세 행이 있어 자동 생성할 수 없습니다.")
 
+        # Each retained opening row keeps its own formatting. New RAW rows
+        # alone use the existing template's representative detail style.
+        opening_styles={
+            id(entry[6]):([copy(c._style) for c in ws[entry[5]]],
+                          copy(ws.row_dimensions[entry[5]]))
+            for entry in opening
+        }
+        opening_amounts={
+            id(entry[6]):ws.cell(entry[5],fields["amount"]).value
+            for entry in opening
+        }
         plan=build_month_end_plan(
             opening,results,new_items,issues,template_path.name,source_sheet,
             standalone_debits=standalone_debits,
@@ -310,7 +335,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             for (code,name,column),value in subtotal_extra.items():
                 if (code,name)==vendor:
                     values[column]=value
-            write_row(values,*subtotal_style)
+            write_row(values,*subtotal_styles.get(vendor,subtotal_style))
             write_status(ws,row_no-1,status_column,fields["amount"],"소계",subtotal=True)
         vendor=None
         start=None
@@ -328,12 +353,18 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 row_date=f"{period.year}-{period.month:02d}-{calendar.monthrange(period.year,period.month)[1]}"
             values={fields["desc"]:rec.description,fields["amount"]:_amount(rec.amount)}
             values.update(rec.extras)
+            original_style=opening_styles.get(id(rec.extras))
+            if original_style is not None:
+                values[fields["amount"]]=opening_amounts[id(rec.extras)]
             if fields["date"]:
-                values[fields["date"]]=_template_date(row_date,sample_date)
+                values[fields["date"]]=(
+                    rec.date if original_style is not None
+                    else _template_date(row_date,sample_date)
+                )
             if not grouped:
                 values[fields["code"]]=rec.vendor_code
                 values[fields["name"]]=rec.vendor_name
-            write_row(values,*detail_style)
+            write_row(values,*(original_style or detail_style))
             write_status(ws,row_no-1,status_column,fields["amount"],rec.status)
             total+=Decimal(rec.amount)
             vendor=current

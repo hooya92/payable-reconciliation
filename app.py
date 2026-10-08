@@ -418,13 +418,6 @@ class App(ctk.CTk):
             corner_radius=13,fg_color=ACCENT,hover_color=ACCENT_HOVER,
             text_color="white",font=("Segoe UI Semibold",14)
         ).pack(side="left")
-        self.export_btn=ctk.CTkButton(
-            actions,text="▤   결과 Excel 저장",command=self.export,state="disabled",
-            width=190,height=52,corner_radius=13,fg_color=CARD,hover_color="#F8F9FB",
-            text_color=TEXT,border_width=1,border_color="#D9DDE5",
-            font=("Segoe UI Semibold",13)
-        )
-        self.export_btn.pack(side="left",padx=(10,0))
         self.month_end_btn=ctk.CTkButton(
             actions,text="▤   당월 명세서 생성",command=self.export_month_end,state="disabled",
             width=198,height=52,corner_radius=13,fg_color="#EDE7F6",hover_color="#E4D8F5",
@@ -602,7 +595,7 @@ class App(ctk.CTk):
         self._invalidate_results()
 
     def _invalidate_results(self):
-        if not hasattr(self,"export_btn"):
+        if not hasattr(self,"month_end_btn"):
             return
         had_result=bool(self.results or self.new_items or self.issues or self.last_period)
         self.results=[]
@@ -612,7 +605,6 @@ class App(ctk.CTk):
         self.last_period=None
         self.last_source_paths=[]
         self.last_source_digests={}
-        self.export_btn.configure(state="disabled")
         self.month_end_btn.configure(state="disabled")
         self._summary({})
         self.preflight.configure(text="")
@@ -1019,7 +1011,6 @@ class App(ctk.CTk):
                 self._set_banner("success","대사 완료 · 확인 항목 있음",detail)
             else:
                 self._set_banner("success","대사 완료",detail)
-            self.export_btn.configure(state="normal")
             self.month_end_btn.configure(state="normal")
         except Exception as e:
             self._set_banner("error","대사 중단","입력 내용을 확인한 뒤 다시 실행해주세요.")
@@ -1055,10 +1046,20 @@ class App(ctk.CTk):
                 standalone_debit_sources=run.standalone_debit_sources,
                 journal_items=run.journal_items,
                 journal_sources=run.journal_sources,
+                source_paths=self.last_source_paths,
             )
             self._set_banner(
                 "success","당월 명세서 초안 생성",
                 f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다."
+            )
+        except PermissionError as e:
+            messagebox.showerror(
+                "파일 접근 거부",
+                "저장할 결과 파일 또는 관련 Excel 파일이 열려 있어 접근이 거부됐을 수 있습니다.\n"
+                "Excel에서 해당 파일을 닫은 뒤 다시 저장해 주세요.\n\n"
+                "계속 실패하면 다른 파일명이나 쓰기 가능한 폴더에 저장해 주세요.\n"
+                "파일·폴더의 읽기 전용 설정과 쓰기 권한도 확인해 주세요.\n\n"
+                f"문제 파일: {e.filename or path}"
             )
         except Exception as e:
             messagebox.showerror("당월 명세서 생성 실패",str(e))

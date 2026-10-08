@@ -14,6 +14,58 @@ from domain.period import AccountingPeriod
 
 
 class FullTemplateStyleTests(unittest.TestCase):
+    def test_signed_literal_formula_is_preserved_without_evaluating_references(self):
+        from tests.test_month_end_template import write_grouped
+        with tempfile.TemporaryDirectory() as folder:
+            prior=Path(folder)/"original.xlsx"
+            output=Path(folder)/"generated.xlsx"
+            write_grouped(prior)
+            wb=load_workbook(prior);ws=wb["26.07"]
+            ws["E4"]="=-280000"
+            wb.save(prior);wb.close()
+            before=prior.read_bytes()
+            write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+            wb=load_workbook(output)
+            self.assertEqual(wb["26.08"]["E4"].value,"=-280000")
+            wb.close()
+            self.assertEqual(prior.read_bytes(),before)
+            wb=load_workbook(prior);wb["26.07"]["E4"]="=-E3"
+            wb.save(prior);wb.close()
+            with self.assertRaisesRegex(ValueError,"4행.*지원하지 않는 수식"):
+                write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+
+    def test_retained_rows_keep_individual_styles_and_original_dates(self):
+        from tests.test_month_end_template import write_grouped
+        with tempfile.TemporaryDirectory() as folder:
+            prior=Path(folder)/"original.xlsx"
+            output=Path(folder)/"generated.xlsx"
+            write_grouped(prior)
+            wb=load_workbook(prior)
+            ws=wb["26.07"]
+            ws["C3"]="202-07-31"
+            ws["C4"]=datetime(2026,7,31)
+            ws["C4"].number_format="mm-dd-yy"
+            ws["D4"].fill=PatternFill("solid",fgColor="4D009A")
+            ws.row_dimensions[4].height=42
+            ws["E5"].fill=PatternFill("solid",fgColor="FFFF00")
+            ws["E5"].border=Border(bottom=Side(style="double"))
+            expected={pos:(ws[pos].value,ws[pos]._style) for pos in ("C3","C4","D4")}
+            subtotal_style=ws["E5"]._style
+            wb.save(prior);wb.close()
+            before=prior.read_bytes()
+            write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+            wb=load_workbook(output)
+            try:
+                ws=wb["26.08"]
+                for pos,(value,style) in expected.items():
+                    self.assertEqual(ws[pos].value,value)
+                    self.assertEqual(ws[pos]._style,style)
+                self.assertEqual(ws.row_dimensions[4].height,42)
+                self.assertEqual(ws["E5"]._style,subtotal_style)
+                self.assertEqual(prior.read_bytes(),before)
+            finally:
+                wb.close()
+
     def test_copies_font_borders_alignment_number_formats_and_date_type(self):
         with tempfile.TemporaryDirectory() as folder:
             prior=Path(folder)/"original.xlsx"
