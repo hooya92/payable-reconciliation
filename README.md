@@ -23,14 +23,14 @@
 
 ## Windows 다운로드
 
-정식 최신 배포는 다음 두 파일만 제공합니다.
+정식 최신 배포의 파일은 다음 두 가지입니다.
 
-- [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe) — Windows 실행파일
-- [사용설명서.txt](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/%EC%82%AC%EC%9A%A9%EC%84%A4%EB%AA%85%EC%84%9C.txt) — 짧은 사용 안내와 편지
+- [PayableRecon.zip](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.zip) — 압축을 풀면 **PayableRecon.exe + 사용설명서.txt** 두 파일
+- [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe) — 실행파일만 필요한 경우
 
-두 파일을 같은 폴더에 보관하면 됩니다. 사용설명서는 UTF-8로 작성되었습니다.
-정식 Release에는 이전 이름의 중복 EXE 파일과 ZIP을 두지 않습니다.
-개발 브랜치의 테스트 버전은 별도 `month-end-preview` Release에서 유지합니다.
+GitHub Release는 한글 이름을 가진 첨부파일을 자동으로 바꿀 수 있으므로, 설명서의 **정확한 한글 파일명은 ZIP 안에 보존**합니다.
+설명서는 [저장소에서도 바로 확인](docs/사용설명서.txt)할 수 있습니다.
+개발 브랜치의 테스트 프로그램은 별도 `month-end-preview` Release에서 제공합니다.
 
 ## 실행
 ```bash

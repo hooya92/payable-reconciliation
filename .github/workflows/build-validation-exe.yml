@@ -82,11 +82,25 @@ jobs:
           $encoding = [System.Text.UTF8Encoding]::new($true)
           [System.IO.File]::WriteAllText((Join-Path $PWD "dist/사용설명서.txt"), $manual, $encoding)
           if ((Get-Item "dist/사용설명서.txt").Length -le 20) { throw "User guide is empty" }
+          # ZIP preserves the Korean file name; GitHub Release assets do not.
+          Compress-Archive -LiteralPath @("dist/PayableRecon.exe", "dist/사용설명서.txt") -DestinationPath "dist/PayableRecon.zip" -Force
+          $archive = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path "dist/PayableRecon.zip"))
+          try {
+            if ($archive.Entries.Count -ne 2) { throw "Release ZIP must contain exactly two files" }
+            foreach ($name in @("PayableRecon.exe", "사용설명서.txt")) {
+              $entry = $archive.GetEntry($name)
+              if ($null -eq $entry -or $entry.Length -ne (Get-Item "dist/$name").Length) {
+                throw "Release ZIP entry is missing or incomplete: $name"
+              }
+            }
+          } finally {
+            $archive.Dispose()
+          }
 
       - name: Create SHA-256 checksums
         shell: pwsh
         run: |
-          $checksums = foreach ($name in @("PayableRecon.exe", "사용설명서.txt")) {
+          $checksums = foreach ($name in @("PayableRecon.exe", "PayableRecon.zip")) {
             $hash = (Get-FileHash "dist/$name" -Algorithm SHA256).Hash.ToLowerInvariant()
             "$hash  $name"
           }
@@ -114,6 +128,7 @@ jobs:
           path: |
             dist/PayableRecon.exe
             dist/사용설명서.txt
+            dist/PayableRecon.zip
             dist/SHA256SUMS.txt
             dist/verified-file-icon.png
           if-no-files-found: error
@@ -126,8 +141,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = "download-latest"
-          $assets = @("dist/PayableRecon.exe", "dist/사용설명서.txt")
-          $notes = "PayableRecon 정식 배포입니다. PayableRecon.exe와 사용설명서.txt만 다운로드하면 됩니다. Build: $env:GITHUB_SHA."
+          $assets = @("dist/PayableRecon.exe", "dist/PayableRecon.zip")
+          $notes = "PayableRecon 최신 정식 배포입니다. PayableRecon.zip을 풀면 PayableRecon.exe와 사용설명서.txt가 나옵니다. EXE는 별도 다운로드도 가능합니다. Build: $env:GITHUB_SHA."
           gh release view $tag --repo "$env:GITHUB_REPOSITORY" *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --clobber --repo "$env:GITHUB_REPOSITORY"
@@ -138,9 +153,8 @@ jobs:
           }
           if ($LASTEXITCODE -ne 0) { throw "Stable release publish failed" }
 
-          # Remove duplicate aliases from the *current* download only, after
-          # the new EXE and guide were uploaded successfully.
-          $oldAssets = @("statement-reconciliation.exe", "PayableRecon.zip", "UserGuide.txt", "SHA256SUMS.txt", "default.txt")
+          # Delete only known duplicate assets once EXE + ZIP have uploaded.
+          $oldAssets = @("statement-reconciliation.exe", "UserGuide.txt", "사용설명서.txt", "default.txt", "SHA256SUMS.txt")
           $current = @(gh release view $tag --json assets --jq ".assets[].name" --repo "$env:GITHUB_REPOSITORY")
           if ($LASTEXITCODE -ne 0) { throw "Asset listing failed" }
           foreach ($name in $oldAssets) {
@@ -151,10 +165,10 @@ jobs:
           }
           $final = @(gh release view $tag --json assets --jq ".assets[].name" --repo "$env:GITHUB_REPOSITORY")
           if ($LASTEXITCODE -ne 0) { throw "Final asset listing failed" }
-          foreach ($required in @("PayableRecon.exe", "사용설명서.txt")) {
+          foreach ($required in @("PayableRecon.exe", "PayableRecon.zip")) {
             if ($final -notcontains $required) { throw "Missing release asset: $required" }
           }
-          $unexpected = @($final | Where-Object { $_ -notin @("PayableRecon.exe", "사용설명서.txt") })
+          $unexpected = @($final | Where-Object { $_ -notin @("PayableRecon.exe", "PayableRecon.zip") })
           if ($unexpected.Count -gt 0) {
             throw "Unexpected files remain in the current release: $($unexpected -join ', ')"
           }
