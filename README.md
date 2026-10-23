@@ -2,6 +2,12 @@
 
 더존 iCUBE의 **당월 미지급금 계정 전표출력 Excel**과 **전월 말 거래처별 미지급금 명세서 Excel**을 대사해 당월 말 명세서 초안을 만들고, 사람이 확인해야 할 예외를 추리는 Windows용 로컬 도구입니다.
 
+## 시스템 흐름
+
+![Payable Reconciliation 시스템 흐름](docs/payable-reconciliation-architecture.svg)
+
+[확대해서 보기 (HTML)](docs/payable-reconciliation-architecture.html) · [SVG 원본](docs/payable-reconciliation-architecture.svg)
+
 ## 안전 원칙
 - 더존 ERP를 직접 조작하거나 입력하지 않습니다.
 - 입력 Excel은 읽기 전용으로 사용하며 덮어쓰지 않습니다.
