@@ -49,7 +49,7 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             self.assertEqual(summary["검토 필요"],5)
             self.assertEqual(summary["대사 검토 필요"],4)
             self.assertEqual(summary["Raw 신규 대변 검토"],1)
-            self.assertEqual(summary["입력 데이터 확인"],3)
+            self.assertEqual(summary["입력 데이터 확인"],2)
             self.assertEqual(summary["당월말 명세 초안"],0)
             self.assertEqual(summary["당월말 명세 금액"],0)
             self.assertEqual(summary["초안 제외 검토건"],5)
@@ -76,9 +76,15 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
 
             # Dirty source rows are quarantined and never disappear silently.
             input_issues=list(wb["입력데이터확인"].iter_rows(min_row=2,values_only=True))
-            self.assertEqual(len(input_issues),3)
+            self.assertEqual(len(input_issues),2)
             self.assertEqual(sum(row[0]=="명세서" for row in input_issues),1)
-            self.assertEqual(sum(row[0]=="더존" for row in input_issues),2)
+            self.assertEqual(sum(row[0]=="더존" for row in input_issues),1)
+            # Valid signed corrections stay in the monthly statement source stream,
+            # separate from invalid rows and ordinary payment matching.
+            corrections=[line for line in run.journal_items if line.debit<0 or line.credit<0]
+            self.assertEqual(len(corrections),1)
+            self.assertEqual(corrections[0].debit,-990000)
+            self.assertIn(id(corrections[0]),run.journal_sources)
 
             # Raw input issues mean absence of a debit is not trustworthy enough
             # to auto-carry an opening item into the current-month draft.

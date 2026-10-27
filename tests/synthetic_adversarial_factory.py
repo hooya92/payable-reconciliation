@@ -60,7 +60,8 @@ def build(out_dir="synthetic_adversarial"):
             "UNPAID": 1,
             "DUPLICATE": 1,
             "PRIOR_INPUT_ISSUES": 1,
-            "RAW_INPUT_ISSUES": 2,
+            "RAW_INPUT_ISSUES": 1,
+            "RAW_CORRECTION_REVIEW": 1,
             "CURRENT_MONTH_NEW_REVIEW": 1,
         },
     }

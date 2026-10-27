@@ -6,7 +6,7 @@ from adapters.excel.reader import InputIssue, read_douzone, read_prior
 from domain.models import ReconcileResult, Status
 from domain.normalization import normalize_code, normalize_text
 from domain.period import AccountingPeriod
-from domain.reconciliation import new_payables, reconcile
+from domain.reconciliation import new_payables, reconcile, journal_correction_reviews
 
 
 @dataclass
@@ -72,7 +72,8 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     for path in douzone_paths:
         dz=read_douzone(path,account_codes or None,period)
         source_name=Path(path).name
-        for item in dz.items:
+        lines=sorted(dz.items+dz.review_journal_items,key=lambda item:item.row_number)
+        for item in lines:
             key=(
                 item.date,
                 normalize_code(item.account_code),
@@ -91,10 +92,21 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                     f"{prev} ↔ {source_name}. 겹치는 Raw 범위를 확인해주세요."
                 )
             raw_seen.setdefault(key,source_name)
-        journal_items.extend(dz.items); dz_issues.extend(dz.issues)
-        journal_sources.update({id(item):Path(path).name for item in dz.items})
+        journal_items.extend(lines); dz_issues.extend(dz.issues)
+        journal_sources.update({id(item):Path(path).name for item in lines})
 
-    results=reconcile(prior_items,journal_items)
+    correction_reviews=journal_correction_reviews(journal_items)
+    correction_vendors={normalize_code(line.vendor_code) for line in journal_items
+                        if id(line) in correction_reviews}
+    # Keep corrections out of payment matching, while retaining their exact signs
+    # in journal_items for vendor balances and the generated statement.
+    ordinary=[line for line in journal_items if normalize_code(line.vendor_code) not in correction_vendors]
+    ordinary_prior=[item for item in prior_items
+                    if normalize_code(item.vendor_code) not in correction_vendors]
+    resolved={id(result.prior):result for result in reconcile(ordinary_prior,ordinary)}
+    results=[resolved.get(id(item)) or ReconcileResult(
+        Status.CORRECTION_SUSPECT,item,reason="취소/수정 전표의 개별 지급 연결 미확정"
+    ) for item in prior_items]
     # A debit with no opening liability or same-month credit must not be
     # silently omitted. Existing reviewed candidates and aggregate vendors
     # are already accounted for by their respective reconciliation paths.
@@ -127,6 +139,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     issues=prior_issues+dz_issues
     blocked_vendors={normalize_code(issue.vendor_code) for issue in prior_issues
                      if issue.vendor_code}
+    blocked_vendors.update(correction_vendors)
     global_input_issues=bool(dz_issues) or any(not issue.vendor_code for issue in prior_issues)
     for item, reason in opening_reviews:
         vendor=normalize_code(item.vendor_code)
@@ -138,7 +151,10 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
             f" · 당월 차변 {debits:,.0f}원 / 대변 {credits:,.0f}원"
             f" → 당월말 거래처 순잔액 {net:,.0f}원"
         )
-        if global_input_issues or vendor in blocked_vendors:
+        if vendor in correction_vendors:
+            status=Status.SIGNED_OPENING_REVIEW
+            reason += " · 취소/수정 전표가 있어 개별 지급 연결 자동 확정 보류"
+        elif global_input_issues or vendor in blocked_vendors:
             status=Status.SIGNED_OPENING_REVIEW
             reason += " · 입력 확인 항목이 있어 자동 반영 보류"
         elif net < 0:
@@ -156,6 +172,11 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 result.status=Status.RAW_INPUT_INCOMPLETE
                 result.reason="더존 대상월/계정 데이터에 자동 제외된 행이 있어 지급 여부를 확정할 수 없음"
                 result.rule="RAW_INPUT_INCOMPLETE"
+    for result in results:
+        if normalize_code(result.prior.vendor_code) in correction_vendors:
+            result.status=Status.CORRECTION_SUSPECT
+            result.reason="오발행·취소 의심 전표가 있어 지급/원전표 연결 확인 필요 · "+result.reason
+            result.rule="JOURNAL_CORRECTION_REVIEW"
     fresh=new_payables(journal_items, results, allow_auto=not global_input_issues,
                       blocked_vendors=blocked_vendors)
     counts=Counter(x.status for x in results)

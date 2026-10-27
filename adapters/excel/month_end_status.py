@@ -20,6 +20,7 @@ _STATUS_COLORS={
     "원장 단독":"FFF2CC",
     "확인 필요":"FFE4CC",
     "오타 의심":"FADBD8",
+    "오발행·취소 의심":"FFE4CC",
 }
 _DISPLAY={
     "대사 일치":"자동 대사",
@@ -64,7 +65,7 @@ def prepare_status_header(sheet, header_row, status_col, example_header_col):
         sheet.column_dimensions[letter].width=32
 
 
-def write_status(sheet, row, column, amount_column, status, *, subtotal=False, reason=""):
+def write_status(sheet, row, column, amount_column, status, *, subtotal=False, reason="", subtotal_zero=False):
     cell=sheet.cell(row,column)
     # Row styles are cloned by the Excel writer. The status cell receives the
     # same base font/border, before only its status-specific fill is applied.
@@ -72,7 +73,27 @@ def write_status(sheet, row, column, amount_column, status, *, subtotal=False, r
     # format must not introduce mismatched fonts or borders in generated rows.
     cell._style=copy(sheet.cell(row,amount_column)._style)
     if subtotal:
-        cell.value="소계"
+        cell.value="소계 0" if subtotal_zero else "소계"
+        if subtotal_zero:
+            amount=sheet.cell(row,amount_column)
+            # Replace only the zero section, keeping positive/negative formatting.
+            sections=[]
+            start=0
+            quoted=escaped=False
+            for idx,char in enumerate(amount.number_format):
+                if escaped:
+                    escaped=False
+                elif char in ("\\","_","*"):
+                    escaped=True
+                elif char=='"':
+                    quoted=not quoted
+                elif char==";" and not quoted:
+                    sections.append(amount.number_format[start:idx])
+                    start=idx+1
+            sections.append(amount.number_format[start:])
+            if len(sections)>=3:
+                sections[2]='"0"'
+                amount.number_format=";".join(sections)
         return
 
     label=_DISPLAY.get(status,status or "확인 필요")
@@ -80,6 +101,7 @@ def write_status(sheet, row, column, amount_column, status, *, subtotal=False, r
     if reason:
         topics=[]
         for words,title in (
+            (("오발행","취소 의심","역분개","수정 표시"),"취소·재발행 확인"),
             (("거래처코드 차이","코드 오타","다른 거래처코드"),"거래처코드 확인"),
             (("거래처명 오타","거래처명 차이","원장 거래처명"),"거래처명 차이"),
             (("적요",),"적요 확인"),

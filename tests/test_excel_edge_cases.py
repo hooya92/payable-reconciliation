@@ -164,7 +164,9 @@ class ExcelEdgeCaseTests(unittest.TestCase):
             ws.append(["2026-08-02","25301","미지급금-일반","001234","가상상사","이상행",100000,100000]); wb.save(p)
             r=read_douzone(p,{"25301"},AccountingPeriod(2026,8))
             self.assertEqual(len(r.items),0)
-            self.assertEqual(len(r.issues),2)
+            self.assertEqual(len(r.review_journal_items),1)
+            self.assertEqual(r.review_journal_items[0].debit,-100000)
+            self.assertEqual(len(r.issues),1)
 
     def test_prior_formula_amount_is_quarantined(self):
         with tempfile.TemporaryDirectory() as tmp:

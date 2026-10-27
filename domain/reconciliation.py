@@ -4,6 +4,35 @@ from .models import JournalLine, NewPayable, PayableItem, ReconcileResult, Statu
 from .normalization import normalize_code, normalize_text
 
 
+def journal_correction_reviews(lines):
+    """Flag evidence of corrections; equal amounts are candidates, never allocations."""
+    positives=defaultdict(list)
+    for line in lines:
+        for side in ("debit","credit"):
+            amount=getattr(line,side)
+            if amount>0:
+                positives[(normalize_code(line.vendor_code),normalize_code(line.account_code),side,amount)].append(line)
+    reviews={}
+    keywords=("오발행","오청구","발행취소","청구취소","전표취소","지급취소",
+              "취소전표","역분개","수정발행","정정발행","재발행")
+    for line in lines:
+        reasons=[]
+        for side,label in (("debit","차변"),("credit","대변")):
+            amount=getattr(line,side)
+            if amount<0:
+                candidates=positives.get((normalize_code(line.vendor_code),normalize_code(line.account_code),side,-amount),[])
+                reasons.append(f"{label} 음수 {amount:,.0f}원 · 취소/수정 전표 가능성")
+                if candidates:
+                    reasons.append(f"동일 거래처·계정·{label}의 양수 동일 금액 후보 {len(candidates)}건 · 재발행일 수 있어 연결 미확정")
+        text=normalize_text(line.description).replace(" ","")
+        found=[word for word in keywords if word in text]
+        if found:
+            reasons.append("적요의 수정 표시: "+", ".join(found))
+        if reasons:
+            reviews[id(line)]="오발행·취소 의심 · "+" · ".join(reasons)
+    return reviews
+
+
 def _single_edit_or_transposition(left: str, right: str) -> bool:
     """True only for a very small manual-entry difference; never used for auto matching."""
     if left == right:

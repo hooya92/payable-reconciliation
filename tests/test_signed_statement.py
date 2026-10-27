@@ -164,7 +164,7 @@ class SignedStatementTests(unittest.TestCase):
             ws.append(["2026-10-02","25301","미지급금-일반",
                        "001234","가상물류","10월 지급",10,0])
             ws.append(["2026-10-03","25301","미지급금-일반",
-                       "001234","가상물류","수정분개",-5,0])
+                       "001234","가상물류","양쪽 금액이 있는 잘못된 수정분개",-5,1])
             wb.save(raw)
             run=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,10))
             self.assertTrue(run.issues)

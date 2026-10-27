@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from domain.models import Status
 from domain.normalization import normalize_code, normalize_text
+from domain.reconciliation import journal_correction_reviews
 
 
 class StatementRow(NamedTuple):
@@ -49,6 +50,8 @@ def _status_for_opening(result):
         return "오타 의심"
     if result.status == Status.SIGNED_NET_AUTO:
         return "순잔액 대사"
+    if result.status == Status.CORRECTION_SUSPECT:
+        return result.status.value
     return "확인 필요"
 
 
@@ -72,7 +75,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
     }
     net_vendors={
         normalize_code(result.prior.vendor_code):result for result in results
-        if result.status in (Status.SIGNED_NET_AUTO,Status.SIGNED_OPENING_REVIEW)
+        if result.status in (Status.SIGNED_NET_AUTO,Status.SIGNED_OPENING_REVIEW,Status.CORRECTION_SUSPECT)
     }
     records=[]
     audits=[]
@@ -81,6 +84,12 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
     status_reasons={}
     record_sources={}
     journal_items=list(journal_items)
+    correction_lines=journal_items or ([r.journal for r in results if r.journal is not None]
+                                      +[item.journal for item in new_items]+list(standalone_debits))
+    correction_reviews=journal_correction_reviews(correction_lines)
+    correction_vendors={normalize_code(line.vendor_code) for line in correction_lines
+                        if id(line) in correction_reviews}
+    correction_status=Status.CORRECTION_SUSPECT.value
     raw_codes={normalize_code(line.vendor_code) for line in journal_items}
     raw_name_codes={}
     for line in journal_items:
@@ -110,6 +119,9 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         if row_issues:
             status="확인 필요"
             reason=" · ".join(row_issues)
+        if normalized in correction_vendors:
+            status=correction_status
+            reason="같은 거래처에 오발행·취소 의심 전표가 있어 원전표·재발행·지급 연결 확인 필요 · "+reason
         if status=="전월 이월":
             candidates=sorted(raw_name_codes.get(normalize_text(name),set())-{normalized})
             if normalized not in raw_codes and candidates:
@@ -118,11 +130,11 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                         " · 거래처명은 같지만 같은 업체인지 확인 필요")
         records.append(StatementRow(code,name,desc,amount,when,status,source_row,extras))
         record_sources[id(records[-1])]=(source_name,source_row)
-        if status in ("확인 필요","오타 의심"):
+        if status in ("확인 필요","오타 의심",correction_status):
             status_reasons[id(records[-1])]=reason
         audits.append((status,code,name,desc,_amount(amount),
                        "전월 명세서 원본 행 유지",source_name,source_row))
-        if status in ("확인 필요","오타 의심"):
+        if status in ("확인 필요","오타 의심",correction_status):
             reviews.append((status,code,name,desc,_amount(amount),
                             reason,source_name,source_row))
 
@@ -134,7 +146,8 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
     for result in results:
         if result.journal is None:
             continue
-        if result.status==Status.MATCHED and result.rule!="CODE_AMOUNT_UNIQUE_WITH_NOTE":
+        if (result.status==Status.MATCHED and result.rule!="CODE_AMOUNT_UNIQUE_WITH_NOTE"
+                and normalize_code(result.prior.vendor_code) not in correction_vendors):
             matched_debits[id(result.journal)]=result
             p=result.prior
             j=result.journal
@@ -158,11 +171,21 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         if id(line) in seen:
             continue
         seen.add(id(line))
-        if line.credit>0 and line.debit>0:
+        if line.credit!=0 and line.debit!=0:
             raise ValueError("더존 RAW 전표에 차변과 대변이 동시에 있습니다.")
         if line.credit==0 and line.debit==0:
             continue
-        if line.credit>0:
+        if line.credit<0 or line.debit<0:
+            amount=line.credit-line.debit
+            status=correction_status
+            reason=correction_reviews[id(line)]
+            if line.credit<0:
+                count=sum(1 for record in opening
+                          if normalize_code(record[0])==normalize_code(line.vendor_code)
+                          and record[3]==-line.credit)
+                if count:
+                    reason+=f" · 전월 동일 금액 발생 후보 {count}건 · 자동 연결 미확정"
+        elif line.credit>0:
             amount=line.credit
             new=fresh_by_id.get(id(line))
             aggregate=net_vendors.get(normalize_code(line.vendor_code))
@@ -187,6 +210,13 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
             else:
                 status="당월 지급"
                 reason="더존 RAW 차변 · 개별 전월 발생건과 연결 미확정"
+        if normalize_code(line.vendor_code) in correction_vendors:
+            status=correction_status
+            own_reason=correction_reviews.get(id(line))
+            if own_reason and own_reason not in reason:
+                reason=own_reason+" · "+reason
+            elif not own_reason:
+                reason="같은 거래처의 오발행·취소 의심 건과 원전표/재발행/지급 연결 확인 필요 · "+reason
         # Keep the original vendor grouping even if the RAW spells the name
         # differently. Do not silently approve the name discrepancy.
         source_vendor=(line.vendor_code,line.vendor_name)
@@ -195,7 +225,8 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
             vendor_code,opening_vendor_by_code.get(vendor_code,source_vendor)
         )
         if normalize_text(vendor[1]) != normalize_text(line.vendor_name):
-            status="확인 필요"
+            if status!=correction_status:
+                status="확인 필요"
             reason += f" · 원장 거래처명 '{line.vendor_name}' ↔ 명세서 '{vendor[1]}' 확인"
         vendor_order.setdefault(vendor,len(vendor_order))
         records.append(StatementRow(vendor[0],vendor[1],line.description,
@@ -203,12 +234,12 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
         record_sources[id(records[-1])]=(
             source_files.get(id(line),"더존 Raw"),line.row_number
         )
-        if status in ("확인 필요","오타 의심","원장 단독","당월 지급"):
+        if status in ("확인 필요","오타 의심","원장 단독","당월 지급",correction_status):
             status_reasons[id(records[-1])]=reason
         audits.append((status,line.vendor_code,line.vendor_name,line.description,
                        _amount(amount),reason,
                        source_files.get(id(line),"더존 Raw"),line.row_number))
-        if status in ("확인 필요","오타 의심","원장 단독"):
+        if status in ("확인 필요","오타 의심","원장 단독",correction_status):
             reviews.append((status,line.vendor_code,line.vendor_name,line.description,
                             _amount(amount),reason,
                             source_files.get(id(line),"더존 Raw"),line.row_number))

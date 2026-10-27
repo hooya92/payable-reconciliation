@@ -387,7 +387,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 if (code,name)==vendor:
                     values[column]=value
             write_row(values,*subtotal_styles.get(vendor,subtotal_style))
-            write_status(ws,row_no-1,status_column,fields["amount"],"소계",subtotal=True)
+            write_status(ws,row_no-1,status_column,fields["amount"],"소계",subtotal=True,
+                         subtotal_zero=(total==0))
         vendor=None
         start=None
         total=Decimal(0)

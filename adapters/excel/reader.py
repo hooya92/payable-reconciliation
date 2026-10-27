@@ -150,6 +150,8 @@ class ReadResult:
     # Signed subtotal groups carry a verified vendor balance, but the negative
     # entries cannot safely be assigned to individual invoices automatically.
     review_items: list[tuple[PayableItem, str]] = field(default_factory=list)
+    # Valid signed corrections are preserved for review, never ordinary payments.
+    review_journal_items: list[JournalLine] = field(default_factory=list)
 
 
 def _text(v): return "" if v is None else str(v).strip()
@@ -496,10 +498,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
 
                 debit=d.value or 0; credit=cr.value or 0
                 if debit==0 and credit==0: continue
-                if debit < 0 or credit < 0:
-                    out.issues.append(InputIssue("더존",ws.title,r,"차변/대변",
-                        f"{debit}/{credit}","음수 전표는 수정·역분개 가능성이 있어 자동 처리하지 않음")); continue
-                if debit > 0 and credit > 0:
+                if debit != 0 and credit != 0:
                     out.issues.append(InputIssue("더존",ws.title,r,"차변/대변",
                         f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음")); continue
 
@@ -515,11 +514,16 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                     out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음")); row_invalid=True
                 if row_invalid: continue
 
-                out.items.append(JournalLine(code,vendor_name,ac,an,desc,debit,credit,
-                    _date(raw_date) if cols["date"] else "",r))
+                line=JournalLine(code,vendor_name,ac,an,desc,debit,credit,
+                                 _date(raw_date) if cols["date"] else "",r)
+                if debit<0 or credit<0:
+                    out.review_journal_items.append(line)
+                else:
+                    out.items.append(line)
     finally:
         wb.close()
-    if not out.items and not out.issues: raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
+    if not out.items and not out.review_journal_items and not out.issues:
+        raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
     return out
 
 

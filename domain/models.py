@@ -4,6 +4,7 @@ from enum import Enum
 
 
 class Status(str, Enum):
+    CORRECTION_SUSPECT = "오발행·취소 의심"
     MATCHED = "자동 대사"
     PARTIAL = "부분지급 확인 필요"
     SIGNED_NET_AUTO = "거래처 순잔액 자동계산"

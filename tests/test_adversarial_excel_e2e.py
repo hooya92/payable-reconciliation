@@ -22,6 +22,8 @@ class AdversarialExcelE2ETests(unittest.TestCase):
 
             self.assertEqual(len(prior.issues),expected["PRIOR_INPUT_ISSUES"])
             self.assertEqual(len(raw.issues),expected["RAW_INPUT_ISSUES"])
+            self.assertEqual(len(raw.review_journal_items),expected["RAW_CORRECTION_REVIEW"])
+            self.assertEqual(raw.review_journal_items[0].debit,-990000)
             self.assertEqual(counts[Status.MATCHED],expected["AUTO_MATCH"])
             self.assertEqual(counts[Status.DESCRIPTION_MISMATCH],expected["DESCRIPTION_MISMATCH"])
             self.assertEqual(counts[Status.VENDOR_NAME_MISMATCH],expected["VENDOR_NAME_MISMATCH"])
