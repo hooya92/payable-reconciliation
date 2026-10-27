@@ -22,9 +22,9 @@ class JournalCorrectionTests(unittest.TestCase):
         wb=Workbook();ws=wb.active;ws.title="26.08"
         ws.append(["미지급금 명세"])
         ws.append(["코드","거래처","날짜","적요","금액"])
-        ws.append([None,None,"2026-08-13","벨트 교체",715000])
-        ws.append([None,None,"2026-08-31","도어 구매",231000])
-        ws.append(["108217","가상공영","소계",None,"=SUM(E3:E4)"])
+        ws.append([None,None,"2026-08-13","벨트 교체",700000])
+        ws.append([None,None,"2026-08-31","도어 구매",200000])
+        ws.append(["001111","가상공영","소계",None,"=SUM(E3:E4)"])
         ws.append([None,None,"2026-08-31","정상 비용",100])
         ws.append(["000002","정상 업체","소계",None,100])
         ws["E5"].number_format='#,##0;[Red](#,##0);"-";@'
@@ -50,10 +50,10 @@ class JournalCorrectionTests(unittest.TestCase):
 
     def test_credit_cancellation_reissue_and_payment_keep_exact_zero_balance(self):
         rows=[
-            ("108217","가상공영","도어 구매_오발행건",0,-231000,"2026-09-01"),
-            ("108217","가상공영","도어 구매",0,231000,"2026-09-01"),
-            ("108217","가상공영","도어 구매",231000,0,"2026-09-07"),
-            ("108217","가상공영","벨트 교체",715000,0,"2026-09-21"),
+            ("001111","가상공영","도어 구매_오발행건",0,-200000,"2026-09-01"),
+            ("001111","가상공영","도어 구매",0,200000,"2026-09-01"),
+            ("001111","가상공영","도어 구매",200000,0,"2026-09-07"),
+            ("001111","가상공영","벨트 교체",700000,0,"2026-09-21"),
             ("000002","정상 업체","정상 비용",100,0,"2026-09-21"),
             ("000003","신규 업체","9월 신규 비용",0,50,"2026-09-21"),
         ]
@@ -62,7 +62,7 @@ class JournalCorrectionTests(unittest.TestCase):
             self.assertEqual(run.issues,[])
             self.assertEqual(len(run.journal_items),6)
             self.assertTrue(all(r.status==Status.CORRECTION_SUSPECT for r in run.results
-                                if r.prior.vendor_code=="108217"))
+                                if r.prior.vendor_code=="001111"))
             self.assertEqual(next(r for r in run.results if r.prior.vendor_code=="000002").status,
                              Status.MATCHED)
             self.assertTrue(next(n for n in run.new_items if n.journal.vendor_code=="000003").auto_carry)
@@ -70,7 +70,7 @@ class JournalCorrectionTests(unittest.TestCase):
             try:
                 ws=wb["26.09"]
                 self.assertEqual([ws.cell(r,5).value for r in range(3,9)],
-                                 [715000,231000,-231000,231000,-231000,-715000])
+                                 [700000,200000,-200000,200000,-200000,-700000])
                 self.assertEqual(sum(ws.cell(r,5).value for r in range(3,9)),0)
                 self.assertEqual(ws["E9"].value,"=SUM(E3:E8)")
                 self.assertEqual(ws["E9"].number_format,'#,##0;[Red](#,##0);"0";@')
@@ -79,7 +79,7 @@ class JournalCorrectionTests(unittest.TestCase):
                 self.assertTrue(all(ws.cell(r,6).value.startswith("오발행·취소 의심") for r in range(3,9)))
                 self.assertIn("전월 동일 금액 발생 후보 1건",ws["F5"].comment.text)
                 self.assertIn("양수 동일 금액 후보 1건",ws["F5"].comment.text)
-                self.assertTrue(all(row[1].value!="108217" for row in wb["대사내역"].iter_rows(min_row=2)))
+                self.assertTrue(all(row[1].value!="001111" for row in wb["대사내역"].iter_rows(min_row=2)))
                 self.assertTrue(any(row[0].value==Status.CORRECTION_SUSPECT.value
                                     for row in wb["검토필요"].iter_rows(min_row=2)))
             finally:
@@ -87,7 +87,7 @@ class JournalCorrectionTests(unittest.TestCase):
 
     def test_negative_debit_is_positive_adjustment_not_a_payment(self):
         with tempfile.TemporaryDirectory() as folder:
-            run,output=self.export(folder,[("108217","가상공영","지급 취소",-50,0,"2026-09-01")])
+            run,output=self.export(folder,[("001111","가상공영","지급 취소",-50,0,"2026-09-01")])
             self.assertEqual(run.issues,[])
             wb=load_workbook(output)
             try:
@@ -120,12 +120,12 @@ class JournalCorrectionTests(unittest.TestCase):
 
     def test_signed_opening_keeps_corrected_net_without_auto_approval(self):
         with tempfile.TemporaryDirectory() as folder:
-            prior,raw=self.make_files(folder,[("108217","가상공영","취소",0,-10,"2026-09-01")])
+            prior,raw=self.make_files(folder,[("001111","가상공영","취소",0,-10,"2026-09-01")])
             wb=load_workbook(prior);ws=wb.active
             ws["E3"]=100;ws["E4"]=-40
             wb.save(prior);wb.close()
             run=run_reconciliation([prior],[raw],{"25301"},PERIOD)
-            result=next(r for r in run.results if r.prior.vendor_code=="108217")
+            result=next(r for r in run.results if r.prior.vendor_code=="001111")
             self.assertEqual(result.status,Status.CORRECTION_SUSPECT)
             self.assertEqual(result.closing_balance,50)
             self.assertEqual(run.issues,[])
@@ -133,12 +133,12 @@ class JournalCorrectionTests(unittest.TestCase):
     def test_correction_vendor_cannot_consume_another_vendors_same_amount_payment(self):
         with tempfile.TemporaryDirectory() as folder:
             prior,raw=self.make_files(folder,[
-                ("108217","가상공영","오발행",0,-231000,"2026-09-01"),
-                ("000099","다른 업체","도어 구매",231000,0,"2026-09-02"),
+                ("001111","가상공영","오발행",0,-200000,"2026-09-01"),
+                ("000099","다른 업체","도어 구매",200000,0,"2026-09-02"),
             ])
             run=run_reconciliation([prior],[raw],{"25301"},PERIOD)
             self.assertTrue(all(r.journal is None for r in run.results
-                                if r.prior.vendor_code=="108217"))
+                                if r.prior.vendor_code=="001111"))
             self.assertTrue(any(line.vendor_code=="000099" for line in run.standalone_debits))
 
     def test_same_amount_candidates_are_scoped_to_vendor_account_and_same_side(self):
