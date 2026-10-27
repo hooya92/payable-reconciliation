@@ -17,7 +17,9 @@ from openpyxl.comments import Comment
 from openpyxl.utils.cell import quote_sheetname
 from openpyxl.worksheet.hyperlink import Hyperlink
 
-from adapters.excel.reader import _first, _header, _is_summary_label, _select_prior_sheets
+from adapters.excel.reader import (
+    _first, _header, _is_summary_label, _select_prior_sheets, _statement_auxiliary_kind,
+)
 from domain.models import Status, DataQuality
 from domain.normalization import parse_amount, parse_literal_amount_formula
 from application.month_end_plan import build_month_end_plan
@@ -92,13 +94,15 @@ def _template_date(value, original):
     return text
 
 
-def _template_shapes(sheet, header, fields):
+def _template_shapes(sheet, header, fields, auxiliary_rows=()):
     """Identify a familiar flat or group-subtotal template without guessing new columns."""
     detail=None
     subtotal=None
     grouped=False
     code, name, desc, amount=(fields[k] for k in ("code","name","desc","amount"))
     for row in sheet.iter_rows(min_row=header+1):
+        if row[0].row in auxiliary_rows:
+            continue
         if (row[desc-1].value is not None and row[amount-1].value is not None
                 and not _is_summary_label(row[desc-1].value)):
             if detail is None:
@@ -158,7 +162,16 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         }
         if not all(fields[k] for k in ("code","name","desc","amount")):
             raise ValueError("거래처코드/거래처명/적요/금액 열을 안전하게 식별하지 못했습니다.")
-        grouped,detail_style,subtotal_style,subtotal_label,sample_date=_template_shapes(original,header,fields)
+        auxiliary_columns={"vendor_code":fields["code"],"vendor_name":fields["name"],
+                           "date":fields["date"],"description":fields["desc"],
+                           "amount":fields["amount"]}
+        auxiliary_rows={
+            row[0].row:kind for row in original.iter_rows(min_row=header+1)
+            if (kind:=_statement_auxiliary_kind([cell.value for cell in row],auxiliary_columns))
+        }
+        grouped,detail_style,subtotal_style,subtotal_label,sample_date=_template_shapes(
+            original,header,fields,auxiliary_rows
+        )
 
         # Retain the original worksheet object, not a worksheet copy:
         # openpyxl's copy_worksheet loses drawings and some sheet properties.
@@ -168,9 +181,13 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             raise ValueError("잠금 설정된 명세서 시트는 양식을 유지한 채 자동 편집할 수 없습니다.")
         if ws._images or ws._charts or ws._pivots:
             raise ValueError("이미지·차트·피벗이 포함된 양식은 보존 여부를 확인할 수 없어 자동 생성을 중단합니다.")
+        auxiliary_merges=[]
         for region in ws.merged_cells.ranges:
             if region.max_row>header:
-                raise ValueError("명세서 본문에 병합 셀이 있어 양식 변경 없이 자동 생성할 수 없습니다.")
+                if all(idx in auxiliary_rows for idx in range(region.min_row,region.max_row+1)):
+                    auxiliary_merges.append(copy(region))
+                else:
+                    raise ValueError("명세서 본문에 병합 셀이 있어 양식 변경 없이 자동 생성할 수 없습니다.")
         if ws.tables:
             raise ValueError("엑셀 표(Table)로 지정된 명세서는 표 범위 보존을 위해 자동 생성을 중단합니다.")
         # The selected month is replaced *only in the newly saved workbook*.
@@ -178,8 +195,10 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         source_sheet=ws.title
         ws.title=target_name
         last_template_row=ws.max_row
-        # Reject unrecognized content instead of deleting a footer or other data.
+        # Auxiliary rows are excluded from accounting and restored below the table.
         for row in ws.iter_rows(min_row=header+1,max_row=last_template_row):
+            if row[0].row in auxiliary_rows:
+                continue
             values=[cell.value for cell in row]
             if not any(value is not None for value in values):
                 continue
@@ -187,7 +206,10 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 continue
             if values[fields["desc"]-1] is not None and values[fields["amount"]-1] is not None:
                 continue
-            raise ValueError("전월 명세서 본문에 일반 내역·소계 외의 행이 있습니다. 원본 양식을 임의로 삭제하지 않도록 중단합니다.")
+            raise ValueError(
+                f"명세서 {row[0].row}행을 거래 내역 또는 보조 행으로 구분할 수 없습니다. "
+                "날짜·거래처·적요·금액의 누락 여부를 확인해 주세요."
+            )
         # Capture the *original* row archetypes before physically deleting rows.
         # Detail and subtotal rows must retain different formatting (yellow subtotal
         # background, borders, fonts, number format), including when row counts change.
@@ -204,6 +226,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         subtotal_extra={}
         subtotal_styles={}
         for idx in range(header+1,last_template_row+1):
+            if idx in auxiliary_rows:
+                continue
             values=[cell.value for cell in ws[idx]]
             if not any(v is not None for v in values):
                 continue
@@ -290,10 +314,24 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         records,audits,offsets,reviews=(
             plan.records,plan.audits,plan.offsets,plan.reviews
         )
+        auxiliary_cells={idx:[copy(cell) for cell in ws[idx]] for idx in auxiliary_rows}
+        auxiliary_dimensions={idx:copy(ws.row_dimensions[idx]) for idx in auxiliary_rows}
+        cached=None
+        if any(cell.data_type=="f" for cells in auxiliary_cells.values() for cell in cells):
+            cached_wb=load_workbook(template_path,data_only=True)
+            try:
+                cached={cell.coordinate:cached_wb[source_sheet][cell.coordinate].value
+                        for cells in auxiliary_cells.values() for cell in cells
+                        if cell.data_type=="f"}
+            finally:
+                cached_wb.close()
+        for region in auxiliary_merges:
+            ws.unmerge_cells(str(region))
         # Count the exact number of physical rows needed, including subtotal
         # rows. Remove obsolete physical rows rather than leaving blank gaps.
         vendor_keys={(rec.vendor_code,rec.vendor_name) for rec in records}
-        required_rows=len(records)+(len(vendor_keys) if grouped else 0)
+        body_rows=len(records)+(len(vendor_keys) if grouped else 0)
+        required_rows=body_rows+len(auxiliary_rows)
         if last_template_row>header:
             ws.delete_rows(header+1,last_template_row-header)
             for idx in list(ws.row_dimensions):
@@ -393,6 +431,51 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             vendor=current
         if vendor is not None:
             finish_subtotal(vendor,start,total)
+        auxiliary_targets={}
+        for source_row,kind in auxiliary_rows.items():
+            auxiliary_targets[source_row]=row_no
+            cells=auxiliary_cells[source_row]
+            write_row({},[cell._style for cell in cells],auxiliary_dimensions[source_row])
+            target_row=row_no-1
+            for cell in cells:
+                target=ws.cell(target_row,cell.column)
+                target.value=cell.value
+                target.comment=copy(cell.comment)
+                if cell.hyperlink:
+                    target.hyperlink=copy(cell.hyperlink)
+                    target.hyperlink.ref=target.coordinate
+                if cell.data_type=="f":
+                    # Moving an unknown formula can silently change its meaning.
+                    # Preserve its cached reference value, or display the formula as text.
+                    target.value=cached.get(cell.coordinate)
+                    if target.value is None:
+                        target.value=cell.value
+                        target.data_type="s"
+                    previous=target.comment.text+"\n" if target.comment else ""
+                    target.comment=Comment(previous+f"전월 원본 참고 수식: {cell.value}\n자동 대사 계산에서 제외했습니다.","대사 안내")
+            amount_cell=ws.cell(target_row,fields["amount"])
+            if kind=="total":
+                letter=amount_cell.column_letter
+                end=header+body_rows
+                if not body_rows:
+                    amount_cell.value="=0"
+                elif grouped:
+                    label_col=ws.cell(header,fields[subtotal_label]).column_letter
+                    amount_cell.value=f'=SUMIF({label_col}{header+1}:{label_col}{end},"소계",{letter}{header+1}:{letter}{end})'
+                else:
+                    amount_cell.value=f"=SUM({letter}{header+1}:{letter}{end})"
+                amount_cell.comment=Comment("당월 명세서 전체 합계입니다. 거래처 소계를 중복 합산하지 않습니다.","대사 안내")
+            elif amount_cell.value is not None:
+                previous=amount_cell.comment.text+"\n" if amount_cell.comment else ""
+                amount_cell.comment=Comment(previous+"전월 원본의 참고 값입니다. 당월 더존 잔액으로 자동 확정한 값이 아니므로 재확인해 주세요.","대사 안내")
+            audits.append(("보조 행 보존","","",
+                           " / ".join(str(cell.value) for cell in cells if cell.value is not None),
+                           "","대사 계산에서 제외하고 하단에 원본 서식으로 보존",template_path.name,source_row))
+            source_targets[(template_path.name,source_row)]=[target_row]
+        for region in auxiliary_merges:
+            ws.merge_cells(start_row=auxiliary_targets[region.min_row],
+                           end_row=auxiliary_targets[region.max_row],
+                           start_column=region.min_col,end_column=region.max_col)
         if row_no != header+required_rows+1:
             raise AssertionError("당월 명세서 행 수와 실제 생성 행 수가 일치하지 않습니다.")
 

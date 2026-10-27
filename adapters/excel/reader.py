@@ -173,6 +173,33 @@ def _is_summary_label(v):
     return _header(v) in {"소계","합계","총계","전체합계"}
 
 
+def _statement_auxiliary_kind(values, columns):
+    """Identify presentation rows without hiding rows carrying vendor/date data."""
+    def value(key):
+        column=columns.get(key)
+        return values[column-1] if column else None
+    code,name,when,desc,amount=(value(key) for key in
+        ("vendor_code","vendor_name","date","description","amount"))
+    if code and name:
+        return None
+    labels={_header(v) for v in (code,name,when,desc) if v is not None}
+    if labels & {"합계","총계","전체합계","총합계"}:
+        return "total"
+    if when not in (None,""):
+        return None
+    references={"더존","더존합계","더존원장","더존잔액","원장","원장합계",
+                "원장잔액","원장대조","대조금액","차이","차액","비고","메모",
+                "참고","검증","검증금액","확인"}
+    if labels & references or any(
+        re.match(r"^(비고|메모|참고|검증)(?:\s|[:：])",_text(v))
+        for v in (code,name,desc) if v is not None
+    ):
+        return "reference"
+    if not code and not name and amount in (None,"") and any(v is not None for v in values):
+        return "note"
+    return None
+
+
 # Conservative aliases observed in common Douzone/iCUBE-style journal exports.
 # File names are intentionally ignored; classification is based on worksheet structure.
 DOUZONE_DATE_HEADERS=("기표일자","기표일","전표일자","전표일","회계일자","일자","날짜")
@@ -543,6 +570,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 pending=[]
 
             for r,row in enumerate(ws.iter_rows(min_row=hr+1,values_only=False),start=hr+1):
+                if _statement_auxiliary_kind([cell.value for cell in row],cols):
+                    continue
                 code_cell=row[cols["vendor_code"]-1]
                 name_cell=row[cols["vendor_name"]-1]
                 desc_cell=row[cols["description"]-1]
@@ -596,6 +625,12 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 if not code and not vendor_name and not desc and (a.value or 0)==0:
                     if pending:
                         flush_pending_as_issues("거래처 소계 전에 빈 행이 있어 그룹 범위를 확정할 수 없음")
+                    continue
+                if desc and amount_value in (None,"") and raw_date not in (None,""):
+                    if pending:
+                        flush_pending_as_issues("그룹 중간에 금액이 없는 거래 행이 있어 거래처를 확정할 수 없음")
+                    out.issues.append(InputIssue("명세서",ws.title,r,"금액",amount_value,
+                                                 "거래 날짜와 적요는 있으나 금액이 없음"))
                     continue
                 if a.quality==DataQuality.SUSPICIOUS:
                     if pending:
