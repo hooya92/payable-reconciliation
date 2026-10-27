@@ -267,7 +267,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                     )
                 amount=literal
             elif isinstance(amount,str):
-                parsed=parse_amount(amount)
+                parsed=parse_amount(amount, allow_zero_marker=False)
                 if parsed.quality==DataQuality.SUSPICIOUS or parsed.value is None:
                     raise ValueError(
                         f"명세서 {idx}행 금액 형식을 확정할 수 없습니다: {amount}. "

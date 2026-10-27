@@ -30,8 +30,12 @@ def parse_literal_amount_formula(value: object) -> Decimal | None:
     return -amount if (match.group(1)=="-") != (match.group(3)=="-") else amount
 
 
-def parse_amount(value: object) -> NormalizedAmount:
-    """Parse only deterministic formats. Suspicious separators/units are never auto-approved."""
+def parse_amount(value: object, *, allow_zero_marker: bool = True) -> NormalizedAmount:
+    """Parse each amount independently; reject ambiguous literal dash placeholders in statements.
+
+    Journal debit/credit columns may use '-' as an empty/zero-side marker, but
+    a statement's amount cell must contain an actual numeric value to be verified.
+    """
     if value is None or value == "":
         return NormalizedAmount(value, Decimal("0"), DataQuality.CLEAN)
     if isinstance(value, (int, Decimal)):
@@ -52,6 +56,9 @@ def parse_amount(value: object) -> NormalizedAmount:
     if suffix:
         s=s[:-1].strip()
     if s=="-":
+        if not allow_zero_marker:
+            return NormalizedAmount(value,None,DataQuality.SUSPICIOUS,
+                                    "숫자 없는 마이너스 기호는 0원으로 확정할 수 없음")
         return NormalizedAmount(value,Decimal(0),DataQuality.NORMALIZED,"회계식 0 표시")
     parentheses=s.startswith("(") and s.endswith(")")
     if parentheses:

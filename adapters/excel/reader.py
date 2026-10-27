@@ -625,7 +625,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                 amount_value=(sum(rec["amount"] for rec in pending) if simple_sum
                               else literal_amount if literal_amount is not None
                               else amount_cell.value)
-                a=parse_amount(amount_value)
+                # Numeric accounting formats have signed cell values; a literal '-' is ambiguous.
+                a=parse_amount(amount_value, allow_zero_marker=False)
                 if not code and not vendor_name and not desc and (a.value or 0)==0:
                     if pending:
                         flush_pending_as_issues("거래처 소계 전에 빈 행이 있어 그룹 범위를 확정할 수 없음")
