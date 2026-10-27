@@ -59,6 +59,17 @@ class AmountTests(unittest.TestCase):
                 self.assertEqual(parse_amount(text).value,Decimal(0))
                 self.assertEqual(parse_amount(text).quality,DataQuality.NORMALIZED)
 
+    def test_literal_dash_is_not_a_verified_statement_amount(self):
+        # In the Douzone debit/credit columns a dash can mean the empty side;
+        # a manually typed dash in a statement amount cannot prove zero.
+        for text in ("-", "−", "—", "₩ -", "- 원", " -    "):
+            with self.subTest(text=text):
+                self.assertEqual(parse_amount(text).value, Decimal(0))
+                parsed = parse_amount(text, allow_zero_marker=False)
+                self.assertIsNone(parsed.value)
+                self.assertEqual(parsed.quality, DataQuality.SUSPICIOUS)
+        self.assertEqual(parse_amount(0, allow_zero_marker=False).value, Decimal(0))
+
     def test_conflicting_signs_and_mixed_amounts_remain_suspicious(self):
         for text in ("(-170000)","-170000-","--170000","(170000)-", "₩₩170000",
                      "170000원원","170,000 80,000","- 17 0000","170,00","170.000,00원",

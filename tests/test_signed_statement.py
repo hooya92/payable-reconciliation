@@ -88,6 +88,50 @@ class SignedStatementTests(unittest.TestCase):
             self.assertEqual(result.review_items,[])
             self.assertTrue(any(x.field=="수식" for x in result.issues))
 
+    def test_mixed_manual_minus_and_accounting_style_in_same_sheet(self):
+        # One vendor uses a hand-typed sign and spaces; another uses a negative
+        # numeric cell with accounting number_format. Both must be read per cell.
+        with tempfile.TemporaryDirectory() as directory:
+            prior = Path(directory) / "prior.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "26.09"
+            ws.append(["코드", "거래처", "날짜", "적요", "금액"])
+            ws.append(["", "", "2026-09-21", "복청 발생", 46200])
+            ws.append(["", "", "2026-09-21", "복청 취소", "-       46,200"])
+            ws.append(["001001", "복청음료", "소계", "", 0])
+            ws.append(["", "", "2026-09-30", "애니닥 발생", 444900])
+            ws.append(["", "", "2026-09-30", "애니닥 차감", -444900])
+            ws["E6"].number_format = '_(* #,##0_);_(* \\(#,##0\\);_(* "-"_);_(@_)'
+            ws.append(["001002", "주식회사 애니닥", "소계", "", 0])
+            ws.append(["", "", "2026-09-30", "일반 청구", 30000])
+            ws.append(["001003", "다른 업체", "소계", "", 30000])
+            wb.save(prior)
+
+            read = read_prior(prior, "", AccountingPeriod(2026, 9))
+            self.assertEqual(read.issues, [])
+            self.assertEqual([(item.vendor_code, item.amount) for item, _ in read.review_items],
+                             [("001001", Decimal(0)), ("001002", Decimal(0))])
+            self.assertEqual([(item.vendor_code, item.amount) for item in read.items],
+                             [("001003", Decimal(30000))])
+
+    def test_hand_typed_dash_does_not_disappear_as_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prior = Path(directory) / "prior.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "26.09"
+            ws.append(["코드", "거래처", "날짜", "적요", "금액"])
+            ws.append(["", "", "2026-09-21", "발생", 46200])
+            ws.append(["", "", "2026-09-21", "금액 없이 마이너스만 입력", "-"])
+            ws.append(["001001", "복청음료", "소계", "", 46200])
+            wb.save(prior)
+
+            read = read_prior(prior, "", AccountingPeriod(2026, 9))
+            self.assertFalse(read.review_items)
+            self.assertTrue(read.issues)
+            self.assertTrue(any("숫자 없는 마이너스" in issue.reason for issue in read.issues))
+
     def test_flat_negative_blocks_same_vendor_positive_entries(self):
         with tempfile.TemporaryDirectory() as directory:
             prior=Path(directory)/"prior.xlsx"
