@@ -22,8 +22,12 @@ def parse_literal_amount_formula(value: object) -> Decimal | None:
     """Read only a formula containing a signed numeric constant, never references."""
     if not isinstance(value,str):
         return None
-    match=re.fullmatch(r"=\s*([+-]?\d+(?:\.\d+)?)\s*",value)
-    return Decimal(match.group(1)) if match else None
+    match=re.fullmatch(
+        r"=\s*([+-]?)\s*(?:(\d+(?:\.\d+)?)|\(\s*([+-]?)\s*(\d+(?:\.\d+)?)\s*\))\s*",value)
+    if not match:
+        return None
+    amount=Decimal(match.group(2) or match.group(4))
+    return -amount if (match.group(1)=="-") != (match.group(3)=="-") else amount
 
 
 def parse_amount(value: object) -> NormalizedAmount:
@@ -36,16 +40,39 @@ def parse_amount(value: object) -> NormalizedAmount:
         return NormalizedAmount(value, Decimal(str(value)), DataQuality.CLEAN)
 
     raw = str(value).strip()
+    # Fold full-width amount characters only; NFKC would also turn 10² into 102.
+    normalized=raw.translate(str.maketrans("０１２３４５６７８９，．（）＋－￦","0123456789,.()+-₩")).translate(
+        str.maketrans({char:"-" for char in "−﹣－‒–—‐‑"})
+    )
+    s=normalized
+    prefix=s.startswith("₩")
+    suffix=s.endswith("원")
+    if prefix:
+        s=s[1:].strip()
+    if suffix:
+        s=s[:-1].strip()
+    if s=="-":
+        return NormalizedAmount(value,Decimal(0),DataQuality.NORMALIZED,"회계식 0 표시")
+    parentheses=s.startswith("(") and s.endswith(")")
+    if parentheses:
+        s=s[1:-1].strip()
+    match=re.fullmatch(
+        r"([+-]?)\s*(₩?)\s*(\d+|\d{1,3}(?:,\d{3})+)\s*(원?)\s*(-?)",s)
+    if match:
+        sign,currency,number,unit,trailing=match.groups()
+        # Never guess the meaning of conflicting signs or repeated currency units.
+        if (not (parentheses and (sign or trailing)) and not (sign and trailing)
+                and not (prefix and currency) and not (suffix and unit)):
+            amount=Decimal(number.replace(",",""))
+            if sign=="-" or parentheses or trailing:
+                amount=-amount
+            changed=prefix or suffix or currency or unit or parentheses or trailing
+            return NormalizedAmount(value,amount,
+                DataQuality.NORMALIZED if changed else DataQuality.CLEAN,
+                "회계식 금액 표기 보정" if changed else "")
     # Allow spacing between a leading sign and the amount, including NBSP
     # from Excel copy/paste. Spaces inside digits must never join two numbers.
-    s = re.sub(r"^([+\-−])\s*",lambda m: "-" if m.group(1)=="−" else m.group(1),raw)
-    if re.fullmatch(r"[+-]?\d+", s):
-        return NormalizedAmount(value, Decimal(s), DataQuality.CLEAN)
-    if re.fullmatch(r"[+-]?\d{1,3}(,\d{3})+", s):
-        return NormalizedAmount(value, Decimal(s.replace(",", "")), DataQuality.CLEAN)
-    if re.fullmatch(r"[+-]?(?:₩)?\d{1,3}(?:,\d{3})*(?:원)?", s) and ("₩" in s or "원" in s):
-        cleaned = s.replace("₩", "").replace("원", "").replace(",", "")
-        return NormalizedAmount(value, Decimal(cleaned), DataQuality.NORMALIZED, "통화 기호/단위 제거")
+    s = re.sub(r"^([+\-])\s*",r"\1",normalized)
     if re.fullmatch(r"[+-]?\d{1,3}(\.\d{3})+", s):
         guessed = Decimal(s.replace(".", ""))
         return NormalizedAmount(value, guessed, DataQuality.SUSPICIOUS, "점(.) 천단위 구분자는 확인 필요")

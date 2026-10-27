@@ -14,6 +14,39 @@ from domain.period import AccountingPeriod
 
 
 class FullTemplateStyleTests(unittest.TestCase):
+    def test_mixed_text_negative_formats_do_not_create_input_warnings(self):
+        from adapters.excel.reader import read_prior
+        with tempfile.TemporaryDirectory() as folder:
+            prior=Path(folder)/"prior.xlsx";output=Path(folder)/"output.xlsx"
+            wb=Workbook();ws=wb.active;ws.title="26.07"
+            ws.append(["명세서"])
+            ws.append(["코드","거래처","날짜","적요","금액"])
+            negatives=["-    100","(100)","100-","－１００","-100원","—100","=- (100)"]
+            ws.append([None,None,"2026-07-31","발생",700])
+            for idx,value in enumerate(negatives,4):
+                ws.append([None,None,"2026-07-31",f"지급 {idx}",value])
+                ws.cell(idx,5).number_format='_(* #,##0_);_(* -#,##0_);_(* "-"_);_(@_)'
+                ws.cell(idx,5).fill=PatternFill("solid",fgColor="E5D5FF")
+            ws.append(["001111","가상물류","소계",None,"=SUM(E3:E10)"])
+            wb.save(prior);wb.close()
+            original=prior.read_bytes()
+            read=read_prior(prior,period=AccountingPeriod(2026,7))
+            self.assertEqual(read.issues,[])
+            self.assertEqual(read.review_items[0][0].amount,0)
+            write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+            wb=load_workbook(output)
+            try:
+                ws=wb["26.08"]
+                for row in range(4,10):
+                    self.assertEqual(ws.cell(row,5).value,-100)
+                    self.assertEqual(ws.cell(row,5).fill.fgColor.rgb,"00E5D5FF")
+                self.assertEqual(ws["E10"].value,"=- (100)")
+                self.assertEqual(ws["E11"].value,"=SUM(E3:E10)")
+                self.assertEqual(ws["F11"].value,"소계 0")
+            finally:
+                wb.close()
+            self.assertEqual(prior.read_bytes(),original)
+
     def test_accounting_negative_formats_and_text_sign_gaps_keep_correct_totals(self):
         from adapters.excel.reader import read_prior
         with tempfile.TemporaryDirectory() as folder:

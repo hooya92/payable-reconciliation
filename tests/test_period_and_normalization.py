@@ -43,6 +43,36 @@ class AmountTests(unittest.TestCase):
         for value in ("5 00,000","500,000 700,000","- 5 00,000"):
             self.assertEqual(parse_amount(value).quality,DataQuality.SUSPICIOUS)
 
+    def test_unambiguous_accounting_negative_variants(self):
+        for text in ("(170,000)","( 170000 원 )","₩ (170,000)","(₩170,000원)",
+                     "170,000-","170000 원 -","- ₩ 170000","₩ - 170,000 원",
+                     "－１７０，０００","﹣ 170000","– 170,000","— 170,000",
+                     "-170000원","-\u00a0 170000"):
+            with self.subTest(text=text):
+                result=parse_amount(text)
+                self.assertEqual(result.value,Decimal(-170000))
+                self.assertNotEqual(result.quality,DataQuality.SUSPICIOUS)
+
+    def test_accounting_zero_markers(self):
+        for text in ("-","−","—","₩ -","- 원"):
+            with self.subTest(text=text):
+                self.assertEqual(parse_amount(text).value,Decimal(0))
+                self.assertEqual(parse_amount(text).quality,DataQuality.NORMALIZED)
+
+    def test_conflicting_signs_and_mixed_amounts_remain_suspicious(self):
+        for text in ("(-170000)","-170000-","--170000","(170000)-", "₩₩170000",
+                     "170000원원","170,000 80,000","- 17 0000","170,00","170.000,00원",
+                     "10²","①70000","170000%"):
+            with self.subTest(text=text):
+                self.assertEqual(parse_amount(text).quality,DataQuality.SUSPICIOUS)
+
+    def test_constant_formula_with_sign_spacing_and_parentheses(self):
+        from domain.normalization import parse_literal_amount_formula
+        for text in ("=- 170000","=-(170000)","= - ( 170000 )","=( -170000 )"):
+            self.assertEqual(parse_literal_amount_formula(text),Decimal(-170000))
+        for text in ("=-E3","=-SUM(E3:E5)","=170000-5000","=SUM(170000)"):
+            self.assertIsNone(parse_literal_amount_formula(text))
+
     def test_commas(self):
         x = parse_amount("86,000,000")
         self.assertEqual(x.value, Decimal("86000000"))
