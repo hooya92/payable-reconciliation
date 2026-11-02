@@ -452,6 +452,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                 continue
             out.recognized_sheets.append(ws.title)
             cols=_douzone_columns(vals)
+            balance_col=_first(vals,"잔액")
             needed=["vendor_code","vendor_name","description","debit","credit","account_code"]
             if period: needed.append("date")
             missing=[x for x in needed if not cols[x]]
@@ -514,8 +515,15 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                     out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음")); row_invalid=True
                 if row_invalid: continue
 
+                ledger_balance=None
+                if balance_col:
+                    cell=row[balance_col-1]
+                    parsed=parse_amount(cell.value, allow_zero_marker=False)
+                    if (not _is_formula(cell) and cell.value not in (None,"")
+                            and parsed.quality!=DataQuality.SUSPICIOUS):
+                        ledger_balance=parsed.value
                 line=JournalLine(code,vendor_name,ac,an,desc,debit,credit,
-                                 _date(raw_date) if cols["date"] else "",r)
+                                 _date(raw_date) if cols["date"] else "",r,ledger_balance)
                 if debit<0 or credit<0:
                     out.review_journal_items.append(line)
                 else:

@@ -523,6 +523,23 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             extra.column_dimensions["H"].width=12
         changes.column_dimensions["J"].width=75
 
+        if "잔액검증" in wb.sheetnames:
+            wb["잔액검증"].title="전월 잔액검증"
+        balances=wb.create_sheet("잔액검증")
+        balances.append(["거래처코드","거래처명","전월 잔액","당월 대변(발생·조정)",
+                         "당월 차변(지급·조정)","계산 잔액","생성 명세서 잔액","계산 차액",
+                         "계산 검증","원장 잔액","원장 차액","원장 비교","검증 근거"])
+        for record in plan.balances:
+            balances.append(record)
+        balances.freeze_panes="C2"
+        for column in "ABCDEFGHIJKL":
+            balances.column_dimensions[column].width=23
+        balances.column_dimensions["M"].width=80
+        for row in balances.iter_rows(min_row=2):
+            for idx in (2,3,4,5,6,7,9,10):
+                row[idx].number_format='#,##0;[Red](#,##0);"0"'
+        balances.auto_filter.ref=balances.dimensions
+
         def link_source_rows(sheet):
             sheet["H1"].comment=Comment(
                 "행 번호는 원본 파일 기준입니다. 클릭하면 생성된 당월 명세서의 해당 거래 행으로 이동합니다.",

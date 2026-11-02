@@ -3,10 +3,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from adapters.excel.reader import InputIssue, read_douzone, read_prior
-from domain.models import ReconcileResult, Status
+from domain.models import ReconcileResult, Status, NewPayable
 from domain.normalization import normalize_code, normalize_text
 from domain.period import AccountingPeriod
-from domain.reconciliation import new_payables, reconcile, journal_correction_reviews
+from domain.reconciliation import new_payables, reconcile, journal_correction_reviews, correction_scope
 
 
 @dataclass
@@ -98,15 +98,14 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     correction_reviews=journal_correction_reviews(journal_items)
     correction_vendors={normalize_code(line.vendor_code) for line in journal_items
                         if id(line) in correction_reviews}
-    # Keep corrections out of payment matching, while retaining their exact signs
-    # in journal_items for vendor balances and the generated statement.
-    ordinary=[line for line in journal_items if normalize_code(line.vendor_code) not in correction_vendors]
-    ordinary_prior=[item for item in prior_items
-                    if normalize_code(item.vendor_code) not in correction_vendors]
+    scoped_raw,scoped_prior=correction_scope(journal_items,
+        [(item.vendor_code,item.description,item.amount) for item in prior_items])
+    ordinary=[line for line in journal_items if id(line) not in scoped_raw]
+    ordinary_prior=[item for i,item in enumerate(prior_items) if i not in scoped_prior]
     resolved={id(result.prior):result for result in reconcile(ordinary_prior,ordinary)}
     results=[resolved.get(id(item)) or ReconcileResult(
-        Status.CORRECTION_SUSPECT,item,reason="취소/수정 전표의 개별 지급 연결 미확정"
-    ) for item in prior_items]
+        Status.CORRECTION_SUSPECT,item,reason=scoped_prior[i],rule="JOURNAL_CORRECTION_REVIEW"
+    ) for i,item in enumerate(prior_items)]
     # A debit with no opening liability or same-month credit must not be
     # silently omitted. Existing reviewed candidates and aggregate vendors
     # are already accounted for by their respective reconciliation paths.
@@ -139,7 +138,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     issues=prior_issues+dz_issues
     blocked_vendors={normalize_code(issue.vendor_code) for issue in prior_issues
                      if issue.vendor_code}
-    blocked_vendors.update(correction_vendors)
+    blocked_vendors.update(correction_vendors & set(review_vendor_seen))
     global_input_issues=bool(dz_issues) or any(not issue.vendor_code for issue in prior_issues)
     for item, reason in opening_reviews:
         vendor=normalize_code(item.vendor_code)
@@ -173,12 +172,23 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
                 result.reason="더존 대상월/계정 데이터에 자동 제외된 행이 있어 지급 여부를 확정할 수 없음"
                 result.rule="RAW_INPUT_INCOMPLETE"
     for result in results:
-        if normalize_code(result.prior.vendor_code) in correction_vendors:
+        if (normalize_code(result.prior.vendor_code) in correction_vendors
+                and result.rule=="SIGNED_OPENING_NET"):
             result.status=Status.CORRECTION_SUSPECT
             result.reason="오발행·취소 의심 전표가 있어 지급/원전표 연결 확인 필요 · "+result.reason
             result.rule="JOURNAL_CORRECTION_REVIEW"
-    fresh=new_payables(journal_items, results, allow_auto=not global_input_issues,
+    fresh=new_payables(ordinary, [r for r in results if r.status!=Status.CORRECTION_SUSPECT], allow_auto=not global_input_issues,
                       blocked_vendors=blocked_vendors)
+    fresh.extend(NewPayable(line,line.credit,scoped_raw[id(line)],False)
+                 for line in journal_items if line.credit>0 and id(line) in scoped_raw)
+    for result in results:
+        if result.journal is not None and (result.status!=Status.MATCHED or result.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE"):
+            p=result.prior
+            j=result.journal
+            result.reason+=(f" · 명세서 {p.source.file_name} / {p.source.sheet} {p.source.row}행 "
+                            f"[{p.vendor_code}, {p.amount:,.0f}원]"
+                            f" / 원장 {journal_sources.get(id(j),'더존 Raw')} {j.row_number}행 "
+                            f"[{j.vendor_code}, 차변 {j.debit:,.0f}원]")
     counts=Counter(x.status for x in results)
     return ReconciliationRun(
         period,len(prior_items)+len(opening_reviews),results,fresh,issues,counts,

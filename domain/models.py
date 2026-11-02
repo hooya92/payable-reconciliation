@@ -63,6 +63,7 @@ class JournalLine:
     credit: Decimal
     date: str = ""
     row_number: int = 0
+    ledger_balance: Decimal | None = None
 
 
 @dataclass(frozen=True)

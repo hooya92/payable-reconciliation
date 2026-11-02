@@ -1,3 +1,4 @@
+import re
 from collections import defaultdict
 from decimal import Decimal
 from .models import JournalLine, NewPayable, PayableItem, ReconcileResult, Status
@@ -31,6 +32,49 @@ def journal_correction_reviews(lines):
         if reasons:
             reviews[id(line)]="오발행·취소 의심 · "+" · ".join(reasons)
     return reviews
+
+
+def correction_scope(lines, openings):
+    """Return affected RAW ids and opening indices; never confirm cancellation pairs.
+
+    Openings are (code, description, amount). Equal amount OR the same substantive
+    description is a review candidate. A generic unmatched correction stays vendor
+    wide because its allocation cannot be inferred. Dates are evidence, not proof.
+    """
+    seeds=journal_correction_reviews(lines)
+    affected=dict(seeds)
+    prior={}
+    def description(value):
+        text=normalize_text(value)
+        text=re.sub("오발행|오청구|발행취소|청구취소|전표취소|지급취소|취소전표|역분개|수정발행|정정발행|재발행", "", text)
+        return re.sub(r"[\W_]+", "", text).removesuffix("건")
+    for seed in lines:
+        if id(seed) not in seeds:
+            continue
+        code=normalize_code(seed.vendor_code)
+        amount=abs(seed.credit-seed.debit)
+        desc=description(seed.description)
+        def related(text, value):
+            return abs(value)==amount or (bool(desc) and description(text)==desc)
+        raws=[line for line in lines if line is not seed
+              and normalize_code(line.vendor_code)==code
+              and normalize_code(line.account_code)==normalize_code(seed.account_code)
+              and related(line.description,line.credit-line.debit)]
+        indices=[i for i,(vendor,text,value) in enumerate(openings)
+                 if normalize_code(vendor)==code and related(text,value)]
+        fallback=not raws and not indices
+        if fallback:
+            raws=[line for line in lines if normalize_code(line.vendor_code)==code]
+            indices=[i for i,(vendor,_,_) in enumerate(openings) if normalize_code(vendor)==code]
+        reason=(f"오발행·취소 의심 전표: RAW {seed.row_number}행 / {seed.date} / "
+                f"{seed.description} / {seed.credit-seed.debit:,.0f}원 · "
+                + ("관련 거래를 특정할 수 없어 거래처 단위 확인" if fallback else
+                   "동일 금액 또는 적요의 연결 후보 · 취소/재발행/지급 자동 확정 안 함"))
+        for line in raws:
+            affected.setdefault(id(line),reason)
+        for i in indices:
+            prior.setdefault(i,reason)
+    return affected,prior
 
 
 def _single_edit_or_transposition(left: str, right: str) -> bool:
@@ -151,9 +195,9 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
             same_desc=normalize_text(line.description) == normalize_text(item.description)
             notes=[]
             if not same_name:
-                notes.append("거래처명 오타 의심" if _text_typo(line.vendor_name,item.vendor_name) else "거래처명 차이")
+                notes.append(("거래처명 오타 의심" if _text_typo(line.vendor_name,item.vendor_name) else "거래처명 차이") + f": 명세서 ‘{item.vendor_name}’ / 원장 ‘{line.vendor_name}’")
             if not same_desc:
-                notes.append("적요 오타 의심" if _text_typo(line.description,item.description) else "적요 차이")
+                notes.append(("적요 오타 의심" if _text_typo(line.description,item.description) else "적요 차이") + f": 명세서 ‘{item.description}’ / 원장 ‘{line.description}’")
 
             if notes:
                 results.append(ReconcileResult(

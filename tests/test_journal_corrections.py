@@ -61,8 +61,8 @@ class JournalCorrectionTests(unittest.TestCase):
             run,output=self.export(folder,rows)
             self.assertEqual(run.issues,[])
             self.assertEqual(len(run.journal_items),6)
-            self.assertTrue(all(r.status==Status.CORRECTION_SUSPECT for r in run.results
-                                if r.prior.vendor_code=="001111"))
+            self.assertEqual([r.status for r in run.results if r.prior.vendor_code=="001111"],
+                             [Status.MATCHED,Status.CORRECTION_SUSPECT])
             self.assertEqual(next(r for r in run.results if r.prior.vendor_code=="000002").status,
                              Status.MATCHED)
             self.assertTrue(next(n for n in run.new_items if n.journal.vendor_code=="000003").auto_carry)
@@ -76,10 +76,13 @@ class JournalCorrectionTests(unittest.TestCase):
                 self.assertEqual(ws["E9"].number_format,'#,##0;[Red](#,##0);"0";@')
                 self.assertEqual(ws["E9"].fill.fgColor.rgb,"00FFFF00")
                 self.assertEqual(ws["F9"].value,"소계 0")
-                self.assertTrue(all(ws.cell(r,6).value.startswith("오발행·취소 의심") for r in range(3,9)))
+                self.assertTrue(all(ws.cell(r,6).value.startswith("오발행·취소 의심") for r in range(4,8)))
+                self.assertEqual(ws["F3"].value,"자동 대사")
+                self.assertEqual(ws["F8"].value,"자동 대사")
                 self.assertIn("전월 동일 금액 발생 후보 1건",ws["F5"].comment.text)
                 self.assertIn("양수 동일 금액 후보 1건",ws["F5"].comment.text)
-                self.assertTrue(all(row[1].value!="001111" for row in wb["대사내역"].iter_rows(min_row=2)))
+                self.assertEqual([row[3].value for row in wb["대사내역"].iter_rows(min_row=2)
+                                  if row[1].value=="001111"],["벨트 교체"])
                 self.assertTrue(any(row[0].value==Status.CORRECTION_SUSPECT.value
                                     for row in wb["검토필요"].iter_rows(min_row=2)))
             finally:
