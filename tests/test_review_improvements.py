@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest import mock
 from dataclasses import replace
 from decimal import Decimal as D
 from pathlib import Path
@@ -141,10 +142,51 @@ class ReviewImprovementTests(unittest.TestCase):
             self.assertEqual(raw.read_bytes(),original)
             wb=load_workbook(output)
             try:
-                check=list(wb["잔액검증"].values)[1]
+                check=list(wb["당월 잔액검증"].values)[1]
                 self.assertEqual(check[6],200000)
                 self.assertEqual(check[10],-10000)
                 self.assertEqual(check[11],"원장 차액 확인")
                 self.assertTrue(any(r[0]=="잔액 확인" for r in wb["검토필요"].values))
+            finally:
+                wb.close()
+
+    def test_balance_review_text_never_shows_none_for_missing_ledger(self):
+        check=("001111","가상공영",D(100),D(50),D(0),D(150),D(100),D(-50),
+               "계산 불일치",None,None,"비교 미확정","원장 잔액 미제공")
+        with mock.patch("application.month_end_plan.build_balance_checks",return_value=[check]):
+            plan=build_month_end_plan([],[],[],[],"prior.xlsx","26.08")
+        reason=next(r for r in plan.reviews if r[0]=="잔액 확인")[5]
+        self.assertNotIn("None",reason)
+        self.assertIn("원장 비교 미확정",reason)
+        self.assertIn("계산 차액 -50원",reason)
+
+    def test_vendor_missing_from_one_account_does_not_get_ledger_difference(self):
+        a=line("발생",credit=50,balance=150)
+        other=JournalLine("009999","다른업체","25302","미지급금","타업체",D(0),D(10),
+                          "2026-09-01",9,D(10))
+        opening=[("001111","가상공영","전월",D(100),"2026-08-31",3,{})]
+        records=[StatementRow("001111","가상공영","합계",D(150),"","",3,{})]
+        check=build_balance_checks(opening,records,[a,other],{},[])[0]
+        self.assertEqual(check[8],"계산 일치")
+        self.assertIsNone(check[9])
+        self.assertEqual(check[11],"비교 미확정")
+
+    def test_existing_balance_sheet_in_prior_file_is_not_renamed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            prior,raw=fixtures.JournalCorrectionTests().make_files(folder,[
+                ("001111","가상공영","벨트 교체",700000,0,"2026-09-01")])
+            wb=load_workbook(prior)
+            wb.create_sheet("잔액검증")["A1"]="전월 자료"
+            wb.active["H1"]="='잔액검증'!A1"
+            wb.save(prior);wb.close()
+            run=run_reconciliation([prior],[raw],{"25301"},PERIOD)
+            output=Path(folder)/"output.xlsx"
+            write_month_end_statement(output,[prior],run.results,run.new_items,run.issues,PERIOD,
+                journal_items=run.journal_items,journal_sources=run.journal_sources)
+            wb=load_workbook(output)
+            try:
+                self.assertEqual(wb["잔액검증"]["A1"].value,"전월 자료")
+                self.assertIn("당월 잔액검증",wb.sheetnames)
+                self.assertEqual(wb["26.09"]["H1"].value,"='잔액검증'!A1")
             finally:
                 wb.close()
