@@ -15,6 +15,9 @@ def build_balance_checks(opening, records, journal, sources, issues):
     for row in records:
         output_totals[normalize_code(row.vendor_code)]+=row.amount
     seen=set()
+    # Accounts present anywhere in the RAW. A vendor missing from one of them may
+    # still hold opening balance there, so its ledger total would be incomplete.
+    all_accounts={normalize_code(line.account_code) for line in journal}
     for line in journal:
         if id(line) not in seen:
             activity[normalize_code(line.vendor_code)].append(line)
@@ -43,7 +46,9 @@ def build_balance_checks(opening, records, journal, sources, issues):
                         or any(b.ledger_balance!=a.ledger_balance+b.credit-b.debit
                                for a,b in zip(group,group[1:]))):
                     valid=False
-            if valid:
+            if valid and set(accounts)!=all_accounts:
+                reason="일부 계정에 이 거래처의 당월 거래가 없어 원장 합계가 불완전할 수 있음 · 비교 미확정"
+            elif valid:
                 ledger=sum((group[-1].ledger_balance for group in accounts.values()),Decimal(0))
                 reason="제공 RAW 범위의 계정별 마지막 거래 잔액 합계 기준 · 전체 월 원장 제공 여부는 별도 확인"
             else:

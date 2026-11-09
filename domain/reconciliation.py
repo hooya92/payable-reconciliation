@@ -48,24 +48,32 @@ def correction_scope(lines, openings):
         text=normalize_text(value)
         text=re.sub("오발행|오청구|발행취소|청구취소|전표취소|지급취소|취소전표|역분개|수정발행|정정발행|재발행", "", text)
         return re.sub(r"[\W_]+", "", text).removesuffix("건")
+    # Normalize every row once and group by vendor: the cost no longer grows with
+    # (corrections x all rows) and the regex clean-up is not repeated per seed.
+    raw_by_code=defaultdict(list)
+    for line in lines:
+        raw_by_code[normalize_code(line.vendor_code)].append(
+            (line,normalize_code(line.account_code),description(line.description),
+             abs(line.credit-line.debit)))
+    opening_by_code=defaultdict(list)
+    for i,(vendor,text,value) in enumerate(openings):
+        opening_by_code[normalize_code(vendor)].append((i,description(text),abs(value)))
     for seed in lines:
         if id(seed) not in seeds:
             continue
         code=normalize_code(seed.vendor_code)
+        account=normalize_code(seed.account_code)
         amount=abs(seed.credit-seed.debit)
         desc=description(seed.description)
         def related(text, value):
-            return abs(value)==amount or (bool(desc) and description(text)==desc)
-        raws=[line for line in lines if line is not seed
-              and normalize_code(line.vendor_code)==code
-              and normalize_code(line.account_code)==normalize_code(seed.account_code)
-              and related(line.description,line.credit-line.debit)]
-        indices=[i for i,(vendor,text,value) in enumerate(openings)
-                 if normalize_code(vendor)==code and related(text,value)]
+            return value==amount or (bool(desc) and text==desc)
+        raws=[line for line,line_account,text,value in raw_by_code[code]
+              if line is not seed and line_account==account and related(text,value)]
+        indices=[i for i,text,value in opening_by_code[code] if related(text,value)]
         fallback=not raws and not indices
         if fallback:
-            raws=[line for line in lines if normalize_code(line.vendor_code)==code]
-            indices=[i for i,(vendor,_,_) in enumerate(openings) if normalize_code(vendor)==code]
+            raws=[line for line,*_ in raw_by_code[code]]
+            indices=[i for i,*_ in opening_by_code[code]]
         reason=(f"오발행·취소 의심 전표: RAW {seed.row_number}행 / {seed.date} / "
                 f"{seed.description} / {seed.credit-seed.debit:,.0f}원 · "
                 + ("관련 거래를 특정할 수 없어 거래처 단위 확인" if fallback else

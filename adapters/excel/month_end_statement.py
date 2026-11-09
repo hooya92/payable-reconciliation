@@ -523,9 +523,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             extra.column_dimensions["H"].width=12
         changes.column_dimensions["J"].width=75
 
-        if "잔액검증" in wb.sheetnames:
-            wb["잔액검증"].title="전월 잔액검증"
-        balances=wb.create_sheet("잔액검증")
+        # A new name avoids renaming a prior sheet, which would silently
+        # re-point any formula that references it.
+        balances=wb.create_sheet("당월 잔액검증")
         balances.append(["거래처코드","거래처명","전월 잔액","당월 대변(발생·조정)",
                          "당월 차변(지급·조정)","계산 잔액","생성 명세서 잔액","계산 차액",
                          "계산 검증","원장 잔액","원장 차액","원장 비교","검증 근거"])

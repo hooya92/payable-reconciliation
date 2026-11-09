@@ -256,6 +256,8 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
     balances=build_balance_checks(opening,records,sources,source_files,issues)
     for check in balances:
         if check[8]=="계산 불일치" or check[11]=="원장 차액 확인":
+            ledger_text=("원장 비교 미확정" if check[10] is None
+                         else f"원장 차액 {check[10]:,.0f}원")
             reviews.append(("잔액 확인",check[0],check[1],"거래처 잔액 검증",_amount(check[6]),
-                            f"계산 차액 {check[7]:,.0f}원 / 원장 차액 {check[10]} · {check[12]}","잔액검증",None))
+                            f"계산 차액 {check[7]:,.0f}원 / {ledger_text} · {check[12]}","당월 잔액검증",None))
     return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons,record_sources,balances)
