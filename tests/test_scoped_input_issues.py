@@ -47,13 +47,13 @@ class ScopedInputIssueTests(unittest.TestCase):
             signed=next(r for r in run.results if r.prior.vendor_code=="001111")
             self.assertEqual(signed.status,Status.SIGNED_NET_AUTO)
 
-    def test_unknown_vendor_identity_retains_global_hold(self):
+    def test_unknown_vendor_identity_is_reported_but_does_not_hold_everything(self):
         with tempfile.TemporaryDirectory() as folder:
             run=self.run_case(folder,unknown_identity=True)
             self.assertTrue(any(not issue.vendor_code for issue in run.issues))
-            self.assertTrue(all(not item.auto_carry for item in run.new_items))
+            self.assertTrue(any(item.auto_carry for item in run.new_items))
             signed=next(r for r in run.results if r.prior.vendor_code=="001111")
-            self.assertEqual(signed.status,Status.SIGNED_OPENING_REVIEW)
+            self.assertEqual(signed.status,Status.SIGNED_NET_AUTO)
 
     def test_text_negative_with_valid_subtotal_is_not_an_input_error(self):
         with tempfile.TemporaryDirectory() as folder:

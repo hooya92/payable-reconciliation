@@ -50,9 +50,9 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             self.assertEqual(summary["대사 검토 필요"],4)
             self.assertEqual(summary["Raw 신규 대변 검토"],1)
             self.assertEqual(summary["입력 데이터 확인"],2)
-            self.assertEqual(summary["당월말 명세 초안"],0)
-            self.assertEqual(summary["당월말 명세 금액"],0)
-            self.assertEqual(summary["초안 제외 검토건"],5)
+            self.assertEqual(summary["당월말 명세 초안"],2)
+            self.assertEqual(summary["당월말 명세 금액"],1540000)
+            self.assertEqual(summary["초안 제외 검토건"],3)
             self.assertEqual(summary["대사 기준"],"전월 말 명세서 ↔ 당월 더존 Raw / 거래처코드+금액·적요 중심")
 
             # Unique code+amount matches complete automatically; name/description differences are reference notes.
@@ -86,23 +86,21 @@ class FinalOutputGoldenE2ETests(unittest.TestCase):
             self.assertEqual(corrections[0].debit,-990000)
             self.assertIn(id(corrections[0]),run.journal_sources)
 
-            # Raw input issues mean absence of a debit is not trustworthy enough
-            # to auto-carry an opening item into the current-month draft.
+            # Row-level input errors are listed above but do not hold the whole run:
+            # the unpaid opening item and the new credit are still carried into the draft.
             draft_rows=list(wb["당월말명세서 초안"].iter_rows(min_row=2,values_only=True))
-            self.assertEqual(draft_rows,[])
+            self.assertEqual({row[1] for row in draft_rows if row[1]},{"001006","002001"})
+            self.assertEqual(draft_rows[-1][5],1540000)
             unpaid_review=[row for row in review if row[5]=="001006"]
             self.assertEqual(len(unpaid_review),1)
-            self.assertEqual(unpaid_review[0][0],"더존 입력 확인 필요")
-            self.assertIn("지급 여부를 확정할 수 없음",unpaid_review[0][1])
+            self.assertEqual(unpaid_review[0][0],"지급 확인 안 됨")
 
-            # Current-month new item is withheld because raw contains invalid rows.
             current=list(wb["당월신규명세"].iter_rows(min_row=2,values_only=True))
             self.assertEqual(len(current),1)
-            self.assertEqual(current[0][0],"사람 확인 필요")
+            self.assertEqual(current[0][0],"초안 반영 · 최종 확인")
             self.assertEqual(current[0][3],"002001")
             self.assertEqual(current[0][5],"8월 신규 유류비")
             self.assertEqual(current[0][6],880000)
-            self.assertIn("자동 이월 보류",current[0][7])
 
             # Sheet-tab colors mirror each sheet's visual meaning.
             self.assertTrue(wb["확인필요"].sheet_properties.tabColor.rgb.endswith("FFD966"))
