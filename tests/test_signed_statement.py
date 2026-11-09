@@ -197,7 +197,7 @@ class SignedStatementTests(unittest.TestCase):
             self.assertEqual(run.results[0].closing_balance,Decimal(-25))
             self.assertEqual(run.results[0].status,Status.SIGNED_OPENING_REVIEW)
 
-    def test_invalid_raw_blocks_signed_net_auto_roll_forward(self):
+    def test_invalid_raw_row_is_reported_but_does_not_block_signed_net(self):
         with tempfile.TemporaryDirectory() as directory:
             prior=Path(directory)/"prior.xlsx"
             raw=Path(directory)/"journal.xlsx"
@@ -212,8 +212,7 @@ class SignedStatementTests(unittest.TestCase):
             wb.save(raw)
             run=run_reconciliation([prior],[raw],{"25301"},AccountingPeriod(2026,10))
             self.assertTrue(run.issues)
-            self.assertEqual(run.results[0].status,Status.SIGNED_OPENING_REVIEW)
-            self.assertIn("자동 반영 보류",run.results[0].reason)
+            self.assertEqual(run.results[0].status,Status.SIGNED_NET_AUTO)
 
     def test_signed_balance_is_carried_once_as_vendor_net(self):
         with tempfile.TemporaryDirectory() as directory:

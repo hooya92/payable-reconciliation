@@ -139,7 +139,10 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     blocked_vendors={normalize_code(issue.vendor_code) for issue in prior_issues
                      if issue.vendor_code}
     blocked_vendors.update(correction_vendors & set(review_vendor_seen))
-    global_input_issues=bool(dz_issues) or any(not issue.vendor_code for issue in prior_issues)
+    # Row-level input errors (the skipped rows) are reported in 입력 확인 / 검토필요
+    # but no longer hold the whole reconciliation. Only a vendor that an error is
+    # clearly tied to (blocked_vendors) still waits for review.
+    global_input_issues=False
     for item, reason in opening_reviews:
         vendor=normalize_code(item.vendor_code)
         activity=[line for line in journal_items if normalize_code(line.vendor_code)==vendor]
@@ -165,12 +168,6 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         results.append(ReconcileResult(
             status, item, None, reason, "SIGNED_OPENING_NET",closing_balance=net
         ))
-    if dz_issues:
-        for result in results:
-            if result.status in (Status.UNPAID, Status.PARTIAL):
-                result.status=Status.RAW_INPUT_INCOMPLETE
-                result.reason="더존 대상월/계정 데이터에 자동 제외된 행이 있어 지급 여부를 확정할 수 없음"
-                result.rule="RAW_INPUT_INCOMPLETE"
     for result in results:
         if (normalize_code(result.prior.vendor_code) in correction_vendors
                 and result.rule=="SIGNED_OPENING_NET"):
