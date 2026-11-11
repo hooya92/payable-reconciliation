@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.utils.cell import quote_sheetname
 from openpyxl.worksheet.hyperlink import Hyperlink
+from adapters.excel.text_safe import force_text_formulas, set_text
 
 from adapters.excel.reader import (
     _first, _header, _is_summary_label, _select_prior_sheets, _statement_auxiliary_kind,
@@ -371,7 +372,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             row_dim.index=row_no
             ws.row_dimensions[row_no]=row_dim
             for column,value in values.items():
-                ws.cell(row_no,column).value=value
+                # Statement text from the source must stay text, never a formula.
+                if column in (fields["code"],fields["name"],fields["desc"]):
+                    set_text(ws.cell(row_no,column),value)
+                else:
+                    ws.cell(row_no,column).value=value
             row_no+=1
 
         def finish_subtotal(vendor,start,total):
@@ -564,6 +569,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
 
         for extra in (offset_sheet,summary,changes):
             link_source_rows(extra)
+        for generated in (offset_sheet,summary,changes,balances):
+            force_text_formulas(generated)
 
         # Let Excel recalculate all copied per-vendor subtotal formulas on open.
         from openpyxl.workbook.properties import CalcProperties

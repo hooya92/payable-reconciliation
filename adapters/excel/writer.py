@@ -3,6 +3,7 @@ from typing import Iterable
 from openpyxl import Workbook
 from domain.models import Status
 from adapters.excel.styles import style_workbook
+from adapters.excel.text_safe import force_text_formulas
 
 
 REVIEW_TAB_COLOR="FFD60A"
@@ -13,7 +14,7 @@ def _mark_review_tab(sheet, has_items):
         sheet.sheet_properties.tabColor=REVIEW_TAB_COLOR
 
 
-def write_result(path, results, new_items, issues, source_paths:Iterable, period_label:str):
+def write_result(path, results, new_items, issues, source_paths:Iterable, period_label:str, notice:str=""):
     out=Path(path).resolve()
     if any(out==Path(p).resolve() for p in source_paths):
         raise ValueError("원본 Excel에는 저장할 수 없습니다.")
@@ -99,5 +100,9 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     info.append(["대사 기준","전월 말 명세서 ↔ 당월 더존 Raw / 거래처코드+금액·적요 중심"])
     info.append(["초안 원칙","검증된 전월 거래처 소계 + 당월 대변 - 당월 차변은 거래처별 순잔액으로 반영 / 불명확한 개별 건은 확인 필요"])
 
+    if notice:
+        info.append(["안내",notice])
+    for sheet in wb.worksheets:
+        force_text_formulas(sheet)
     style_workbook(wb, draft, info)
     wb.save(out)

@@ -13,7 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods, read_douzone, read_prior
 from adapters.excel.writer import write_result
-from adapters.excel.month_end_statement import write_month_end_statement
+from application.month_end_export import export_month_end_draft
 from domain.models import Status
 from domain.period import AccountingPeriod
 from application.service import run_reconciliation
@@ -1050,18 +1050,25 @@ class App(ctk.CTk):
             return
         try:
             run=self.last_reconciliation_run
-            write_month_end_statement(
-                path,self.prior_paths,run.results,run.new_items,run.issues,p,
-                standalone_debits=run.standalone_debits,
-                standalone_debit_sources=run.standalone_debit_sources,
-                journal_items=run.journal_items,
-                journal_sources=run.journal_sources,
-                source_paths=self.last_source_paths,
+            kind,reason=export_month_end_draft(
+                path,self.prior_paths,run,p,self.last_source_paths
             )
-            self._set_banner(
-                "success","당월 명세서 초안 생성",
-                f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다."
-            )
+            if kind=="template":
+                self._set_banner(
+                    "success","당월 명세서 초안 생성",
+                    f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다."
+                )
+            else:
+                self._set_banner(
+                    "success","간이 초안 저장 (양식 유지 불가)",
+                    f"{Path(path).name} · 전월 양식을 유지할 수 없어 대사 결과 기준으로 저장했습니다. 사유: {reason}"
+                )
+                messagebox.showinfo(
+                    "전월 양식 유지 불가 · 간이 초안으로 저장",
+                    "전월 명세서의 양식을 그대로 유지할 수 없어 대사 결과 기준의 간이 초안으로 저장했습니다.\n"
+                    "대사 결과 자체는 정상입니다.\n\n"
+                    f"사유: {reason}"
+                )
         except PermissionError as e:
             messagebox.showerror(
                 "파일 접근 거부",
