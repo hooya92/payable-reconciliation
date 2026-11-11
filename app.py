@@ -18,23 +18,46 @@ from domain.models import Status
 from domain.period import AccountingPeriod
 from application.service import run_reconciliation
 
+# Colour tokens. Every text/background pair below is >= 4.5:1 (WCAG AA).
 BG="#F3F5F8"
 CARD="#FFFFFF"
 TEXT="#1D1D1F"
-MUTED="#86868B"
-ACCENT="#0071E3"
-ACCENT_HOVER="#0077ED"
-GREEN="#248A3D"
-GREEN_BG="#F0F9F2"
-WARN="#A15C00"
-WARN_BG="#FFF8E8"
+TEXT2="#3C4043"
+MUTED="#5F6368"
+DISABLED_FG="#6B6F76"
+ACCENT="#0066CC"
+ACCENT_HOVER="#0058B0"
+ACCENT_SOFT="#E8F1FF"
+ACCENT_SOFT_HOVER="#D8E8FF"
+GREEN="#1B7233"
+GREEN_BG="#EAF6EE"
+GREEN_BORDER="#BFE0CB"
+WARN="#8A5A00"
+WARN_BG="#FFF4D6"
+WARN_BORDER="#EBCF8F"
 RED="#B42318"
 RED_BG="#FFF1F0"
-BORDER="#E5E5EA"
-BORDER_STRONG="#D2D2D7"
-SOFT="#F3F4F7"
+RED_BORDER="#F0B8B2"
+RUN_BG="#EEF4FF"
+RUN_BORDER="#BBD4F5"
+BORDER="#E1E4EA"
+BORDER_STRONG="#CDD2DB"
+SOFT="#F1F3F6"
+SOFT_HOVER="#E6E9EE"
 LIST_BG="#FAFBFD"
-SELECT_BG="#EAF2FF"
+SELECT_BG="#E3EEFF"
+
+# Segoe UI has no Hangul glyphs; Windows substitutes a regular-weight font, so
+# bold headings would silently lose their weight. Use the Korean UI font directly.
+FONT="Malgun Gothic" if sys.platform=="win32" else "Segoe UI"
+
+
+def font(size, bold=False):
+    return (FONT,size,"bold") if bold else (FONT,size)
+
+
+IDLE_HINT="① 파일 추가 → ② 대사 시작 → ③ 결과 검토 후 '당월 명세서 생성'"
+
 
 ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
@@ -70,7 +93,7 @@ def changed_snapshot_paths(snapshot):
 def find_duplicate_files(prior_paths, douzone_paths, digests=None):
     seen={}; duplicates=[]
     digests=digests or snapshot_file_digests(list(prior_paths)+list(douzone_paths))
-    for kind, paths in (("명세서",prior_paths),("더존 Raw",douzone_paths)):
+    for kind, paths in (("명세서",prior_paths),("더존 원장",douzone_paths)):
         for path in paths:
             digest=digests[str(Path(path).resolve())]
             if digest in seen:
@@ -169,7 +192,7 @@ class App(ctk.CTk):
         self.title("명세서 대사")
         if sys.platform=="win32":
             self.iconbitmap(str(Path(__file__).resolve().parent/"assets"/"app.ico"))
-        self.geometry("1280x920")
+        self.geometry("1280x900")
         self.minsize(1080,760)
         self.configure(fg_color=BG)
 
@@ -180,8 +203,9 @@ class App(ctk.CTk):
         self.douzone_paths=[]
         self.account_codes=tk.StringVar(value="25301")
         self.period_text=tk.StringVar()
-        self.period_badge_text=tk.StringVar(value="자동 감지 대기")
-        self.status_text=tk.StringVar(value="대상 회계월과 파일을 선택한 뒤 대사를 시작하세요.")
+        self.year_text=tk.StringVar(value=str(today.year))
+        self.month_text=tk.StringVar(value=str(today.month))
+        self.status_text=tk.StringVar(value=IDLE_HINT)
         self.prior_count_text=tk.StringVar(value="선택된 파일 없음")
         self.raw_count_text=tk.StringVar(value="선택된 파일 없음")
         self.detail_hint_text=tk.StringVar(value="대사를 실행하면 검토가 필요한 항목을 여기에 보여줍니다.")
@@ -194,6 +218,10 @@ class App(ctk.CTk):
         self.last_source_paths=[]
         self.last_source_digests={}
         self.result_view="review"
+        self._period_manual=False
+        self._run_busy=False
+        self._run_queue=queue.Queue()
+        self._detail_reasons={}
         self._file_add_busy=False
         self._file_add_queue=queue.Queue()
 
@@ -205,8 +233,8 @@ class App(ctk.CTk):
         s.theme_use("clam")
         s.configure(
             "Treeview",
-            font=("Segoe UI",12),
-            rowheight=42,
+            font=font(10),
+            rowheight=32,
             background=CARD,
             fieldbackground=CARD,
             foreground=TEXT,
@@ -215,366 +243,323 @@ class App(ctk.CTk):
         s.map("Treeview",background=[("selected",SELECT_BG)],foreground=[("selected",TEXT)])
         s.configure(
             "Treeview.Heading",
-            font=("Segoe UI Semibold",11),
-            padding=(11,11),
-            background="#F6F7F9",
-            foreground=MUTED,
+            font=font(10,True),
+            padding=(10,6),
+            background=SOFT,
+            foreground=TEXT2,
             bordercolor=BORDER,
             relief="flat",
         )
 
-        shell=ctk.CTkFrame(self,fg_color=BG,corner_radius=0)
-        shell.pack(fill="both",expand=True)
-        self.scroll_canvas=tk.Canvas(shell,bg=BG,highlightthickness=0,borderwidth=0)
-        scroll=ctk.CTkScrollbar(
-            shell,orientation="vertical",command=self.scroll_canvas.yview,
-            width=12,fg_color=BG,button_color="#C7C7CC",button_hover_color="#AEAEB2"
-        )
-        self.scroll_canvas.configure(yscrollcommand=scroll.set)
-        scroll.pack(side="right",fill="y",padx=(0,5),pady=8)
-        self.scroll_canvas.pack(side="left",fill="both",expand=True)
+        # One fixed-height layout: the result table takes all remaining height,
+        # so the work area is never pushed below the fold or into a page scroll.
+        root=ctk.CTkFrame(self,fg_color=BG,corner_radius=0)
+        root.pack(fill="both",expand=True,padx=24,pady=(16,16))
+        self.root_content=root
+        root.grid_columnconfigure(0,weight=1)
+        root.grid_rowconfigure(4,weight=1)
 
-        scroll_body=tk.Frame(self.scroll_canvas,bg=BG)
-        self.scroll_window=self.scroll_canvas.create_window((0,0),window=scroll_body,anchor="nw")
-        self.root_content=ctk.CTkFrame(scroll_body,fg_color="transparent",corner_radius=0)
-        self.root_content.pack(fill="both",expand=True,padx=34,pady=(24,38))
-        root=self.root_content
+        # Header: a single quiet line, not a hero card.
+        header=ctk.CTkFrame(root,fg_color="transparent")
+        header.grid(row=0,column=0,sticky="ew",pady=(0,10))
+        header.grid_columnconfigure(0,weight=1)
+        ctk.CTkLabel(
+            header,text="명세서 대사",font=font(22,True),text_color=TEXT,anchor="w"
+        ).grid(row=0,column=0,sticky="w")
+        ctk.CTkLabel(
+            header,text="전월 말 명세서를 당월 더존 전표와 대사해 당월 말 명세서 초안을 만듭니다.",
+            font=font(12),text_color=MUTED,anchor="w"
+        ).grid(row=1,column=0,sticky="w",pady=(2,0))
+        ctk.CTkLabel(
+            header,text="읽기 전용 · 원본 파일은 수정하지 않습니다",font=font(11,True),
+            text_color=TEXT2,fg_color=SOFT,corner_radius=12,padx=12,pady=5
+        ).grid(row=0,column=1,rowspan=2,sticky="e")
 
-        scroll_body.bind("<Configure>",lambda _e:self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all")))
-        self.scroll_canvas.bind("<Configure>",self._on_canvas_configure)
-        self.bind_all("<MouseWheel>",self._on_mousewheel,add="+")
-        self.bind_all("<Button-4>",self._on_mousewheel,add="+")
-        self.bind_all("<Button-5>",self._on_mousewheel,add="+")
-
-        # Hero card
-        hero=ctk.CTkFrame(
-            root,fg_color=CARD,border_width=1,border_color="#ECEEF2",
-            corner_radius=24
-        )
-        hero.pack(fill="x",pady=(0,14))
-        hero.grid_columnconfigure(0,weight=1)
-
-        ctk.CTkLabel(
-            hero,text="명세서 대사",font=("Segoe UI Semibold",34),
-            text_color=TEXT,anchor="w"
-        ).grid(row=0,column=0,sticky="sw",padx=(22,0),pady=(24,0))
-        ctk.CTkLabel(
-            hero,text="전월 말 명세서를 당월 더존 전표와 대사해 당월 말 명세서를 만듭니다.",
-            font=("Segoe UI",13),text_color=MUTED,anchor="w"
-        ).grid(row=1,column=0,sticky="nw",padx=(22,0),pady=(3,24))
-
-        local_badge=ctk.CTkFrame(
-            hero,fg_color="#F3F5F8",corner_radius=18
-        )
-        local_badge.grid(row=0,column=1,rowspan=2,sticky="e",padx=22)
-        ctk.CTkLabel(
-            local_badge,text="●",font=("Segoe UI",14),text_color="#34C759"
-        ).pack(side="left",padx=(14,7),pady=9)
-        ctk.CTkLabel(
-            local_badge,text="LOCAL · READ ONLY",font=("Segoe UI Semibold",11),
-            text_color="#667085"
-        ).pack(side="left",padx=(0,14),pady=9)
-
-        # Accounting period card
-        period=ctk.CTkFrame(
-            root,fg_color=CARD,border_width=1,border_color="#E6E8ED",
-            corner_radius=22
-        )
-        period.pack(fill="x",pady=(0,14))
-        period.grid_columnconfigure(1,weight=1)
-
-        period_left=ctk.CTkFrame(period,fg_color="transparent")
-        period_left.grid(row=0,column=0,sticky="w",padx=(22,20),pady=16)
-        title_row=ctk.CTkFrame(period_left,fg_color="transparent")
-        title_row.pack(anchor="w")
-        ctk.CTkLabel(
-            title_row,text="▣",font=("Segoe UI",16),text_color="#7890BB"
-        ).pack(side="left",padx=(0,7))
-        ctk.CTkLabel(
-            title_row,text="대상 회계월",font=("Segoe UI Semibold",14),
-            text_color=TEXT
-        ).pack(side="left")
-
-        badge_row=ctk.CTkFrame(period_left,fg_color="transparent")
-        badge_row.pack(anchor="w",pady=(8,0))
-        ctk.CTkLabel(
-            badge_row,textvariable=self.period_badge_text,
-            font=("Segoe UI Semibold",25),text_color=TEXT,
-            fg_color="#F1F3F7",corner_radius=13,padx=16,pady=8
-        ).pack(side="left")
-        ctk.CTkLabel(
-            badge_row,text="●  파일에서 자동 감지",
-            font=("Segoe UI Semibold",12),text_color="#1F8F46",
-            fg_color="#EAF8EE",corner_radius=13,padx=12,pady=7
-        ).pack(side="left",padx=(10,0))
-
-        divider=ctk.CTkFrame(period,width=1,height=54,fg_color="#E7E9EE",corner_radius=0)
-        divider.grid(row=0,column=1,sticky="w",pady=20)
-        ctk.CTkLabel(
-            period,text="ⓘ",font=("Segoe UI Semibold",26),
-            text_color=ACCENT
-        ).grid(row=0,column=2,padx=(22,10))
-        ctk.CTkLabel(
-            period,textvariable=self.period_text,
-            font=("Segoe UI",12),text_color=MUTED,
-            justify="left",anchor="w"
-        ).grid(row=0,column=3,sticky="w",padx=(0,24),pady=20)
-        period.grid_columnconfigure(3,weight=1)
-
-        # Input card
+        # Inputs: period, two file lists, account code, in one card.
         card=ctk.CTkFrame(
-            root,fg_color=CARD,border_width=1,border_color="#E6E8ED",
-            corner_radius=22
+            root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=16
         )
-        card.pack(fill="x")
-        card.grid_columnconfigure(0,minsize=150)
+        card.grid(row=1,column=0,sticky="ew")
+        card.grid_columnconfigure(0,minsize=132)
         card.grid_columnconfigure(1,weight=1)
-        card.grid_columnconfigure(2,minsize=250)
+        card.grid_columnconfigure(2,minsize=300)
 
-        header=ctk.CTkFrame(card,fg_color="transparent")
-        header.grid(row=0,column=0,columnspan=3,sticky="ew",padx=22,pady=(18,8))
-        ctk.CTkLabel(
-            header,text="▤",font=("Segoe UI",17),text_color="#7890BB"
-        ).pack(side="left",padx=(0,8))
-        ctk.CTkLabel(
-            header,text="입력 파일",font=("Segoe UI Semibold",18),
-            text_color=TEXT
-        ).pack(side="left")
-        ctk.CTkLabel(
-            header,text="첨부 파일을 읽기만 하고 수정하지 않습니다.",
-            font=("Segoe UI",12),text_color=MUTED
-        ).pack(side="left",padx=(12,0),pady=(2,0))
-
-        def add_file_row(row,title,count_var,add_command,remove_command):
-            label=ctk.CTkFrame(card,fg_color="transparent")
-            label.grid(row=row,column=0,sticky="nw",padx=(22,12),pady=12)
+        def row_label(row,title,hint_var=None):
+            box=ctk.CTkFrame(card,fg_color="transparent")
+            box.grid(row=row,column=0,sticky="nw",padx=(18,10),pady=(11,2))
             ctk.CTkLabel(
-                label,text=title,font=("Segoe UI Semibold",14),
-                text_color=TEXT,anchor="w"
+                box,text=title,font=font(13,True),text_color=TEXT,anchor="w"
             ).pack(anchor="w")
-            ctk.CTkLabel(
-                label,textvariable=count_var,font=("Segoe UI",10),
-                text_color=MUTED,anchor="w"
-            ).pack(anchor="w",pady=(3,0))
+            if hint_var is not None:
+                ctk.CTkLabel(
+                    box,textvariable=hint_var,font=font(11),text_color=MUTED,anchor="w"
+                ).pack(anchor="w",pady=(2,0))
 
+        # Row 0: accounting period with a real selector.
+        row_label(0,"대상 회계월")
+        period_row=ctk.CTkFrame(card,fg_color="transparent")
+        period_row.grid(row=0,column=1,columnspan=2,sticky="ew",pady=(8,2),padx=(0,18))
+        today=date.today()
+        menu_style=dict(
+            height=34,fg_color=CARD,button_color=SOFT,button_hover_color=SOFT_HOVER,
+            text_color=TEXT,dropdown_fg_color=CARD,dropdown_text_color=TEXT,
+            dropdown_hover_color=ACCENT_SOFT,font=font(13,True),dropdown_font=font(12),
+        )
+        ctk.CTkOptionMenu(
+            period_row,values=[str(y) for y in range(today.year-6,today.year+2)],
+            variable=self.year_text,command=self._on_period_menu,width=92,**menu_style
+        ).pack(side="left")
+        ctk.CTkLabel(period_row,text="년",font=font(13),text_color=TEXT).pack(side="left",padx=(4,8))
+        ctk.CTkOptionMenu(
+            period_row,values=[str(m) for m in range(1,13)],
+            variable=self.month_text,command=self._on_period_menu,width=74,**menu_style
+        ).pack(side="left")
+        ctk.CTkLabel(period_row,text="월",font=font(13),text_color=TEXT).pack(side="left",padx=(4,12))
+        self.detect_pill=ctk.CTkLabel(
+            period_row,text="",font=font(11,True),corner_radius=11,padx=10,pady=3
+        )
+        self.detect_pill.pack(side="left")
+        ctk.CTkLabel(
+            period_row,textvariable=self.period_text,font=font(12),text_color=MUTED,
+            anchor="e",justify="right"
+        ).pack(side="right")
+        self._set_detect_pill("none")
+
+        def add_file_row(row,title,count_var,add_command,remove_selected,remove_all):
+            row_label(row,title,count_var)
             file_box=ctk.CTkFrame(
-                card,fg_color="#FAFBFD",border_width=1,border_color="#DFE3EA",
-                corner_radius=13,height=52
+                card,fg_color=LIST_BG,border_width=1,border_color=BORDER_STRONG,
+                corner_radius=10,height=58
             )
-            file_box.grid(row=row,column=1,sticky="ew",pady=10)
+            file_box.grid(row=row,column=1,sticky="ew",pady=(8,2))
             file_box.grid_propagate(False)
             lb=tk.Listbox(
-                file_box,height=1,font=("Segoe UI",12),selectmode="extended",
-                bg="#FAFBFD",fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
+                file_box,height=2,font=font(10),selectmode="extended",
+                bg=LIST_BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
                 relief="flat",highlightthickness=0,borderwidth=0,
-                activestyle="none"
+                activestyle="none",exportselection=False
             )
-            lb.pack(side="left",fill="both",expand=True,padx=(12,8),pady=8)
+            lb.pack(side="left",fill="both",expand=True,padx=(12,8),pady=6)
+            lb.bind("<Delete>",lambda _e:remove_selected())
 
             actions=ctk.CTkFrame(card,fg_color="transparent")
-            actions.grid(row=row,column=2,padx=(14,18),pady=10,sticky="e")
+            actions.grid(row=row,column=2,padx=(12,18),pady=(8,2),sticky="e")
             ctk.CTkButton(
-                actions,text="＋  파일 추가",command=add_command,width=124,height=42,
-                corner_radius=11,fg_color="#EEF5FF",hover_color="#E4EFFF",
-                text_color=ACCENT,font=("Segoe UI Semibold",12)
+                actions,text="＋ 추가",command=add_command,width=82,height=34,
+                corner_radius=9,fg_color=ACCENT_SOFT,hover_color=ACCENT_SOFT_HOVER,
+                text_color=ACCENT,font=font(12,True)
             ).pack(side="left")
             ctk.CTkButton(
-                actions,text="첨부 제거",command=remove_command,width=116,height=42,
-                corner_radius=11,fg_color="#F6F7F9",hover_color="#ECEEF2",
-                text_color="#667085",font=("Segoe UI Semibold",12),
-                border_width=1,border_color="#E2E5EA"
-            ).pack(side="left",padx=(8,0))
+                actions,text="선택 제거",command=remove_selected,width=82,height=34,
+                corner_radius=9,fg_color=SOFT,hover_color=SOFT_HOVER,
+                text_color=TEXT2,font=font(12,True),
+                border_width=1,border_color=BORDER_STRONG
+            ).pack(side="left",padx=(6,0))
+            ctk.CTkButton(
+                actions,text="모두 제거",command=remove_all,width=82,height=34,
+                corner_radius=9,fg_color=SOFT,hover_color=SOFT_HOVER,
+                text_color=TEXT2,font=font(12,True),
+                border_width=1,border_color=BORDER_STRONG
+            ).pack(side="left",padx=(6,0))
             return lb
 
         self.prior_list=add_file_row(
-            1,"명세서",self.prior_count_text,self.pick_priors,self.remove_priors
+            1,"명세서",self.prior_count_text,self.pick_priors,
+            self.remove_priors,self.clear_priors
         )
         self.douzone_list=add_file_row(
-            2,"더존 Raw",self.raw_count_text,self.pick_douzone,self.remove_douzone
+            2,"더존 원장",self.raw_count_text,self.pick_douzone,
+            self.remove_douzone,self.clear_douzone
         )
 
-        options=ctk.CTkFrame(card,fg_color="#F7F8FA",corner_radius=14)
-        options.grid(row=3,column=0,columnspan=3,sticky="ew",padx=22,pady=(8,12))
+        options=ctk.CTkFrame(card,fg_color="transparent")
+        options.grid(row=3,column=0,columnspan=3,sticky="ew",padx=18,pady=(6,10))
         ctk.CTkLabel(
-            options,text="미지급금 계정코드",font=("Segoe UI Semibold",13),
-            text_color=TEXT
-        ).pack(side="left",padx=(14,10),pady=10)
+            options,text="미지급금 계정코드",font=font(13,True),text_color=TEXT
+        ).pack(side="left",padx=(0,10))
         ctk.CTkEntry(
-            options,textvariable=self.account_codes,width=170,height=38,
-            corner_radius=9,fg_color=CARD,border_color="#D6DAE2",
-            text_color=TEXT,font=("Segoe UI",12)
-        ).pack(side="left",pady=8)
+            options,textvariable=self.account_codes,width=170,height=34,
+            corner_radius=9,fg_color=CARD,border_color=BORDER_STRONG,
+            text_color=TEXT,font=font(12)
+        ).pack(side="left")
         ctk.CTkLabel(
-            options,text="│  여러 개면 쉼표로 구분",font=("Segoe UI",12),
-            text_color=MUTED
+            options,text="여러 개면 쉼표로 구분",font=font(12),text_color=MUTED
         ).pack(side="left",padx=(10,0))
 
-        guide=ctk.CTkFrame(card,fg_color="#F4F6F9",corner_radius=12)
-        guide.grid(row=4,column=0,columnspan=3,sticky="ew",padx=22,pady=(0,14))
-        ctk.CTkLabel(
-            guide,text="ⓘ",font=("Segoe UI Semibold",16),text_color=ACCENT
-        ).pack(side="left",padx=(12,8),pady=9)
-        ctk.CTkLabel(
-            guide,
-            text="명세서는 대상 회계월의 전월 말 시트를 선택합니다.  ·  행 날짜는 장기이월 때문에 대사키로 사용하지 않습니다.",
-            font=("Segoe UI",11),text_color="#667085",anchor="w"
-        ).pack(side="left",fill="x",expand=True,padx=(0,12),pady=9)
-
-        # Primary actions
-        actions=ctk.CTkFrame(root,fg_color="transparent")
-        actions.pack(fill="x",pady=(14,10))
-        ctk.CTkButton(
-            actions,text="▶   대사 시작",command=self.run,width=178,height=52,
-            corner_radius=13,fg_color=ACCENT,hover_color=ACCENT_HOVER,
-            text_color="white",font=("Segoe UI Semibold",14)
-        ).pack(side="left")
+        # Actions and live status on one row.
+        action_row=ctk.CTkFrame(root,fg_color="transparent")
+        action_row.grid(row=2,column=0,sticky="ew",pady=(10,0))
+        action_row.grid_columnconfigure(1,weight=1)
+        buttons=ctk.CTkFrame(action_row,fg_color="transparent")
+        buttons.grid(row=0,column=0,sticky="nw")
+        self.run_btn=ctk.CTkButton(
+            buttons,text="대사 시작",command=self.run,width=130,height=44,
+            corner_radius=11,fg_color=ACCENT,hover_color=ACCENT_HOVER,
+            text_color="white",text_color_disabled="white",font=font(14,True)
+        )
+        self.run_btn.pack(side="left")
         self.month_end_btn=ctk.CTkButton(
-            actions,text="▤   당월 명세서 생성",command=self.export_month_end,state="disabled",
-            width=198,height=52,corner_radius=13,fg_color="#EDE7F6",hover_color="#E4D8F5",
-            text_color="#6040A0",font=("Segoe UI Semibold",13)
+            buttons,text="당월 명세서 생성",command=self.export_month_end,state="disabled",
+            width=150,height=44,corner_radius=11,fg_color=ACCENT_SOFT,
+            hover_color=ACCENT_SOFT_HOVER,text_color=ACCENT,
+            text_color_disabled=DISABLED_FG,font=font(13,True)
         )
-        self.month_end_btn.pack(side="left",padx=(10,0))
+        self.month_end_btn.pack(side="left",padx=(8,0))
+        self.save_btn=ctk.CTkButton(
+            buttons,text="대사 결과 저장",command=self.export,state="disabled",
+            width=130,height=44,corner_radius=11,fg_color=SOFT,hover_color=SOFT_HOVER,
+            text_color=TEXT2,text_color_disabled=DISABLED_FG,font=font(13,True),
+            border_width=1,border_color=BORDER_STRONG
+        )
+        self.save_btn.pack(side="left",padx=(8,0))
 
-        # Status
         self.banner=ctk.CTkFrame(
-            root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=20
+            action_row,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=14
         )
-        self.banner.pack(fill="x",pady=(0,12))
+        self.banner.grid(row=0,column=1,sticky="ew",padx=(14,0))
         banner_inner=ctk.CTkFrame(self.banner,fg_color="transparent")
-        banner_inner.pack(fill="x",padx=18,pady=13)
+        banner_inner.pack(fill="x",padx=14,pady=7)
+        banner_inner.grid_columnconfigure(1,weight=1)
         self.banner_icon=ctk.CTkLabel(
-            banner_inner,text="●",font=("Segoe UI Semibold",20),
-            text_color=GREEN
+            banner_inner,text="●",font=font(16,True),text_color=MUTED,width=22
         )
-        self.banner_icon.pack(side="left",padx=(0,10))
-        banner_text=ctk.CTkFrame(banner_inner,fg_color="transparent")
-        banner_text.pack(side="left",fill="x",expand=True)
+        self.banner_icon.grid(row=0,column=0,rowspan=2,padx=(0,8))
         self.banner_title=ctk.CTkLabel(
-            banner_text,text="대사 전",font=("Segoe UI Semibold",17),
-            text_color=TEXT,anchor="w"
+            banner_inner,text="대사 전",font=font(14,True),text_color=TEXT,anchor="w"
         )
-        self.banner_title.pack(anchor="w")
+        self.banner_title.grid(row=0,column=1,sticky="w")
         self.banner_detail=ctk.CTkLabel(
-            banner_text,textvariable=self.status_text,font=("Segoe UI",12),
-            text_color=MUTED,anchor="w"
+            banner_inner,textvariable=self.status_text,font=font(12),
+            text_color=MUTED,anchor="w",justify="left",wraplength=520
         )
-        self.banner_detail.pack(fill="x",pady=(2,0))
+        self.banner_detail.grid(row=1,column=1,sticky="w")
+        self.progress=ctk.CTkProgressBar(
+            banner_inner,mode="indeterminate",width=110,height=6,
+            progress_color=ACCENT,fg_color=BORDER
+        )
+        self.progress.grid(row=0,column=2,rowspan=2,padx=(10,0))
+        self.progress.grid_remove()
+        self.banner.bind("<Configure>",self._on_banner_configure)
 
+        # Summary: plain numbers, colour only where it carries meaning.
         self.summary=ctk.CTkFrame(root,fg_color="transparent")
-        self.summary.pack(fill="x",pady=(0,12))
+        self.summary.grid(row=3,column=0,sticky="ew",pady=(10,10))
         self._summary({})
 
-        self.preflight=ctk.CTkLabel(
-            root,text="",font=("Segoe UI",10),text_color=WARN,
-            justify="left",anchor="w"
-        )
-        self.preflight.pack(fill="x",pady=(0,8))
-
-        # Result card
+        # Result: the main work area.
         result_card=ctk.CTkFrame(
-            root,fg_color=CARD,border_width=1,border_color="#E6E8ED",
-            corner_radius=22
+            root,fg_color=CARD,border_width=1,border_color=BORDER,corner_radius=16
         )
-        result_card.pack(fill="both",expand=True)
+        result_card.grid(row=4,column=0,sticky="nsew")
 
         result_header=ctk.CTkFrame(result_card,fg_color="transparent")
-        result_header.pack(fill="x",padx=18,pady=(16,8))
+        result_header.pack(fill="x",padx=16,pady=(12,4))
         ctk.CTkLabel(
-            result_header,text="☷",font=("Segoe UI",17),text_color="#7890BB"
-        ).pack(side="left",padx=(0,8))
-        ctk.CTkLabel(
-            result_header,text="결과 상세",font=("Segoe UI Semibold",17),
-            text_color=TEXT
+            result_header,text="결과 상세",font=font(15,True),text_color=TEXT
         ).pack(side="left")
-
+        view_style=dict(height=32,corner_radius=10,font=font(12,True))
         self.matched_view_btn=ctk.CTkButton(
             result_header,text="자동 대사 0",command=lambda:self._set_result_view("matched"),
-            width=132,height=40,corner_radius=14,fg_color="#F3F4F7",hover_color="#ECEEF2",
-            text_color=MUTED,font=("Segoe UI Semibold",12)
+            width=116,fg_color=SOFT,hover_color=SOFT_HOVER,text_color=TEXT2,**view_style
         )
         self.matched_view_btn.pack(side="right")
         self.review_view_btn=ctk.CTkButton(
             result_header,text="검토 필요 0",command=lambda:self._set_result_view("review"),
-            width=132,height=40,corner_radius=14,fg_color="#F3F4F7",hover_color="#ECEEF2",
-            text_color=MUTED,font=("Segoe UI Semibold",12)
+            width=116,fg_color=SOFT,hover_color=SOFT_HOVER,text_color=TEXT2,**view_style
         )
         self.review_view_btn.pack(side="right",padx=(0,6))
         self.all_view_btn=ctk.CTkButton(
             result_header,text="전체",command=lambda:self._set_result_view("all"),
-            width=96,height=40,corner_radius=14,fg_color=ACCENT,hover_color=ACCENT_HOVER,
-            text_color="white",font=("Segoe UI Semibold",12)
+            width=80,fg_color=ACCENT,hover_color=ACCENT_HOVER,text_color="white",**view_style
         )
         self.all_view_btn.pack(side="right",padx=(0,6))
 
+        hints=ctk.CTkFrame(result_card,fg_color="transparent")
+        hints.pack(fill="x",padx=16,pady=(0,6))
         ctk.CTkLabel(
-            result_card,textvariable=self.detail_hint_text,font=("Segoe UI",11),
+            hints,textvariable=self.detail_hint_text,font=font(12),
             text_color=MUTED,anchor="w"
-        ).pack(fill="x",padx=18,pady=(0,8))
+        ).pack(side="left")
+        self.preflight=ctk.CTkLabel(
+            hints,text="",font=font(12,True),text_color=WARN,anchor="e"
+        )
+        self.preflight.pack(side="right")
+
+        # The reason of the selected row, read in full (the table clips long text).
+        detail_panel=ctk.CTkFrame(result_card,fg_color="transparent")
+        detail_panel.pack(side="bottom",fill="x",padx=16,pady=(6,12))
+        panel_head=ctk.CTkFrame(detail_panel,fg_color="transparent")
+        panel_head.pack(fill="x")
+        ctk.CTkLabel(
+            panel_head,text="선택한 항목의 사유",font=font(12,True),text_color=TEXT2
+        ).pack(side="left")
+        ctk.CTkButton(
+            panel_head,text="사유 복사",command=self._copy_detail,width=80,height=26,
+            corner_radius=8,fg_color=SOFT,hover_color=SOFT_HOVER,text_color=TEXT2,
+            font=font(11,True),border_width=1,border_color=BORDER_STRONG
+        ).pack(side="right")
+        self.detail_text=ctk.CTkTextbox(
+            detail_panel,height=52,font=font(12),fg_color=LIST_BG,text_color=TEXT,
+            border_width=1,border_color=BORDER_STRONG,corner_radius=10,wrap="word"
+        )
+        self.detail_text.pack(fill="x",pady=(4,0))
+        self._show_detail("표에서 항목을 선택하면 사유 전체가 여기에 표시됩니다.")
 
         table_wrap=ctk.CTkFrame(
-            result_card,fg_color="#E4E7EC",corner_radius=12,border_width=0
+            result_card,fg_color=CARD,corner_radius=10,border_width=1,border_color=BORDER
         )
-        table_wrap.pack(fill="both",expand=True,padx=18,pady=(0,18))
+        table_wrap.pack(fill="both",expand=True,padx=16,pady=(0,0))
+        table_wrap.grid_columnconfigure(0,weight=1)
+        table_wrap.grid_rowconfigure(0,weight=1)
         self.detail=ttk.Treeview(
             table_wrap,
             columns=("owner","vendor","amount","status","reason"),
-            show="headings",height=8,
+            show="headings",height=3,selectmode="browse",
         )
         columns=(
-            ("owner","원본 명세",175),
-            ("vendor","거래처",190),
-            ("amount","금액",120),
-            ("status","상태",145),
-            ("reason","사유 / 참고",430),
+            ("owner","원본 명세",150,False,"w"),
+            ("vendor","거래처",170,False,"w"),
+            ("amount","금액",110,False,"e"),
+            ("status","상태",150,False,"w"),
+            ("reason","사유 / 참고",420,True,"w"),
         )
-        for col,title,width in columns:
-            self.detail.heading(col,text=title)
-            self.detail.column(col,width=width,anchor="w")
-        self.detail.tag_configure("matched",foreground="#248A3D")
-        self.detail.tag_configure("review",foreground="#8A5A00")
-        self.detail.pack(fill="both",expand=True,padx=1,pady=1)
+        for col,title,width,stretch,anchor in columns:
+            self.detail.heading(col,text=title,anchor=anchor)
+            self.detail.column(col,width=width,minwidth=70,anchor=anchor,stretch=stretch)
+        self.detail.tag_configure("matched",foreground=GREEN)
+        self.detail.tag_configure("review",foreground=WARN)
+        vsb=ctk.CTkScrollbar(
+            table_wrap,orientation="vertical",command=self.detail.yview,width=12,
+            fg_color=CARD,button_color="#B9BEC7",button_hover_color="#9AA1AD"
+        )
+        self.detail.configure(yscrollcommand=vsb.set)
+        self.detail.grid(row=0,column=0,sticky="nsew",padx=(1,0),pady=1)
+        vsb.grid(row=0,column=1,sticky="ns",padx=(0,2),pady=2)
+        self.detail.bind("<<TreeviewSelect>>",self._on_detail_select)
 
-        footer=ctk.CTkFrame(root,fg_color="#ECEEF2",corner_radius=11)
-        footer.pack(anchor="w",pady=(12,0))
-        ctk.CTkLabel(
-            footer,
-            text="안전 모드  ·  더존 직접 조작 없음  ·  날짜는 대사키로 사용하지 않음  ·  원본 덮어쓰기 금지",
-            font=("Segoe UI",10),text_color=MUTED
-        ).pack(padx=12,pady=6)
+        # Keyboard shortcuts for repeated monthly use.
+        self.bind_all("<Control-Return>",lambda _e:self.run())
+        self.bind_all("<Control-Key-1>",lambda _e:self.pick_priors())
+        self.bind_all("<Control-Key-2>",lambda _e:self.pick_douzone())
 
         self.account_codes.trace_add("write",lambda *_:self._on_account_code_changed())
+
+    def _on_banner_configure(self,event):
+        # Keep the status text wrapped inside the banner on any window width.
+        self.banner_detail.configure(wraplength=max(240,event.width-130))
 
     def _on_account_code_changed(self):
         self._invalidate_results()
         if self.prior_paths or self.douzone_paths:
             self.after_idle(lambda:self._maybe_align_period_from_inputs())
 
-    def _on_canvas_configure(self,event):
-        self.scroll_canvas.itemconfigure(self.scroll_window,width=event.width)
-        side=max(32,(event.width-1240)//2)
-        self.root_content.pack_configure(padx=side)
-
-    def _on_mousewheel(self,event):
-        if isinstance(event.widget,(tk.Listbox,ttk.Treeview)):
-            return
-        if getattr(event,"num",None)==4:
-            steps=-1
-        elif getattr(event,"num",None)==5:
-            steps=1
-        else:
-            delta=getattr(event,"delta",0)
-            if not delta:
-                return
-            steps=-1 if delta>0 else 1
-        self.scroll_canvas.yview_scroll(steps,"units")
-
     def _set_banner(self,kind,title,detail):
         palette={
             "idle":(CARD,TEXT,MUTED,BORDER),
-            "running":("#F2F7FF",ACCENT,MUTED,"#CFE2FF"),
-            "success":(GREEN_BG,GREEN,MUTED,"#CFE8D9"),
-            "warning":(WARN_BG,WARN,MUTED,"#F2D7A6"),
-            "error":(RED_BG,RED,MUTED,"#F3C7C2"),
+            "running":(RUN_BG,ACCENT,MUTED,RUN_BORDER),
+            "success":(GREEN_BG,GREEN,MUTED,GREEN_BORDER),
+            "warning":(WARN_BG,WARN,MUTED,WARN_BORDER),
+            "error":(RED_BG,RED,MUTED,RED_BORDER),
         }
         bg,title_fg,detail_fg,border=palette[kind]
         icon={"idle":"●","running":"●","success":"✓","warning":"!","error":"×"}[kind]
@@ -586,19 +571,42 @@ class App(ctk.CTk):
         self.banner_detail.configure(text_color=detail_fg)
         self.status_text.set(detail)
 
+    def _set_detect_pill(self,state):
+        """Show how the accounting month was chosen, so it never claims more than is true."""
+        text,fg,bg={
+            "none":("파일을 추가하면 자동 감지",MUTED,SOFT),
+            "auto":("파일에서 자동 설정됨",GREEN,GREEN_BG),
+            "manual":("직접 선택함",ACCENT,ACCENT_SOFT),
+            "undetected":("월을 감지하지 못함 · 직접 선택",WARN,WARN_BG),
+            "conflict":("파일의 월과 다름",WARN,WARN_BG),
+        }[state]
+        self.detect_pill.configure(text=text,text_color=fg,fg_color=bg)
+
     def _update_period(self):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
-            self.period_badge_text.set(p.label)
             self.period_text.set(
-                f"{p.label} 선택 → {p.previous().label} 말 명세서 + {p.label} 더존 원장\n"
-                f"{p.label} 말 미지급금 명세서 초안 생성"
+                f"{p.previous().label} 말 명세서 + {p.label} 더존 원장 → {p.label} 말 명세서 초안"
             )
+            self.year_text.set(str(p.year))
+            self.month_text.set(str(p.month))
         except Exception:
-            self.period_badge_text.set("자동 감지 대기")
             self.period_text.set("파일을 추가하면 회계월을 자동으로 감지합니다.")
         if hasattr(self,"prior_count_text"):
             self._refresh_file_counts()
+
+    def _on_period_menu(self,_value=None):
+        """The user picked the month: keep it, and tell them if the files disagree."""
+        try:
+            self.year.set(int(self.year_text.get()))
+            self.month.set(int(self.month_text.get()))
+        except (ValueError,tk.TclError):
+            return
+        self._period_manual=True
+        self._set_detect_pill("manual")
+        self._on_period_changed()
+        if self.prior_paths or self.douzone_paths:
+            self.after_idle(lambda:self._maybe_align_period_from_inputs())
 
     def _on_period_changed(self):
         self._update_period()
@@ -616,6 +624,7 @@ class App(ctk.CTk):
         self.last_source_paths=[]
         self.last_source_digests={}
         self.month_end_btn.configure(state="disabled")
+        self.save_btn.configure(state="disabled")
         self._summary({})
         self.preflight.configure(text="")
         self._clear_detail()
@@ -625,7 +634,7 @@ class App(ctk.CTk):
         if had_result:
             self._set_banner("warning","입력 조건 변경","입력 조건이 변경되었습니다. 다시 대사를 실행하세요.")
         else:
-            self._set_banner("idle","대사 전","대상 회계월과 파일을 선택한 뒤 대사를 시작하세요.")
+            self._set_banner("idle","대사 전",IDLE_HINT)
 
     def _refresh_file_counts(self):
         if not self.prior_paths and not self.douzone_paths:
@@ -646,11 +655,11 @@ class App(ctk.CTk):
 
     def _maybe_align_period_from_inputs(self, show_banner=True, detected=None):
         if not self.prior_paths and not self.douzone_paths:
-            self.period_badge_text.set("자동 감지 대기")
-            self.period_text.set("명세서와 Raw 파일을 추가하면 회계월을 자동으로 감지합니다.")
+            self._set_detect_pill("manual" if self._period_manual else "none")
+            self.period_text.set("명세서와 더존 원장 파일을 추가하면 회계월을 자동으로 감지합니다.")
             self._refresh_file_counts()
             if show_banner:
-                self._set_banner("idle","대사 전","명세서와 더존 Raw 파일을 추가해주세요.")
+                self._set_banner("idle","대사 전",IDLE_HINT)
             return None
 
         statement_groups=[]
@@ -682,30 +691,43 @@ class App(ctk.CTk):
         suggested,source=infer_period_from_inputs(statement_groups,raw_groups,preferred=current)
         if suggested is None:
             if source=="conflict":
+                self._set_detect_pill("conflict")
                 if show_banner:
                     statement_text=", ".join(p.label for p in sorted(set(statement_labels))) or "감지 안 됨"
                     raw_text=", ".join(p.label for p in sorted(set(raw_labels))) or "감지 안 됨"
                     self._set_banner(
                         "warning",
                         "회계월 자동 설정 보류",
-                        f"전월 명세서({statement_text})와 당월 더존 Raw({raw_text})가 이어지지 않습니다."
+                        f"전월 명세서({statement_text})와 당월 더존 원장({raw_text})가 이어지지 않습니다."
                     )
                 return False
+            self._set_detect_pill("manual" if self._period_manual else "undetected")
             return None
 
         if suggested!=current:
+            if self._period_manual:
+                # Never overwrite a month the user chose; say how it differs instead.
+                self._set_detect_pill("conflict")
+                if show_banner:
+                    self._set_banner(
+                        "warning","선택한 회계월 확인",
+                        f"선택한 {current.label}과 파일에서 감지한 {suggested.label}이 다릅니다. "
+                        "월을 다시 선택하거나 파일을 확인해주세요."
+                    )
+                return False
             # Set both variables without leaving a stale result behind.
             self.year.set(suggested.year)
             self.month.set(suggested.month)
             self._update_period()
+        self._set_detect_pill("manual" if self._period_manual else "auto")
 
         if show_banner:
             if source=="statement+raw":
-                detail=f"{suggested.previous().label} 명세서 + {suggested.label} 더존 Raw를 확인해 대상 회계월을 자동 설정했습니다."
+                detail=f"{suggested.previous().label} 명세서 + {suggested.label} 더존 원장를 확인해 대상 회계월을 자동 설정했습니다."
             elif source=="statement":
                 detail=f"전월 명세서 기준으로 당월 회계월을 {suggested.label}로 자동 설정했습니다."
             else:
-                detail=f"더존 Raw의 미지급금 전표월을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
+                detail=f"더존 원장의 미지급금 전표월을 기준으로 대상 회계월을 {suggested.label}로 자동 설정했습니다."
             self._refresh_file_counts()
             self._set_banner("idle","회계월 자동 설정",detail)
         return True
@@ -796,11 +818,11 @@ class App(ctk.CTk):
                     self.douzone_list.insert("end",Path(p).name)
                     added_raw=True
                     if requested_kind!="douzone":
-                        moved.append(f"{Path(p).name} → 더존 Raw")
+                        moved.append(f"{Path(p).name} → 더존 원장")
             elif kind=="ambiguous":
                 rejected.append(f"{Path(p).name}: 명세서와 더존 구조가 함께 보여 자동 분류하지 않음")
             else:
-                rejected.append(f"{Path(p).name}: 명세서/더존 Raw 구조를 식별하지 못함")
+                rejected.append(f"{Path(p).name}: 명세서/더존 원장 구조를 식별하지 못함")
 
         if added_prior or added_raw:
             self._refresh_file_counts()
@@ -826,76 +848,110 @@ class App(ctk.CTk):
     def pick_priors(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm *.xls")])
         if paths:
+            self._period_manual=False
             self._add_classified_files(paths,"prior")
 
     def pick_douzone(self):
         paths=filedialog.askopenfilenames(filetypes=[("Excel","*.xlsx *.xlsm *.xls")])
         if paths:
+            self._period_manual=False
             self._add_classified_files(paths,"douzone")
 
-    def remove_douzone(self):
-        if self._file_add_busy:
+    def _remove_selected(self,listbox,paths):
+        """Remove only the files the user selected (a single file needs no selection)."""
+        if self._file_add_busy or not paths:
             return
-        if not self.douzone_paths:
+        picked=sorted(listbox.curselection(),reverse=True)
+        if not picked:
+            if len(paths)==1:
+                picked=[0]
+            else:
+                self._set_banner(
+                    "warning","제거할 파일 선택",
+                    "목록에서 제거할 파일을 먼저 선택하세요. 전부 지우려면 '모두 제거'를 누르세요."
+                )
+                return
+        for index in picked:
+            if 0<=index<len(paths):
+                listbox.delete(index)
+                del paths[index]
+        self._after_inputs_removed()
+
+    def _clear_all(self,listbox,paths):
+        if self._file_add_busy or not paths:
             return
-        self.douzone_list.delete(0,"end")
-        self.douzone_paths.clear()
+        listbox.delete(0,"end")
+        paths.clear()
+        self._after_inputs_removed()
+
+    def _after_inputs_removed(self):
+        self._period_manual=False
         self._refresh_file_counts()
         self._invalidate_results()
         self._maybe_align_period_from_inputs()
 
     def remove_priors(self):
-        if self._file_add_busy:
-            return
-        if not self.prior_paths:
-            return
-        self.prior_list.delete(0,"end")
-        self.prior_paths.clear()
-        self._refresh_file_counts()
-        self._invalidate_results()
-        self._maybe_align_period_from_inputs()
+        self._remove_selected(self.prior_list,self.prior_paths)
+
+    def remove_douzone(self):
+        self._remove_selected(self.douzone_list,self.douzone_paths)
+
+    def clear_priors(self):
+        self._clear_all(self.prior_list,self.prior_paths)
+
+    def clear_douzone(self):
+        self._clear_all(self.douzone_list,self.douzone_paths)
 
     def _summary(self,counts):
         for w in self.summary.winfo_children():
             w.destroy()
         b=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
+        # Colour only the numbers that ask for attention; a zero stays quiet.
         cards=[
-            ("자동 대사 완료",b["matched"],"#EAF8EE",GREEN,"✓"),
-            ("검토 필요",b["review"],"#FFF4D8","#E58A00","!"),
-            ("입력 확인",b["issues"],"#EAF3FF",ACCENT,"▤"),
-            ("Raw 신규",b["new"],"#F4EAFE","#7A4ED6","+"),
+            ("자동 대사 완료",b["matched"],GREEN),
+            ("검토 필요",b["review"],WARN),
+            ("입력 확인",b["issues"],ACCENT),
+            ("당월 신규",b["new"],TEXT),
         ]
-        for i,(name,value,bg,color,icon) in enumerate(cards):
+        for i,(name,value,color) in enumerate(cards):
             box=ctk.CTkFrame(
-                self.summary,fg_color=bg,border_width=1,border_color=BORDER,
-                corner_radius=17,height=88
+                self.summary,fg_color=CARD,border_width=1,border_color=BORDER,
+                corner_radius=12
             )
             box.grid(row=0,column=i,sticky="nsew",padx=(0 if i==0 else 8,0))
-            box.grid_propagate(False)
-            self.summary.grid_columnconfigure(i,weight=1)
-
-            icon_box=ctk.CTkLabel(
-                box,text=icon,font=("Segoe UI Semibold",16),
-                text_color=color,fg_color=CARD,width=40,height=40,
-                corner_radius=20
-            )
-            icon_box.pack(side="left",padx=(14,10),pady=15)
-
-            body=ctk.CTkFrame(box,fg_color="transparent")
-            body.pack(side="left",fill="both",expand=True,pady=(12,10))
+            self.summary.grid_columnconfigure(i,weight=1,uniform="summary")
             ctk.CTkLabel(
-                body,text=name,font=("Segoe UI Semibold",12),
-                text_color="#344054",anchor="w"
-            ).pack(anchor="w")
+                box,text=name,font=font(12,True),text_color=TEXT2,anchor="w"
+            ).pack(side="left",padx=(14,8),pady=7)
             ctk.CTkLabel(
-                body,text=f"{value:,}건",font=("Segoe UI Semibold",24),
-                text_color=TEXT,anchor="w"
-            ).pack(anchor="w",pady=(1,0))
+                box,text=f"{value:,}건",font=font(18,True),
+                text_color=color if value else MUTED,anchor="e"
+            ).pack(side="right",padx=(8,14),pady=7)
         self._update_view_buttons()
 
     def _clear_detail(self):
         for row in self.detail.get_children():
             self.detail.delete(row)
+        self._detail_reasons={}
+        if hasattr(self,"detail_text"):
+            self._show_detail("표에서 항목을 선택하면 사유 전체가 여기에 표시됩니다.")
+
+    def _show_detail(self,text):
+        self.detail_text.configure(state="normal")
+        self.detail_text.delete("1.0","end")
+        self.detail_text.insert("1.0",text)
+        self.detail_text.configure(state="disabled")
+
+    def _on_detail_select(self,_event=None):
+        selected=self.detail.selection()
+        if selected:
+            self._show_detail(self._detail_reasons.get(selected[0],""))
+
+    def _copy_detail(self):
+        text=self.detail_text.get("1.0","end").strip()
+        if text:
+            self.clipboard_clear()
+            self.clipboard_append(text)
 
     def _set_result_view(self,mode):
         self.result_view=mode
@@ -911,8 +967,8 @@ class App(ctk.CTk):
         def style(btn,active,label):
             btn.configure(
                 text=label,
-                fg_color=ACCENT if active else "#F3F4F7",
-                text_color="white" if active else MUTED,
+                fg_color=ACCENT if active else SOFT,
+                text_color="white" if active else TEXT2,
                 border_width=0,
             )
 
@@ -941,90 +997,142 @@ class App(ctk.CTk):
                 if rows else "대사 결과가 없습니다."
             )
 
+        first=None
         for x in rows:
-            tag="matched" if x.status in (Status.MATCHED,Status.SIGNED_NET_AUTO) else "review"
-            self.detail.insert(
+            matched=x.status in (Status.MATCHED,Status.SIGNED_NET_AUTO)
+            amount=f"{int(x.closing_balance if x.status==Status.SIGNED_NET_AUTO else x.prior.amount):,}"
+            owner=x.prior.source.owner or x.prior.source.file_name
+            # A mark next to the colour, so status is never colour-only.
+            status_text=("✓ " if matched else "! ")+x.status.value
+            iid=self.detail.insert(
                 "","end",
-                values=(
-                    x.prior.source.owner or x.prior.source.file_name,
-                    x.prior.vendor_name,
-                    f"{int(x.closing_balance if x.status==Status.SIGNED_NET_AUTO else x.prior.amount):,}",
-                    ("● " + x.status.value) if x.status in (Status.MATCHED,Status.SIGNED_NET_AUTO) else x.status.value,
-                    x.reason,
-                ),
-                tags=(tag,),
+                values=(owner,x.prior.vendor_name,amount,status_text,x.reason),
+                tags=("matched" if matched else "review",),
             )
+            self._detail_reasons[iid]=(
+                f"{x.prior.vendor_name} · {amount}원 · {x.status.value}\n{x.reason}"
+            )
+            if first is None:
+                first=iid
+        if first is not None:
+            self.detail.selection_set(first)
+            self.detail.focus(first)
 
     def run(self):
         if self._file_add_busy:
             messagebox.showinfo("파일 분석 중","파일 분석이 완료된 후 대사를 실행해주세요.")
             return
+        if self._run_busy:
+            return
         if not self.prior_paths or not self.douzone_paths:
-            messagebox.showwarning("파일 필요","명세서와 더존 Raw를 각각 1개 이상 추가해주세요.")
+            messagebox.showwarning("파일 필요","명세서와 더존 원장을 각각 1개 이상 추가해주세요.")
             return
         self._invalidate_results()
         sync_state=self._maybe_align_period_from_inputs(show_banner=False)
         if sync_state is False:
-            self._set_banner("error","대사 중단","전월 명세서와 당월 더존 Raw의 회계월이 맞지 않습니다.")
+            self._set_banner("error","대사 중단","선택한 회계월과 파일의 월이 맞지 않습니다.")
             messagebox.showerror(
                 "회계월 확인",
-                "전월 말 명세서와 당월 더존 Raw가 이어지는 월인지 확인해주세요.\n파일의 월을 확인해주세요."
+                "전월 말 명세서와 당월 더존 원장이 이어지는 월인지, "
+                "선택한 회계월이 맞는지 확인해주세요.\n파일의 월과 선택한 월을 확인해주세요."
             )
             return
-        self._set_banner("running","대사 중","사전검사와 자동 대사를 진행하고 있습니다...")
-        self.update_idletasks()
         try:
-            source_paths=list(self.prior_paths)+list(self.douzone_paths)
-            before_digests=snapshot_file_digests(source_paths)
-            dup=find_duplicate_files(self.prior_paths,self.douzone_paths,before_digests)
-            if dup:
-                a,b=dup[0]
-                raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
-
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
-            codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
-            run=run_reconciliation(list(self.prior_paths),list(self.douzone_paths),codes,p)
+        except Exception as e:
+            self._set_banner("error","대사 중단","회계월을 확인한 뒤 다시 실행해주세요.")
+            messagebox.showerror("대사 중단",str(e))
+            return
+        codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
+        prior=list(self.prior_paths)
+        raw=list(self.douzone_paths)
+        source_paths=prior+raw
+        self._set_running(True)
+        self._set_banner("running","대사 중","사전검사와 자동 대사를 진행하고 있습니다. 큰 파일은 시간이 걸릴 수 있습니다.")
 
-            after_digests=snapshot_file_digests(source_paths)
-            if before_digests != after_digests:
-                raise ValueError("대사 실행 중 입력 Excel이 변경되었습니다. 파일 저장이 끝난 뒤 다시 실행해주세요.")
+        def worker():
+            # Heavy work (hashing, reading, matching) stays off the UI thread.
+            try:
+                before_digests=snapshot_file_digests(source_paths)
+                dup=find_duplicate_files(prior,raw,before_digests)
+                if dup:
+                    a,b=dup[0]
+                    raise ValueError(f"동일한 파일 내용이 중복 추가되었습니다: {a[1]} / {b[1]}")
+                run=run_reconciliation(prior,raw,codes,p)
+                after_digests=snapshot_file_digests(source_paths)
+                if before_digests != after_digests:
+                    raise ValueError("대사 실행 중 입력 Excel이 변경되었습니다. 파일 저장이 끝난 뒤 다시 실행해주세요.")
+                self._run_queue.put(("ok",(p,source_paths,run,after_digests)))
+            except Exception as e:
+                self._run_queue.put(("error",e))
 
-            self.issues=run.issues
-            self.results=run.results
-            self.new_items=run.new_items
-            self.last_reconciliation_run=run
-            counts=run.counts
-            self._summary(counts)
+        threading.Thread(target=worker,daemon=True).start()
+        self.after(100,self._poll_run)
 
-            breakdown=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
-            self.preflight.configure(
-                text=(
-                    f"입력 확인 {len(self.issues):,}건 · 해당 행은 자동 대사에서 제외했습니다."
-                    if self.issues else
-                    "사전검사 통과 · 자동 제외된 입력 이상이 없습니다."
-                ),
-                text_color=(WARN if self.issues else GREEN),
-            )
+    def _set_running(self,busy):
+        self._run_busy=busy
+        self.run_btn.configure(state="disabled" if busy else "normal",text="대사 중…" if busy else "대사 시작")
+        if busy:
+            self.month_end_btn.configure(state="disabled")
+            self.save_btn.configure(state="disabled")
+            self.progress.grid()
+            self.progress.start()
+        else:
+            self.progress.stop()
+            self.progress.grid_remove()
 
-            self.result_view="review" if any(x.status not in (Status.MATCHED,Status.SIGNED_NET_AUTO) for x in self.results) else "matched"
-            self._update_view_buttons()
-            self._refresh_detail()
-
-            self.last_period=p
-            self.last_source_paths=source_paths
-            self.last_source_digests=after_digests
-
-            detail=completion_detail(
-                p,run.prior_count,counts,len(self.new_items),len(self.issues)
-            )
-            if breakdown["review"] or breakdown["issues"]:
-                self._set_banner("success","대사 완료 · 확인 항목 있음",detail)
-            else:
-                self._set_banner("success","대사 완료",detail)
-            self.month_end_btn.configure(state="normal")
+    def _poll_run(self):
+        try:
+            kind,payload=self._run_queue.get_nowait()
+        except queue.Empty:
+            self.after(150,self._poll_run)
+            return
+        self._set_running(False)
+        if kind=="error":
+            self._set_banner("error","대사 중단","입력 내용을 확인한 뒤 다시 실행해주세요.")
+            messagebox.showerror("대사 중단",str(payload))
+            return
+        try:
+            self._finish_run(*payload)
         except Exception as e:
             self._set_banner("error","대사 중단","입력 내용을 확인한 뒤 다시 실행해주세요.")
             messagebox.showerror("대사 중단",str(e))
+
+    def _finish_run(self,p,source_paths,run,after_digests):
+        self.issues=run.issues
+        self.results=run.results
+        self.new_items=run.new_items
+        self.last_reconciliation_run=run
+        counts=run.counts
+        self._summary(counts)
+
+        breakdown=reconciliation_breakdown(counts,len(self.new_items),len(self.issues))
+        self.preflight.configure(
+            text=(
+                f"입력 확인 {len(self.issues):,}건 · 해당 행은 자동 대사에서 제외했습니다."
+                if self.issues else
+                "사전검사 통과 · 자동 제외된 입력 이상이 없습니다."
+            ),
+            text_color=(WARN if self.issues else GREEN),
+        )
+
+        self.result_view="review" if any(x.status not in (Status.MATCHED,Status.SIGNED_NET_AUTO) for x in self.results) else "matched"
+        self._update_view_buttons()
+        self._refresh_detail()
+
+        self.last_period=p
+        self.last_source_paths=source_paths
+        self.last_source_digests=after_digests
+
+        detail=completion_detail(
+            p,run.prior_count,counts,len(self.new_items),len(self.issues)
+        )
+        if breakdown["review"] or breakdown["issues"]:
+            self._set_banner("success","대사 완료 · 확인 항목 있음",detail)
+        else:
+            self._set_banner("success","대사 완료",detail)
+        self.month_end_btn.configure(state="normal")
+        self.save_btn.configure(state="normal")
 
     def export_month_end(self):
         """Save a separate, editable draft based on the original statement template."""
