@@ -29,13 +29,11 @@
 
 ## Windows 다운로드
 
-정식 최신 배포의 파일은 다음 두 가지입니다.
+정식 최신 배포의 파일은 하나입니다.
 
-- [PayableRecon.zip](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.zip) — 압축을 풀면 **PayableRecon.exe + 사용설명서.txt** 두 파일
-- [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe) — 실행파일만 필요한 경우
+- [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe) — 내려받아 바로 실행합니다.
 
-GitHub Release는 한글 이름을 가진 첨부파일을 자동으로 바꿀 수 있으므로, 설명서의 **정확한 한글 파일명은 ZIP 안에 보존**합니다.
-설명서는 [저장소에서도 바로 확인](docs/사용설명서.txt)할 수 있습니다.
+사용설명서는 [저장소에서 바로 확인](docs/사용설명서.txt)할 수 있습니다.
 개발 브랜치의 테스트 프로그램은 별도 `month-end-preview` Release에서 제공합니다.
 
 ## 실행
