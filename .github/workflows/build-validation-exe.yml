@@ -12,7 +12,6 @@ on:
       - "adapters/excel/**"
       - "requirements.txt"
       - "assets/**"
-      - "docs/사용설명서.txt"
 
 concurrency:
   group: stable-release-publish
@@ -74,15 +73,6 @@ jobs:
           $bitmap.Dispose()
           $icon.Dispose()
 
-      - name: Package Korean user guide
-        shell: pwsh
-        run: |
-          $manual = [System.IO.File]::ReadAllText((Resolve-Path "docs/사용설명서.txt"), [System.Text.Encoding]::UTF8)
-          $manual = $manual -replace '\r?\n', "`r`n"
-          $encoding = [System.Text.UTF8Encoding]::new($true)
-          [System.IO.File]::WriteAllText((Join-Path $PWD "dist/사용설명서.txt"), $manual, $encoding)
-          if ((Get-Item "dist/사용설명서.txt").Length -le 20) { throw "User guide is empty" }
-
       - name: Create SHA-256 checksums
         shell: pwsh
         run: |
@@ -99,7 +89,6 @@ jobs:
           if (-not (Test-Path $exe)) { throw "Release EXE was not created" }
           $size = (Get-Item $exe).Length
           if ($size -lt 1000000) { throw "Release EXE is unexpectedly small: $size bytes" }
-          if (-not (Test-Path "dist/사용설명서.txt")) { throw "Korean guide is missing" }
           Write-Host "Built $exe ($size bytes)"
 
       - name: Attest release EXE provenance
@@ -113,7 +102,6 @@ jobs:
           name: payable-recon-windows
           path: |
             dist/PayableRecon.exe
-            dist/사용설명서.txt
             dist/SHA256SUMS.txt
             dist/verified-file-icon.png
           if-no-files-found: error
@@ -127,7 +115,7 @@ jobs:
         run: |
           $tag = "download-latest"
           $assets = @("dist/PayableRecon.exe")
-          $notes = "PayableRecon 최신 정식 배포입니다. PayableRecon.exe를 받아 실행하세요. 사용설명서는 저장소의 docs/사용설명서.txt를 확인하세요. Build: $env:GITHUB_SHA."
+          $notes = "PayableRecon 최신 정식 배포입니다. PayableRecon.exe를 받아 실행하세요. Build: $env:GITHUB_SHA."
           gh release view $tag --repo "$env:GITHUB_REPOSITORY" *> $null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --clobber --repo "$env:GITHUB_REPOSITORY"
