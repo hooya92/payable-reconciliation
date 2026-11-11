@@ -62,6 +62,37 @@ class ExportToleranceTests(unittest.TestCase):
             self.assertTrue(run.results)
             self.assertTrue(out.exists())
 
+    def test_reason_lists_every_problem_row_and_says_how_to_fix(self):
+        def edit(wb,ws):
+            ws["E3"]="N/A"; ws["E4"]=None; ws["D6"]=None
+        with tempfile.TemporaryDirectory() as folder:
+            prior,raw,run,out=self.prepare(folder,edit)
+            kind,reason=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
+            self.assertEqual(kind,"plain")
+            for expected in ("3건","명세서 3행","N/A","명세서 4행","빈 칸을 채우거나"):
+                self.assertIn(expected,reason)
+            wb=load_workbook(out)
+            try:
+                note=next(r for r in wb["요약"].iter_rows(values_only=True) if r[0]=="안내")[1]
+                self.assertIn("명세서 3행",note)
+                self.assertIn("명세서 4행",note)
+            finally:
+                wb.close()
+
+    def test_whole_sheet_reasons_name_the_sheet_or_cells_to_change(self):
+        cases=(
+            (lambda wb,ws: setattr(ws.protection,"sheet",True),("26.08","보호")),
+            (lambda wb,ws: ws.merge_cells("C3:D3"),("C3:D3","병합")),
+            (lambda wb,ws: wb.create_sheet("26.09"),("26.09","삭제하거나 이름을 바꾼")),
+            (lambda wb,ws: ws.__setitem__("A5",None),("소계","코드")),
+        )
+        for edit,words in cases:
+            with self.subTest(words), tempfile.TemporaryDirectory() as folder:
+                prior,raw,run,out=self.prepare(folder,edit)
+                _,reason=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
+                for word in words:
+                    self.assertIn(word,reason)
+
     def test_never_overwrites_an_input_file(self):
         with tempfile.TemporaryDirectory() as folder:
             prior,raw,run,_=self.prepare(folder,lambda wb,ws: ws.merge_cells("C3:D3"))
