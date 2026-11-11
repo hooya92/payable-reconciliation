@@ -20,8 +20,9 @@ class MonthEndSourceProtectionTests(unittest.TestCase):
                            last_source_paths=[],prior_paths=[],
                            _set_banner=lambda *args: None)
         with patch("app.filedialog.asksaveasfilename",return_value="result.xlsx"), \
-                patch("app.write_month_end_statement",
-                      side_effect=[PermissionError(13,"Permission denied","result.xlsx"),None]) as writer, \
+                patch("app.export_month_end_draft",
+                      side_effect=[PermissionError(13,"Permission denied","result.xlsx"),
+                                   ("template","")]) as writer, \
                 patch("app.messagebox.showerror") as error, \
                 patch("app.open_saved_folder") as reveal:
             App.export_month_end(ui)
@@ -77,7 +78,7 @@ class MonthEndSourceProtectionTests(unittest.TestCase):
                            last_reconciliation_run=run,last_source_digests={})
         with patch("app.filedialog.asksaveasfilename",return_value=""), \
                 patch("app.open_saved_folder") as reveal, \
-                patch("app.write_month_end_statement") as writer:
+                patch("app.export_month_end_draft") as writer:
             App.export_month_end(ui)
         reveal.assert_not_called()
         writer.assert_not_called()
