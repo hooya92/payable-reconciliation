@@ -33,7 +33,6 @@
 
 - [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe) — 내려받아 바로 실행합니다.
 
-사용설명서는 [저장소에서 바로 확인](docs/사용설명서.txt)할 수 있습니다.
 개발 브랜치의 테스트 프로그램은 별도 `month-end-preview` Release에서 제공합니다.
 
 ## 실행
