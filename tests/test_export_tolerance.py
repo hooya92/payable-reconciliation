@@ -5,12 +5,22 @@ from pathlib import Path
 from openpyxl import load_workbook
 
 from adapters.excel.writer import write_result
-from application.month_end_export import export_month_end_draft
+from adapters.excel.month_end_statement import write_month_end_statement
 from application.service import run_reconciliation
 from tests import test_journal_corrections as fixtures
 
 PERIOD=fixtures.PERIOD
 ROWS=[("001111","가상공영","벨트 교체",700000,0,"2026-09-03")]
+
+
+def write_template(out, prior, raw, run):
+    """The month-end statement is only ever written in the original template format."""
+    write_month_end_statement(
+        out,[prior],run.results,run.new_items,run.issues,PERIOD,
+        standalone_debits=run.standalone_debits,
+        journal_items=run.journal_items,journal_sources=run.journal_sources,
+        source_paths=[prior,raw],
+    )
 
 
 def formula_cells(wb, skip=()):
@@ -26,58 +36,39 @@ class ExportToleranceTests(unittest.TestCase):
         run=run_reconciliation([prior],[raw],{"25301"},PERIOD)
         return prior,raw,run,Path(folder)/"out.xlsx"
 
+    def reason_for(self, edit):
+        """Run the export on a statement that cannot keep its format; return (message, out)."""
+        with tempfile.TemporaryDirectory() as folder:
+            prior,raw,run,out=self.prepare(folder,edit)
+            with self.assertRaises(ValueError) as caught:
+                write_template(out,prior,raw,run)
+            # No differently shaped file is saved in place of the statement.
+            self.assertFalse(out.exists())
+            return str(caught.exception)
+
     def test_normal_statement_keeps_template(self):
         with tempfile.TemporaryDirectory() as folder:
             prior,raw,run,out=self.prepare(folder)
-            kind,reason=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
-            self.assertEqual((kind,reason),("template",""))
+            write_template(out,prior,raw,run)
             self.assertIn("26.09",load_workbook(out).sheetnames)
 
-    def test_unkeepable_template_falls_back_to_plain_draft_with_reason(self):
+    def test_unkeepable_template_is_refused_with_a_reason_and_no_other_file(self):
         cases={
             "merged body":lambda wb,ws: ws.merge_cells("C3:D3"),
             "protected sheet":lambda wb,ws: setattr(ws.protection,"sheet",True),
             "existing target sheet":lambda wb,ws: wb.create_sheet("26.09"),
+            "unreadable amount":lambda wb,ws: ws.__setitem__("E4","N/A"),
         }
         for name,edit in cases.items():
-            with self.subTest(name), tempfile.TemporaryDirectory() as folder:
-                prior,raw,run,out=self.prepare(folder,edit)
-                kind,reason=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
-                self.assertEqual(kind,"plain")
-                self.assertTrue(reason)
-                wb=load_workbook(out)
-                try:
-                    self.assertIn("당월말명세서 초안",wb.sheetnames)
-                    notes=[r for r in wb["요약"].iter_rows(values_only=True) if r[0]=="안내"]
-                    self.assertIn(reason,notes[0][1])
-                finally:
-                    wb.close()
-
-    def test_unreadable_amount_still_reconciles_and_saves(self):
-        with tempfile.TemporaryDirectory() as folder:
-            prior,raw,run,out=self.prepare(
-                folder,lambda wb,ws: ws.__setitem__("E4","N/A"))
-            kind,_=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
-            self.assertEqual(kind,"plain")
-            self.assertTrue(run.results)
-            self.assertTrue(out.exists())
+            with self.subTest(name):
+                self.assertTrue(self.reason_for(edit))
 
     def test_reason_lists_every_problem_row_and_says_how_to_fix(self):
         def edit(wb,ws):
             ws["E3"]="N/A"; ws["E4"]=None; ws["D6"]=None
-        with tempfile.TemporaryDirectory() as folder:
-            prior,raw,run,out=self.prepare(folder,edit)
-            kind,reason=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
-            self.assertEqual(kind,"plain")
-            for expected in ("3건","명세서 3행","N/A","명세서 4행","빈 칸을 채우거나"):
-                self.assertIn(expected,reason)
-            wb=load_workbook(out)
-            try:
-                note=next(r for r in wb["요약"].iter_rows(values_only=True) if r[0]=="안내")[1]
-                self.assertIn("명세서 3행",note)
-                self.assertIn("명세서 4행",note)
-            finally:
-                wb.close()
+        reason=self.reason_for(edit)
+        for expected in ("3건","명세서 3행","N/A","명세서 4행","빈 칸을 채우거나"):
+            self.assertIn(expected,reason)
 
     def test_whole_sheet_reasons_name_the_sheet_or_cells_to_change(self):
         cases=(
@@ -87,18 +78,17 @@ class ExportToleranceTests(unittest.TestCase):
             (lambda wb,ws: ws.__setitem__("A5",None),("소계","코드")),
         )
         for edit,words in cases:
-            with self.subTest(words), tempfile.TemporaryDirectory() as folder:
-                prior,raw,run,out=self.prepare(folder,edit)
-                _,reason=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
+            with self.subTest(words):
+                reason=self.reason_for(edit)
                 for word in words:
                     self.assertIn(word,reason)
 
     def test_never_overwrites_an_input_file(self):
         with tempfile.TemporaryDirectory() as folder:
-            prior,raw,run,_=self.prepare(folder,lambda wb,ws: ws.merge_cells("C3:D3"))
+            prior,raw,run,_=self.prepare(folder)
             before=prior.read_bytes()
             with self.assertRaises(ValueError):
-                export_month_end_draft(prior,[prior],run,PERIOD,[prior,raw])
+                write_template(prior,prior,raw,run)
             self.assertEqual(prior.read_bytes(),before)
 
     def test_source_text_starting_with_equals_stays_text(self):
@@ -106,8 +96,7 @@ class ExportToleranceTests(unittest.TestCase):
               ("000002","정상 업체","=SUM(",100,0,"2026-09-04")]
         with tempfile.TemporaryDirectory() as folder:
             prior,raw,run,out=self.prepare(folder,rows=rows)
-            kind,_=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
-            self.assertEqual(kind,"template")
+            write_template(out,prior,raw,run)
             wb=load_workbook(out)
             try:
                 # Only the intended SUM subtotal/total formulas remain on the statement sheet.
