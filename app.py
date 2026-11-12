@@ -290,6 +290,7 @@ class App(ctk.CTk):
 
         # Inputs: period, two file lists, account code, in one group.
         form=group(root)
+        self.form=form
         form.grid(row=1,column=0,sticky="ew")
         form.grid_columnconfigure(0,minsize=120)
         form.grid_columnconfigure(1,weight=1)
@@ -414,11 +415,20 @@ class App(ctk.CTk):
             width=132,**secondary
         )
         self.month_end_btn.pack(side="left",padx=(8,0))
-        self.save_btn=ctk.CTkButton(
-            buttons,text="대사 결과 저장",command=self.export,state="disabled",
-            width=116,**secondary
+        # Compact input recap shown instead of the form once a run has finished.
+        self.input_bar=group(root)
+        self.input_bar.grid(row=1,column=0,sticky="ew")
+        self.input_bar.grid_columnconfigure(0,weight=1)
+        self.input_bar_text=ctk.CTkLabel(
+            self.input_bar,text="",font=font(12),text_color=TEXT2,anchor="w"
         )
-        self.save_btn.pack(side="left",padx=(8,0))
+        self.input_bar_text.grid(row=0,column=0,sticky="ew",padx=(18,8),pady=10)
+        ctk.CTkButton(
+            self.input_bar,text="입력 수정",command=self._open_inputs,width=76,height=28,
+            corner_radius=8,fg_color="transparent",hover_color=SOFT,text_color=ACCENT,
+            font=font(12,True),border_width=0
+        ).grid(row=0,column=1,padx=(0,12),pady=6)
+        self.input_bar.grid_remove()
 
         # Status: plain text, no box. Colour carries only the state.
         self.banner=ctk.CTkFrame(action_row,fg_color="transparent")
@@ -451,8 +461,25 @@ class App(ctk.CTk):
         # Result: the main work area.
         result=ctk.CTkFrame(root,fg_color="transparent")
         result.grid(row=4,column=0,sticky="nsew")
+        # Before a run there is nothing to list: show how the flow goes instead of an empty table.
+        self.result_empty=group(result)
+        ctk.CTkLabel(
+            self.result_empty,text="결과가 여기에 나타납니다",font=font(15,True),
+            text_color=TEXT,anchor="w"
+        ).pack(anchor="w",padx=22,pady=(20,8))
+        for line in (
+            "1.  전월 말 명세서와 당월 더존 원장을 추가합니다.",
+            "2.  대사를 시작하면 자동으로 짝을 맞추고, 사람이 볼 항목만 추려 줍니다.",
+            "3.  결과를 검토한 뒤 당월 명세서를 생성합니다. 전월 명세서 양식 그대로 저장됩니다.",
+        ):
+            ctk.CTkLabel(
+                self.result_empty,text=line,font=font(12),text_color=TEXT2,anchor="w"
+            ).pack(anchor="w",padx=22,pady=3)
+        ctk.CTkFrame(self.result_empty,height=14,fg_color="transparent").pack()
+        result_main=ctk.CTkFrame(result,fg_color="transparent")
+        self.result_main=result_main
 
-        result_header=ctk.CTkFrame(result,fg_color="transparent")
+        result_header=ctk.CTkFrame(result_main,fg_color="transparent")
         result_header.pack(fill="x",pady=(0,8))
         ctk.CTkLabel(
             result_header,text="결과 상세",font=font(16,True),text_color=TEXT
@@ -476,8 +503,15 @@ class App(ctk.CTk):
             width=100,fg_color="transparent",hover_color=SOFT_HOVER,text_color=TEXT2,**view_style
         )
         self.matched_view_btn.pack(side="left",padx=(0,2),pady=2)
+        # Rarely needed, so it lives next to the results rather than among the main actions.
+        self.save_btn=ctk.CTkButton(
+            result_header,text="대사 결과 저장",command=self.export,state="disabled",
+            width=104,height=28,corner_radius=8,fg_color="transparent",hover_color=SOFT,
+            text_color=TEXT2,text_color_disabled=DISABLED_FG,font=font(12,True),border_width=0
+        )
+        self.save_btn.pack(side="right",padx=(0,10))
 
-        hints=ctk.CTkFrame(result,fg_color="transparent")
+        hints=ctk.CTkFrame(result_main,fg_color="transparent")
         hints.pack(fill="x",pady=(0,6))
         ctk.CTkLabel(
             hints,textvariable=self.detail_hint_text,font=font(11),
@@ -489,7 +523,7 @@ class App(ctk.CTk):
         self.preflight.pack(side="right")
 
         # The reason of the selected row, read in full (the table clips long text).
-        detail_panel=group(result)
+        detail_panel=group(result_main)
         detail_panel.pack(side="bottom",fill="x",pady=(8,0))
         panel_head=ctk.CTkFrame(detail_panel,fg_color="transparent")
         panel_head.pack(fill="x",padx=14,pady=(9,0))
@@ -502,13 +536,13 @@ class App(ctk.CTk):
             font=font(11,True),border_width=0
         ).pack(side="right")
         self.detail_text=ctk.CTkTextbox(
-            detail_panel,height=44,font=font(12),fg_color=CARD,text_color=TEXT,
+            detail_panel,height=58,font=font(12),fg_color=CARD,text_color=TEXT,
             border_width=0,corner_radius=0,wrap="word"
         )
         self.detail_text.pack(fill="x",padx=10,pady=(2,8))
         self._show_detail("표에서 항목을 선택하면 사유 전체가 여기에 표시됩니다.")
 
-        table_wrap=group(result)
+        table_wrap=group(result_main)
         table_wrap.pack(fill="both",expand=True)
         table_wrap.grid_columnconfigure(0,weight=1)
         table_wrap.grid_rowconfigure(0,weight=1)
@@ -544,6 +578,53 @@ class App(ctk.CTk):
         self.bind_all("<Control-Key-2>",lambda _e:self.pick_douzone())
 
         self.account_codes.trace_add("write",lambda *_:self._on_account_code_changed())
+        self._inputs_open=False
+        self._apply_state_layout()
+
+    def _style_button(self,btn,primary):
+        if primary:
+            btn.configure(
+                fg_color=ACCENT,hover_color=ACCENT_HOVER,text_color="white",
+                text_color_disabled="white"
+            )
+        else:
+            btn.configure(
+                fg_color=SOFT,hover_color=SOFT_HOVER,text_color=TEXT,
+                text_color_disabled=DISABLED_FG
+            )
+
+    def _apply_state_layout(self):
+        """Show what the next step needs: the primary button, the inputs, or the results."""
+        if not hasattr(self,"result_main") or not hasattr(self,"_inputs_open"):
+            return
+        done=self.last_reconciliation_run is not None and not self._run_busy
+        self._style_button(self.run_btn,not done)
+        self._style_button(self.month_end_btn,done)
+        if done:
+            self.result_empty.pack_forget()
+            self.result_main.pack(fill="both",expand=True)
+            self.summary.grid()
+        else:
+            self.result_main.pack_forget()
+            self.result_empty.pack(fill="x")
+            self.summary.grid_remove()
+        if done and not self._inputs_open:
+            codes=", ".join(sorted(parse_account_codes(self.account_codes.get()))) or "-"
+            period=self.last_period
+            label=f"{period.year%100:02d}.{period.month:02d}" if period else ""
+            self.input_bar_text.configure(
+                text=f"명세서 {len(self.prior_paths)}개  ·  더존 원장 {len(self.douzone_paths)}개"
+                     f"  ·  계정코드 {codes}  ·  {label} 대상"
+            )
+            self.form.grid_remove()
+            self.input_bar.grid()
+        else:
+            self.input_bar.grid_remove()
+            self.form.grid()
+
+    def _open_inputs(self):
+        self._inputs_open=True
+        self._apply_state_layout()
 
     def _on_banner_configure(self,event):
         # Keep the status text wrapped inside the banner on any window width.
@@ -615,6 +696,7 @@ class App(ctk.CTk):
         self.last_source_digests={}
         self.month_end_btn.configure(state="disabled")
         self.save_btn.configure(state="disabled")
+        self._inputs_open=False
         self._summary({})
         self.preflight.configure(text="")
         self._clear_detail()
@@ -625,6 +707,7 @@ class App(ctk.CTk):
             self._set_banner("warning","입력 조건 변경","입력 조건이 변경되었습니다. 다시 대사를 실행하세요.")
         else:
             self._set_banner("idle","대사 전",IDLE_HINT)
+        self._apply_state_layout()
 
     def _refresh_file_counts(self):
         if not self.prior_paths and not self.douzone_paths:
@@ -1065,6 +1148,7 @@ class App(ctk.CTk):
         else:
             self.progress.stop()
             self.progress.grid_remove()
+        self._apply_state_layout()
 
     def _poll_run(self):
         try:
@@ -1121,6 +1205,8 @@ class App(ctk.CTk):
             self._set_banner("success","대사 완료",detail)
         self.month_end_btn.configure(state="normal")
         self.save_btn.configure(state="normal")
+        self._inputs_open=False
+        self._apply_state_layout()
 
     def export_month_end(self):
         """Save a separate, editable draft based on the original statement template."""

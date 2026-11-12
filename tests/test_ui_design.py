@@ -124,19 +124,61 @@ class PeriodChoiceTests(unittest.TestCase):
 
 @unittest.skipUnless(os.environ.get("DISPLAY") or os.name=="nt","needs a display")
 class SmokeTests(unittest.TestCase):
-    def test_window_builds_and_result_table_is_visible_at_minimum_size(self):
+    def test_window_builds_with_the_flow_guide_and_run_as_primary_action(self):
         app=A.App()
         try:
             app.geometry("900x740+0+0")
             app.update()
-            # Not collapsed: header plus part of a row stay visible. Font metrics
-            # differ between Windows and Linux, so this is a floor, not an exact size.
-            self.assertGreaterEqual(app.detail.winfo_height(),40)
             self.assertEqual(app.run_btn.cget("state"),"normal")
             self.assertEqual(app.month_end_btn.cget("state"),"disabled")
             self.assertEqual(app.save_btn.cget("state"),"disabled")
+            # Nothing to list yet: the flow guide is shown instead of an empty table.
+            self.assertTrue(app.result_empty.winfo_ismapped())
+            self.assertFalse(app.result_main.winfo_ismapped())
+            self.assertTrue(app.form.winfo_ismapped())
+            self.assertEqual(app.run_btn.cget("fg_color"),A.ACCENT)
+            self.assertEqual(app.month_end_btn.cget("fg_color"),A.SOFT)
         finally:
             app.destroy()
+
+    def test_after_a_run_the_next_step_becomes_primary_and_inputs_collapse(self):
+        import tempfile
+        import time
+        from pathlib import Path
+        from tests.test_account_codes import prior,raw
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"p.xlsx"; r=Path(d)/"r.xlsx"; prior(p); raw(r)
+            app=A.App()
+            try:
+                app.geometry("900x740+0+0")
+                app.prior_paths.append(str(p)); app.prior_list.insert("end",p.name)
+                app.douzone_paths.append(str(r)); app.douzone_list.insert("end",r.name)
+                app.year.set(2026); app.month.set(9)
+                app.account_codes.set("25301，25302")
+                app.update()
+                app.run()
+                deadline=time.time()+30
+                while (app._run_busy or app.last_reconciliation_run is None) and time.time()<deadline:
+                    app.update(); time.sleep(0.05)
+                app.update()
+                self.assertIsNotNone(app.last_reconciliation_run)
+                self.assertEqual(app.month_end_btn.cget("state"),"normal")
+                self.assertEqual(app.month_end_btn.cget("fg_color"),A.ACCENT)
+                self.assertEqual(app.run_btn.cget("fg_color"),A.SOFT)
+                self.assertTrue(app.result_main.winfo_ismapped())
+                self.assertFalse(app.result_empty.winfo_ismapped())
+                # Inputs fold into one line; the table keeps usable height at the minimum size.
+                self.assertTrue(app.input_bar.winfo_ismapped())
+                self.assertFalse(app.form.winfo_ismapped())
+                self.assertGreaterEqual(app.detail.winfo_height(),90)
+                # Changing an input drops the result and puts the form back.
+                app.account_codes.set("25301")
+                app.update()
+                self.assertTrue(app.form.winfo_ismapped())
+                self.assertTrue(app.result_empty.winfo_ismapped())
+                self.assertEqual(app.month_end_btn.cget("state"),"disabled")
+            finally:
+                app.destroy()
 
 
 if __name__=="__main__":
