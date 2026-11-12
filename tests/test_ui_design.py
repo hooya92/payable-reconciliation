@@ -115,7 +115,7 @@ class PeriodChoiceTests(unittest.TestCase):
     def test_detect_states_never_claim_more_than_is_true(self):
         seen={}
         label=SimpleNamespace(configure=lambda **kw: seen.update(kw))
-        ui=SimpleNamespace(detect_pill=label)
+        ui=SimpleNamespace(detect_pill=label,_sync_period_picker=lambda: None)
         A.App._set_detect_pill(ui,"none")
         self.assertNotIn("자동 설정됨",seen["text"])
         A.App._set_detect_pill(ui,"auto")
@@ -140,6 +140,42 @@ class SmokeTests(unittest.TestCase):
             self.assertEqual(app.month_end_btn.cget("fg_color"),A.SOFT)
         finally:
             app.destroy()
+
+    def test_period_pickers_are_a_fallback_shown_only_when_needed(self):
+        import tempfile
+        from pathlib import Path
+        from tests.test_account_codes import prior,raw
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"p.xlsx"; r=Path(d)/"r.xlsx"; prior(p); raw(r)
+            app=A.App()
+            try:
+                app.geometry("980x800+0+0")
+                app.update()
+                # Quiet by default: one line with the month, the pickers hidden.
+                self.assertFalse(app.period_picker.winfo_ismapped())
+                self.assertEqual(app.period_toggle_btn.cget("text"),"변경")
+                self.assertRegex(app.period_value_text.get(),r"^\d{4}년 \d{1,2}월$")
+                # The user can open them on purpose, and close them again.
+                app._toggle_period_picker(); app.update()
+                self.assertTrue(app.period_picker.winfo_ismapped())
+                self.assertEqual(app.period_toggle_btn.cget("text"),"접기")
+                app._toggle_period_picker(); app.update()
+                self.assertFalse(app.period_picker.winfo_ismapped())
+                # Detection failed or the files disagree: the user must choose, so they open.
+                for state in ("undetected","conflict"):
+                    app._set_detect_pill(state); app.update()
+                    self.assertTrue(app.period_picker.winfo_ismapped(),state)
+                    self.assertFalse(app.period_toggle_btn.winfo_ismapped(),state)
+                # Files whose month is detected keep the pickers out of the way.
+                app._period_picker_open=False
+                app.prior_paths.append(str(p)); app.prior_list.insert("end",p.name)
+                app.douzone_paths.append(str(r)); app.douzone_list.insert("end",r.name)
+                app._maybe_align_period_from_inputs(); app.update()
+                self.assertEqual(app._detect_state,"auto")
+                self.assertEqual(app.period_value_text.get(),"2026년 9월")
+                self.assertFalse(app.period_picker.winfo_ismapped())
+            finally:
+                app.destroy()
 
     def test_after_a_run_the_next_step_becomes_primary_and_inputs_collapse(self):
         import tempfile
