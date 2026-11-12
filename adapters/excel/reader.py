@@ -171,6 +171,11 @@ def _header(v): return "".join(_text(v).lower().split())
 def _date(v):
     if isinstance(v, (datetime, date)): return v.strftime("%Y-%m-%d")
     return _text(v)
+def _is_blank(v):
+    """None, or text with only spaces: Excel leaves such stray cells behind often."""
+    return v is None or (isinstance(v,str) and not v.strip())
+
+
 def _is_summary_label(v):
     return _header(v) in {"소계","합계","총계","전체합계"}
 
@@ -184,22 +189,57 @@ def _statement_auxiliary_kind(values, columns):
         ("vendor_code","vendor_name","date","description","amount"))
     if code and name:
         return None
-    labels={_header(v) for v in (code,name,when,desc) if v is not None}
+    labels={_header(v) for v in (code,name,when,desc) if not _is_blank(v)}
     if labels & {"합계","총계","전체합계","총합계"}:
         return "total"
-    if when not in (None,""):
+    if not _is_blank(when):
         return None
     references={"더존","더존합계","더존원장","더존잔액","원장","원장합계",
                 "원장잔액","원장대조","대조금액","차이","차액","비고","메모",
                 "참고","검증","검증금액","확인"}
     if labels & references or any(
         re.match(r"^(비고|메모|참고|검증)(?:\s|[:：])",_text(v))
-        for v in (code,name,desc) if v is not None
+        for v in (code,name,desc) if not _is_blank(v)
     ):
         return "reference"
-    if not code and not name and amount in (None,"") and any(v is not None for v in values):
+    if not code and not name and _is_blank(amount) and any(not _is_blank(v) for v in values):
         return "note"
     return None
+
+
+def _statement_row_kinds(rows, columns):
+    """Kind of each statement row ({row number: kind}), aware of where the table ends.
+
+    The last grand-total row ("합 계") is the end of the statement. Below it Excel
+    often leaves stray cells (a space, a number, a word). Such rows are not
+    transactions, so they are kept as plain notes instead of being read as
+    detail rows. A row below the total that still looks like a real transaction
+    (description and amount, or vendor code and name) is NOT hidden: it stays a
+    normal row so a missing subtotal is reported rather than silently ignored.
+    `rows` is a list of (row number, values).
+    """
+    kinds={}
+    for number,values in rows:
+        kind=_statement_auxiliary_kind(values,columns)
+        if kind:
+            kinds[number]=kind
+    totals=[number for number,kind in kinds.items() if kind=="total"]
+    if not totals:
+        return kinds
+    end=max(totals)
+    def at(values,key):
+        column=columns.get(key)
+        return values[column-1] if column else None
+    for number,values in rows:
+        if number<=end or number in kinds or all(_is_blank(v) for v in values):
+            continue
+        looks_like_transaction=(
+            (not _is_blank(at(values,"description")) and not _is_blank(at(values,"amount")))
+            or (not _is_blank(at(values,"vendor_code")) and not _is_blank(at(values,"vendor_name")))
+        )
+        if not looks_like_transaction:
+            kinds[number]="note"
+    return kinds
 
 
 # Conservative aliases observed in common Douzone/iCUBE-style journal exports.
@@ -581,8 +621,13 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     out.issues.append(InputIssue("명세서",ws.title,rec["row"],"거래처",rec["description"],reason))
                 pending=[]
 
+            row_kinds=_statement_row_kinds(
+                [(number,list(values)) for number,values in
+                 enumerate(ws.iter_rows(min_row=hr+1,values_only=True),start=hr+1)],
+                cols,
+            )
             for r,row in enumerate(ws.iter_rows(min_row=hr+1,values_only=False),start=hr+1):
-                if _statement_auxiliary_kind([cell.value for cell in row],cols):
+                if row_kinds.get(r) or all(_is_blank(cell.value) for cell in row):
                     continue
                 code_cell=row[cols["vendor_code"]-1]
                 name_cell=row[cols["vendor_name"]-1]
