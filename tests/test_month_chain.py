@@ -15,7 +15,7 @@ from tests.test_offset_notes import generate, raw_file
 
 PERIOD=fixtures.PERIOD
 
-_LINK=re.compile(r"((?:\d+(?:~\d+)?)(?:·\d+(?:~\d+)?)*)행과 대차")
+_LINK=re.compile(r"((?:\d+(?:~\d+)?)(?:·\d+(?:~\d+)?)*)행과 (?:함께 )?대차")
 
 
 def next_month(prior, folder, raw_rows, year, month):
@@ -52,32 +52,43 @@ def body(ws):
             and ws.cell(r,1).value!="합 계" and ws.cell(r,4).value is not None]
 
 
+def _blind(text):
+    return re.sub(r"(?<!\d)(1[0-2]|0?[1-9])\s*월","#월",str(text or ""))
+
+
 def assert_links_point_at_real_partners(testcase, ws):
     """Every "N행과 대차" must name rows that really offset this row."""
     for r in range(3,ws.max_row+1):
         text=str(ws.cell(r,6).value or "")
-        match=_LINK.search(text)
-        if not match:
+        line=next((l for l in reversed(text.splitlines()) if "행과" in l),None)
+        if line is None:
             continue
+        match=_LINK.search(line)
         rows=[]
         for part in match.group(1).split("·"):
             low,_,high=part.partition("~")
             rows+=range(int(low),int(high or low)+1)
         testcase.assertTrue(rows,(r,text))
         testcase.assertNotIn(r,rows,(r,text))
-        if "후보" not in text:
-            # a one-to-one pair: one partner, equal and opposite amount, same item (month ignored)
+        if "함께" in line:
+            # a group: this row and the named rows add up to exactly zero, both signs present
+            amounts=[ws.cell(x,5).value for x in rows+[r]]
+            testcase.assertEqual(sum(amounts),0,(r,text,amounts))
+            testcase.assertTrue(any(a>0 for a in amounts) and any(a<0 for a in amounts),(r,text))
+            testcase.assertEqual({_blind(ws.cell(x,4).value) for x in rows+[r]},{_blind(ws.cell(r,4).value)})
+        elif "묶음" in text.splitlines()[0]:
+            month=int(re.search(r"(\d+)월 묶음",text.splitlines()[0]).group(1))
+            for partner in rows:
+                testcase.assertEqual(month_token(ws.cell(partner,4).value),month,(r,partner,text))
+        else:
+            # a one-to-one pair: equal and opposite amount, same item (month ignored)
             testcase.assertEqual(len(rows),1,(r,text))
             partner=rows[0]
             testcase.assertEqual(ws.cell(r,5).value,-ws.cell(partner,5).value,(r,text))
             mine,theirs=ws.cell(r,4).value,ws.cell(partner,4).value
             testcase.assertTrue(mine==theirs or differs_only_by_month(mine,theirs),(r,text,mine,theirs))
-            testcase.assertEqual("(월만 다름)" in text,mine!=theirs,(r,text,mine,theirs))
-        else:
-            head=text.splitlines()[0]
-            month=int(re.search(r"(\d+)월 묶음",head).group(1))
-            for partner in rows:
-                testcase.assertEqual(month_token(ws.cell(partner,4).value),month,(r,partner,text))
+            if "(월만 다름)" in line:
+                testcase.assertNotEqual(mine,theirs,(r,text))
 
 
 class MonthChainTests(unittest.TestCase):
@@ -163,6 +174,30 @@ class MonthChainTests(unittest.TestCase):
             # by hand); the new sheet recomputes every status and never reuses the old ones
             octo=next_month(keep_statement_only(sept),folder,
                             [("000002","정상 업체","정상 비용",100,0,"2026-10-05")],2026,10)
+            ws10=load_workbook(octo)["26.10"]
+            self.assertEqual(body(ws10)[:len(expected)],expected)
+            assert_links_point_at_real_partners(self,ws10)
+            self.assertEqual(len(ws10._hyperlinks),0)
+
+
+    def test_a_split_payment_group_survives_the_next_month(self):
+        from tests.test_month_only_pairs import pay, statement
+        with tempfile.TemporaryDirectory() as folder:
+            prior=Path(folder)/"prior.xlsx"
+            statement(prior,[("7월 위탁물류비용_GS팀",807)])
+            raw=Path(folder)/"raw.xlsx"
+            raw_file(raw,[pay("7월 위탁물류비용_GS팀",500),pay("7월 위탁물류비용_GS팀",307,"2026-09-04")])
+            run=run_reconciliation([prior],[raw],{"25301"},PERIOD)
+            sept=Path(folder)/"sept.xlsx"
+            write_month_end_statement(sept,[prior],run.results,run.new_items,run.issues,PERIOD,
+                standalone_debits=run.standalone_debits,journal_items=run.journal_items,
+                journal_sources=run.journal_sources,source_paths=[prior,raw])
+            ws=load_workbook(sept)["26.09"]
+            self.assertIn("함께 대차 후보 (합계 0)",str(ws["F3"].value))
+            assert_links_point_at_real_partners(self,ws)
+            expected=body(ws)
+            octo=next_month(keep_statement_only(sept),folder,
+                            [("001111","가상물류","8월 청구분",0,100,"2026-10-05")],2026,10)
             ws10=load_workbook(octo)["26.10"]
             self.assertEqual(body(ws10)[:len(expected)],expected)
             assert_links_point_at_real_partners(self,ws10)

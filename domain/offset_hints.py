@@ -39,26 +39,54 @@ def differs_only_by_month(left, right):
             and _MONTH.sub("#월",a)==_MONTH.sub("#월",b))
 
 
-def offsetting_pairs(rows):
-    """Rows that offset each other one-to-one: the same item (month ignored), equal
-    amounts of opposite sign, and nothing else that could be the partner.
+@dataclass(frozen=True)
+class OffsetSet:
+    """Rows that offset each other: a one-to-one pair, or a group whose amounts sum to 0."""
+    keys: tuple
+    kind: str            # "pair" | "group"
 
-    rows: iterable of (key, description, signed amount). Returns {key: partner key}
-    for both sides of every unambiguous pair; ambiguous rows are left out.
+
+def offset_sets(rows):
+    """Find rows of one vendor that offset each other, strictest evidence first.
+
+    rows: iterable of (key, description, signed amount). Returns disjoint OffsetSets.
+    1. pair: the same description, equal amounts of opposite sign, and nobody else
+       that fits (a single positive and a single negative);
+    2. pair: the same item with the month ignored, same rule;
+    3. group: rows of the same item (month ignored) that contain both signs and add up
+       to exactly 0 - e.g. a claim of 807 paid as 500 + 307, or 100 + 200 paid as 300.
+    Anything ambiguous or not exactly zero is left out: no guessing.
     """
-    buckets={}
+    remaining=[]
     for key,description,amount in rows:
         amount=Decimal(amount)
-        if amount==0:
-            continue
-        item=_MONTH.sub("#월",normalize_text(description))
-        buckets.setdefault((item,abs(amount)),([],[]))[0 if amount>0 else 1].append(key)
-    pairs={}
-    for positive,negative in buckets.values():
-        if len(positive)==1 and len(negative)==1:
-            pairs[positive[0]]=negative[0]
-            pairs[negative[0]]=positive[0]
-    return pairs
+        if amount!=0:
+            text=normalize_text(description)
+            remaining.append((key,text,_MONTH.sub("#월",text),amount))
+    found=[]
+
+    def take(group_key, kind, exact_pairs):
+        nonlocal remaining
+        buckets={}
+        for row in remaining:
+            buckets.setdefault(group_key(row),[]).append(row)
+        used=set()
+        for rows_in in buckets.values():
+            positive=[r for r in rows_in if r[3]>0]
+            negative=[r for r in rows_in if r[3]<0]
+            if exact_pairs:
+                ok=len(positive)==1 and len(negative)==1
+            else:
+                ok=bool(positive) and bool(negative) and sum(r[3] for r in rows_in)==0
+            if ok:
+                found.append(OffsetSet(tuple(r[0] for r in rows_in),kind))
+                used.update(r[0] for r in rows_in)
+        remaining=[r for r in remaining if r[0] not in used]
+
+    take(lambda r:(r[1],abs(r[3])),"pair",True)
+    take(lambda r:(r[2],abs(r[3])),"pair",True)
+    take(lambda r:r[2],"group",False)
+    return found
 
 
 @dataclass(frozen=True)
@@ -93,6 +121,8 @@ class LinkNote:
     partners: tuple      # ids of the partner StatementRow objects
     confirmed: bool      # True for a one-to-one pair (equal and opposite amounts, same item)
     suffix: str = ""     # e.g. " (월만 다름)" when only the month in the description differs
+    together: bool = False   # a group (several rows that add up to 0), not a pair
+    append: bool = False     # add under the engine's own status line instead of replacing it
 
 
 def month_groups(claims, payments):

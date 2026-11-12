@@ -9,7 +9,7 @@ from openpyxl import Workbook, load_workbook
 from adapters.excel.month_end_statement import write_month_end_statement
 from application.service import run_reconciliation
 from domain.models import Status
-from domain.offset_hints import differs_only_by_month, offsetting_pairs
+from domain.offset_hints import differs_only_by_month, offset_sets
 from tests import test_journal_corrections as fixtures
 from tests.test_offset_notes import raw_file
 
@@ -62,12 +62,26 @@ class MonthOnlyDifferenceTests(unittest.TestCase):
         for a,b in yes: self.assertTrue(differs_only_by_month(a,b),(a,b))
         for a,b in no: self.assertFalse(differs_only_by_month(a,b),(a,b))
 
-    def test_offsetting_pairs_need_a_unique_equal_and_opposite_partner(self):
-        rows=[("a","7월 X",D(100)),("b","8월 X",D(-100)),          # a pair
-              ("c","7월 Y",D(50)),("d","7월 Y",D(-50)),("e","8월 Y",D(-50)),   # ambiguous
-              ("f","Z",D(70)),("g","Z",D(70)),("h","Z",D(-70)),    # two of one sign
-              ("i","W",D(0)),("j","W",D(0))]
-        self.assertEqual(offsetting_pairs(rows),{"a":"b","b":"a"})
+    def test_offset_sets_prefer_the_strictest_evidence_and_never_guess(self):
+        rows=[("a","7월 X",D(100)),("b","8월 X",D(-100)),                 # month-only pair
+              ("c","807",D(807)),("d","807",D(-500)),("e","807",D(-307)),  # 807 = 500 + 307
+              ("f","7월 임차료",D(1000)),("g","8월 임차료",D(1000)),
+              ("h","7월 임차료",D(-1000)),("i","8월 임차료",D(-1000)),     # exact-text pairs
+              ("j","Q",D(10)),("k","Q",D(-4)),                              # does not add up to 0
+              ("l","W",D(0)),("m","W",D(0))]                                # zero amounts ignored
+        found={(o.kind,tuple(sorted(o.keys))) for o in offset_sets(rows)}
+        self.assertEqual(found,{("pair",("a","b")),("group",("c","d","e")),
+                                ("pair",("f","h")),("pair",("g","i"))})
+
+    def test_a_group_must_add_up_to_exactly_zero_and_have_both_signs(self):
+        self.assertEqual(offset_sets([("a","X",D(100)),("b","X",D(100))]),[])
+        self.assertEqual(offset_sets([("a","X",D(100)),("b","X",D(-99))]),[])
+        sets=offset_sets([("a","X",D(100)),("b","X",D(200)),("c","X",D(-300))])
+        self.assertEqual([(o.kind,tuple(sorted(o.keys))) for o in sets],[("group",("a","b","c"))])
+
+    def test_several_equal_amounts_without_a_unique_pair_still_net_to_zero_as_a_group(self):
+        sets=offset_sets([("a","X",D(5)),("b","X",D(5)),("c","X",D(-5)),("d","X",D(-5))])
+        self.assertEqual([(o.kind,tuple(sorted(o.keys))) for o in sets],[("group",("a","b","c","d"))])
 
 
 class EngineTests(unittest.TestCase):
@@ -132,6 +146,50 @@ class StatementWordingTests(unittest.TestCase):
             [pay("8월 위탁물류비용_GS팀",807),pay("9월 위탁물류비용_GS팀",807,"2026-09-04")])
         status={r:v[2] for r,v in rows.items()}
         self.assertFalse([t for t in status.values() if "행과 대차" in t and "후보" not in t],status)
+
+
+class NotOneToOneTests(unittest.TestCase):
+    """Payments split or merged, same amounts repeated: rows still say who offsets whom."""
+
+    def last_lines(self, rows):
+        return {r:v[2].splitlines()[-1] for r,v in rows.items()}
+
+    def test_a_claim_paid_in_two_parts_names_all_three_rows(self):
+        run,rows=generate([("7월 위탁물류비용_GS팀",807)],
+                          [pay("7월 위탁물류비용_GS팀",500),pay("7월 위탁물류비용_GS팀",307,"2026-09-04")])
+        last=self.last_lines(rows)
+        self.assertEqual(last[3],"4~5행과 함께 대차 후보 (합계 0)")
+        self.assertEqual(last[4],"3·5행과 함께 대차 후보 (합계 0)")
+        self.assertEqual(last[5],"3~4행과 함께 대차 후보 (합계 0)")
+        # the engine's own judgement stays on the first line, untouched
+        self.assertIn("분할",rows[3][2].splitlines()[0])
+
+    def test_equal_amounts_repeated_each_month_pair_up_month_by_month(self):
+        run,rows=generate([("7월 임차료",1000),("8월 임차료",1000)],
+                          [pay("7월 임차료",1000),pay("8월 임차료",1000,"2026-09-04")])
+        last=self.last_lines(rows)
+        self.assertEqual([last[r] for r in (3,4,5,6)],
+                         ["5행과 대차 후보","6행과 대차 후보","3행과 대차 후보","4행과 대차 후보"])
+
+    def test_a_verified_net_vendor_gets_the_group_wording_in_place_of_the_generic_one(self):
+        # 807 - 12 + 500 - 500 - 307 = 488 > 0 : a verified net balance
+        run,rows=generate(
+            [("7월 위탁물류비용_GS팀",807),("계정정리)7월 패널티공제",-12),("8월 위탁물류비용_CU팀",500)],
+            [pay("7월 위탁물류비용_GS팀",500),pay("7월 위탁물류비용_GS팀",307,"2026-09-04")])
+        self.assertEqual(run.results[0].status,Status.SIGNED_NET_AUTO)
+        first={r:v[2].splitlines()[0] for r,v in rows.items()}
+        self.assertEqual(first[3],"순잔액 대사 · 6~7행과 함께 대차 (합계 0)")
+        self.assertEqual(first[6],"당월 지급 · 3·7행과 함께 대차 (합계 0)")
+        self.assertEqual(first[7],"당월 지급 · 3·6행과 함께 대차 (합계 0)")
+
+    def test_nothing_is_said_when_the_rows_do_not_add_up_to_zero(self):
+        run,rows=generate([("7월 위탁물류비용_GS팀",807)],[pay("7월 위탁물류비용_GS팀",500)])
+        self.assertFalse([t for _,_,t in rows.values() if "대차" in t],rows)
+
+    def test_different_items_paid_together_are_not_guessed(self):
+        run,rows=generate([("7월 위탁물류비용_GS팀",100),("7월 위탁물류비용_CU팀",200)],
+                          [pay("7월 위탁물류비용 합산",300)])
+        self.assertFalse([t for _,_,t in rows.values() if "대차" in t],rows)
 
 
 if __name__=="__main__":

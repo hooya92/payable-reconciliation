@@ -9,7 +9,7 @@ from decimal import Decimal
 from domain.models import Status
 from domain.balance_check import build_balance_checks
 from domain.offset_hints import (
-    LinkNote, VendorNote, differs_only_by_month, month_groups, month_token, offsetting_pairs)
+    LinkNote, VendorNote, differs_only_by_month, month_groups, month_token, offset_sets)
 from domain.normalization import normalize_code, normalize_text
 from domain.reconciliation import journal_correction_reviews, correction_scope
 
@@ -272,14 +272,17 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                             f"계산 차액 {check[7]:,.0f}원 / {ledger_text} · {check[12]}","당월 잔액검증",None))
     status_notes,subtotal_notes,link_notes=_offset_explanations(
         records,balances,net_vendors,results,matched_debits,opening_records,
-        journal_records,source_name,source_sheet,correction_status)
+        journal_records,source_name,source_sheet,correction_status,status_reasons)
     return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons,record_sources,balances,
                         status_notes,subtotal_notes,link_notes)
 
 
+_VENDOR_DOUBT=("코드 오타","거래처코드 차이","다른 거래처코드","거래처명 오타","거래처명 차이","원장 거래처명")
+
+
 def _offset_explanations(records, balances, net_vendors, results, matched_debits,
                          opening_records, journal_records, source_name, source_sheet,
-                         correction_status):
+                         correction_status, status_reasons):
     """Short texts for the status column: what each row was offset against.
 
     Display only. Confirmed one-to-one pairs are linked; for vendors whose net
@@ -293,19 +296,39 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
     for rec in records:
         by_vendor.setdefault(normalize_code(rec.vendor_code),[]).append(rec)
 
+    verified={code for code,result in net_vendors.items()
+              if result.status==Status.SIGNED_NET_AUTO}
+    heads={"순잔액 대사":"순잔액 대사","당월 지급":"당월 지급","당월 발생":"당월 신규"}
     groups_by_vendor={}
-    for code,result in net_vendors.items():
-        if result.status!=Status.SIGNED_NET_AUTO:
-            continue
-        vendor_records=by_vendor.get(code,[])
-        # Rows that exactly offset one another (same item, month ignored, equal and opposite
-        # amounts, nobody else that fits) name each other. They are explained by that pair, so
-        # they are left out of the month groups: no row is both paired and a "candidate".
-        heads={"순잔액 대사":"순잔액 대사","당월 지급":"당월 지급","당월 발생":"당월 신규"}
+    for code,vendor_records in by_vendor.items():
         by_id={id(r):r for r in vendor_records}
-        pairs=offsetting_pairs(
-            [(id(r),r.description,r.amount) for r in vendor_records if r.status in heads])
-        open_records=[r for r in vendor_records if id(r) not in pairs]
+        # Rows that offset each other: a pair, or several rows of one item adding up to 0.
+        # Not touched: engine-confirmed pairs, suspected cancellations, and rows whose
+        # vendor the engine doubts (a code or name typo): whether that payment belongs to
+        # this claim at all is then the open question, so no "offset" is suggested.
+        sets=offset_sets([
+            (id(r),r.description,r.amount) for r in vendor_records
+            if r.status not in ("대사 일치",correction_status)
+            and not any(word in status_reasons.get(id(r),"") for word in _VENDOR_DOUBT)])
+        in_set={key for found in sets for key in found.keys}
+        for found in sets:
+            for key in found.keys:
+                rec=by_id[key]
+                partners=tuple(k for k in found.keys if k!=key)
+                suffix=(" (월만 다름)" if found.kind=="pair"
+                        and differs_only_by_month(rec.description,by_id[partners[0]].description)
+                        else "")
+                # A net vendor's rows have no item-level judgement of their own, so the
+                # wording replaces the generic one. Other rows keep the engine's own
+                # status line (which may still say "확인 필요") and get a line underneath.
+                replace=code in verified and rec.status in heads
+                link_notes[key]=LinkNote(
+                    heads[rec.status] if replace else "","",partners,True,suffix,
+                    together=found.kind=="group",append=not replace)
+        if code not in verified:
+            continue
+        # Month groups (candidates) for the rest of a verified net vendor's rows.
+        open_records=[r for r in vendor_records if id(r) not in in_set]
         groups=month_groups(
             [(r.description,r.amount) for r in open_records if r.status=="순잔액 대사"],
             [(r.description,-r.amount) for r in open_records if r.status=="당월 지급"],
@@ -330,10 +353,6 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
                 link_notes[id(rec)]=LinkNote(f"순잔액 대사 · {month}월 묶음","지급",payment_ids,False)
             for rec in payments_of.get(month,[]):
                 link_notes[id(rec)]=LinkNote(f"당월 지급 · {month}월 묶음",f"{month}월 청구",claim_ids,False)
-        for key,partner in pairs.items():
-            rec,other=by_id[key],by_id[partner]
-            suffix=" (월만 다름)" if differs_only_by_month(rec.description,other.description) else ""
-            link_notes[key]=LinkNote(heads[rec.status],"",(partner,),True,suffix)
 
     review_statuses=("확인 필요","오타 의심",correction_status)
     for check in balances:

@@ -498,7 +498,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 continue
             partner_rows=[record_rows[p] for p in note.partners if p in record_rows]
             if partner_rows:
-                ws.cell(record_rows[id(rec)],status_column).value=link_note_text(note,partner_rows)
+                cell=ws.cell(record_rows[id(rec)],status_column)
+                text=link_note_text(note,partner_rows)
+                cell.value=f"{cell.value}\n{text}" if note.append and cell.value else text
         auxiliary_targets={}
         for source_row,kind in auxiliary_rows.items():
             auxiliary_targets[source_row]=row_no
