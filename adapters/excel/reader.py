@@ -571,7 +571,10 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
     finally:
         wb.close()
     if not out.items and not out.review_journal_items and not out.issues:
-        raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
+        raise ValueError(
+            "더존 파일에서 대상 미지급금 전표를 찾지 못했습니다 "
+            f"(입력한 계정코드: {', '.join(sorted(wanted))}). 계정코드와 회계월을 확인해주세요."
+        )
     return out
 
 

@@ -15,21 +15,22 @@ from adapters.excel.reader import classify_excel_input, detect_douzone_periods, 
 from adapters.excel.writer import write_result
 from adapters.excel.month_end_statement import write_month_end_statement
 from domain.models import Status
+from domain.normalization import parse_account_codes
 from domain.period import AccountingPeriod
 from application.service import run_reconciliation
 
 # Colour tokens. Every text/background pair below is >= 4.5:1 (WCAG AA).
-# Warm paper and ink; colour is kept for state (green/amber/red) only.
-BG="#F5F3EE"
+# Light grey ground, white groups, one blue for actions; green/amber/red mean state only.
+BG="#F5F5F7"
 CARD="#FFFFFF"
-TEXT="#1F1E1B"
-TEXT2="#3E3C37"
-MUTED="#625E56"
-DISABLED_FG="#6B675F"
-ACCENT="#2A2825"
-ACCENT_HOVER="#45413B"
-ACCENT_SOFT="#E9E6DF"
-ACCENT_SOFT_HOVER="#DEDAD1"
+TEXT="#1D1D1F"
+TEXT2="#424245"
+MUTED="#636366"
+DISABLED_FG="#6E6E73"
+ACCENT="#0066CC"
+ACCENT_HOVER="#0058B0"
+ACCENT_SOFT="#E8F1FC"
+ACCENT_SOFT_HOVER="#D6E6F8"
 GREEN="#1B7233"
 GREEN_BG="#EAF6EE"
 GREEN_BORDER="#BFE0CB"
@@ -39,14 +40,14 @@ WARN_BORDER="#EBCF8F"
 RED="#B42318"
 RED_BG="#FFF1F0"
 RED_BORDER="#F0B8B2"
-RUN_BG="#EFEDE7"
-RUN_BORDER="#CFCBC0"
-BORDER="#DDD9CF"
-BORDER_STRONG="#C6C1B5"
-SOFT="#ECE9E2"
-SOFT_HOVER="#E1DDD4"
-LIST_BG="#FFFFFF"
-SELECT_BG="#EAE6D9"
+RUN_BG="#EEF4FF"
+RUN_BORDER="#BBD4F5"
+BORDER="#E5E5EA"
+BORDER_STRONG="#D2D2D7"
+SOFT="#EDEDF0"
+SOFT_HOVER="#E1E1E6"
+LIST_BG="#F5F5F7"
+SELECT_BG="#E4EEFB"
 
 # Segoe UI has no Hangul glyphs; Windows substitutes a regular-weight font, so
 # bold headings would silently lose their weight. Use the Korean UI font directly.
@@ -193,8 +194,8 @@ class App(ctk.CTk):
         self.title("명세서 대사")
         if sys.platform=="win32":
             self.iconbitmap(str(Path(__file__).resolve().parent/"assets"/"app.ico"))
-        self.geometry("980x760")
-        self.minsize(900,680)
+        self.geometry("980x800")
+        self.minsize(900,740)
         self.configure(fg_color=BG)
 
         today=date.today()
@@ -235,92 +236,101 @@ class App(ctk.CTk):
         s.configure(
             "Treeview",
             font=font(10),
-            rowheight=30,
+            rowheight=34,
             background=CARD,
             fieldbackground=CARD,
             foreground=TEXT,
             borderwidth=0,
+            bordercolor=CARD,
+            lightcolor=CARD,
+            darkcolor=CARD,
         )
         s.map("Treeview",background=[("selected",SELECT_BG)],foreground=[("selected",TEXT)])
         s.configure(
             "Treeview.Heading",
             font=font(10,True),
-            padding=(10,6),
-            background=SOFT,
-            foreground=TEXT2,
+            padding=(10,8),
+            background=CARD,
+            foreground=MUTED,
             bordercolor=BORDER,
+            lightcolor=CARD,
+            darkcolor=CARD,
             relief="flat",
         )
+        s.map("Treeview.Heading",background=[("active",CARD)])
 
         # One fixed-height layout: the result table takes all remaining height,
         # so the work area is never pushed below the fold or into a page scroll.
-        # No cards: the page is ruled like a ledger, with hairlines between rows.
+        # Grouped like a settings page: white rounded groups on a light grey ground,
+        # hairlines between rows, no per-control borders.
         root=ctk.CTkFrame(self,fg_color=BG,corner_radius=0)
-        root.pack(fill="both",expand=True,padx=28,pady=(16,14))
+        root.pack(fill="both",expand=True,padx=32,pady=(18,16))
         self.root_content=root
         root.grid_columnconfigure(0,weight=1)
-        root.grid_rowconfigure(5,weight=1)
+        root.grid_rowconfigure(4,weight=1)
 
         header=ctk.CTkFrame(root,fg_color="transparent")
-        header.grid(row=0,column=0,sticky="ew",pady=(0,10))
+        header.grid(row=0,column=0,sticky="ew",pady=(0,12))
         header.grid_columnconfigure(0,weight=1)
         ctk.CTkLabel(
-            header,text="명세서 대사",font=font(20,True),text_color=TEXT,anchor="w"
+            header,text="명세서 대사",font=font(24,True),text_color=TEXT,anchor="w"
         ).grid(row=0,column=0,sticky="w")
         ctk.CTkLabel(
             header,text="전월 말 명세서를 당월 더존 전표와 대사해 당월 말 명세서 초안을 만듭니다. 원본 파일은 수정하지 않습니다.",
             font=font(12),text_color=MUTED,anchor="w"
-        ).grid(row=1,column=0,sticky="w",pady=(2,0))
+        ).grid(row=1,column=0,sticky="w",pady=(3,0))
 
-        def rule(parent,row,columnspan=3):
-            tk.Frame(parent,height=1,bg=BORDER_STRONG,borderwidth=0).grid(
-                row=row,column=0,columnspan=columnspan,sticky="ew"
+        def group(parent):
+            return ctk.CTkFrame(parent,fg_color=CARD,corner_radius=12,border_width=0)
+
+        def hairline(parent,row,columnspan=3):
+            tk.Frame(parent,height=1,bg=BORDER,borderwidth=0).grid(
+                row=row,column=0,columnspan=columnspan,sticky="ew",padx=(18,0)
             )
 
-        # Inputs: period, two file lists, account code.
-        form=ctk.CTkFrame(root,fg_color="transparent")
+        # Inputs: period, two file lists, account code, in one group.
+        form=group(root)
         form.grid(row=1,column=0,sticky="ew")
-        form.grid_columnconfigure(0,minsize=116)
+        form.grid_columnconfigure(0,minsize=120)
         form.grid_columnconfigure(1,weight=1)
-        form.grid_columnconfigure(2,minsize=250)
+        form.grid_columnconfigure(2,minsize=236)
 
         def row_label(row,title,hint_var=None):
             box=ctk.CTkFrame(form,fg_color="transparent")
-            box.grid(row=row,column=0,sticky="nw",padx=(0,10),pady=(9,0))
+            box.grid(row=row,column=0,sticky="nw",padx=(18,10),pady=(10,0))
             ctk.CTkLabel(
-                box,text=title,font=font(12,True),text_color=TEXT,anchor="w"
+                box,text=title,font=font(13,True),text_color=TEXT,anchor="w"
             ).pack(anchor="w")
             if hint_var is not None:
                 ctk.CTkLabel(
                     box,textvariable=hint_var,font=font(11),text_color=MUTED,anchor="w"
                 ).pack(anchor="w",pady=(2,0))
 
-        rule(form,0)
-        row_label(1,"대상 회계월")
+        row_label(0,"대상 회계월")
         period_box=ctk.CTkFrame(form,fg_color="transparent")
-        period_box.grid(row=1,column=1,columnspan=2,sticky="ew",pady=(7,7))
+        period_box.grid(row=0,column=1,columnspan=2,sticky="ew",pady=(8,8),padx=(0,18))
         period_row=ctk.CTkFrame(period_box,fg_color="transparent")
         period_row.pack(fill="x")
         today=date.today()
         menu_style=dict(
-            height=30,corner_radius=6,fg_color=CARD,button_color=SOFT,
+            height=32,corner_radius=8,fg_color=SOFT,button_color=SOFT,
             button_hover_color=SOFT_HOVER,text_color=TEXT,dropdown_fg_color=CARD,
             dropdown_text_color=TEXT,dropdown_hover_color=SOFT,
             font=font(12,True),dropdown_font=font(12),
         )
         ctk.CTkOptionMenu(
             period_row,values=[str(y) for y in range(today.year-6,today.year+2)],
-            variable=self.year_text,command=self._on_period_menu,width=88,**menu_style
+            variable=self.year_text,command=self._on_period_menu,width=92,**menu_style
         ).pack(side="left")
-        ctk.CTkLabel(period_row,text="년",font=font(12),text_color=TEXT).pack(side="left",padx=(4,8))
+        ctk.CTkLabel(period_row,text="년",font=font(12),text_color=TEXT).pack(side="left",padx=(5,9))
         ctk.CTkOptionMenu(
             period_row,values=[str(m) for m in range(1,13)],
-            variable=self.month_text,command=self._on_period_menu,width=66,**menu_style
+            variable=self.month_text,command=self._on_period_menu,width=72,**menu_style
         ).pack(side="left")
-        ctk.CTkLabel(period_row,text="월",font=font(12),text_color=TEXT).pack(side="left",padx=(4,12))
+        ctk.CTkLabel(period_row,text="월",font=font(12),text_color=TEXT).pack(side="left",padx=(5,14))
         # Plain text, not a badge: how the month was chosen.
         self.detect_pill=ctk.CTkLabel(period_row,text="",font=font(11,True),anchor="w")
-        self.detect_pill.pack(side="left")
+        self.detect_pill.pack(side="left",padx=(0,12))
         ctk.CTkLabel(
             period_row,textvariable=self.period_text,font=font(11),text_color=MUTED,anchor="e"
         ).pack(side="right")
@@ -329,78 +339,75 @@ class App(ctk.CTk):
         def add_file_row(row,title,count_var,add_command,remove_selected,remove_all):
             row_label(row,title,count_var)
             file_box=ctk.CTkFrame(
-                form,fg_color=LIST_BG,border_width=1,border_color=BORDER_STRONG,
-                corner_radius=6,height=48
+                form,fg_color=BG,corner_radius=8,border_width=0,height=42
             )
-            file_box.grid(row=row,column=1,sticky="ew",pady=(7,7))
+            file_box.grid(row=row,column=1,sticky="ew",pady=(8,8))
             file_box.grid_propagate(False)
             lb=tk.Listbox(
                 file_box,height=2,font=font(10),selectmode="extended",
-                bg=LIST_BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
+                bg=BG,fg=TEXT,selectbackground=SELECT_BG,selectforeground=TEXT,
                 relief="flat",highlightthickness=0,borderwidth=0,
                 activestyle="none",exportselection=False
             )
-            lb.pack(side="left",fill="both",expand=True,padx=(10,8),pady=5)
+            lb.pack(side="left",fill="both",expand=True,padx=(12,8),pady=3)
             lb.bind("<Delete>",lambda _e:remove_selected())
 
             actions=ctk.CTkFrame(form,fg_color="transparent")
-            actions.grid(row=row,column=2,padx=(12,0),pady=(7,7),sticky="e")
+            actions.grid(row=row,column=2,padx=(10,14),pady=(8,8),sticky="e")
             for i,(text,command,fg,bold) in enumerate((
-                ("추가",add_command,TEXT,True),
+                ("추가",add_command,ACCENT,True),
                 ("선택 제거",remove_selected,TEXT2,False),
                 ("모두 제거",remove_all,TEXT2,False),
             )):
                 ctk.CTkButton(
-                    actions,text=text,command=command,width=74,height=30,
-                    corner_radius=6,fg_color="transparent",hover_color=SOFT,
-                    text_color=fg,font=font(12,bold),
-                    border_width=1,border_color=BORDER_STRONG
-                ).pack(side="left",padx=(0 if i==0 else 6,0))
+                    actions,text=text,command=command,width=66,height=30,
+                    corner_radius=8,fg_color="transparent",hover_color=SOFT,
+                    text_color=fg,font=font(12,bold),border_width=0
+                ).pack(side="left",padx=(0 if i==0 else 2,0))
             return lb
 
-        rule(form,2)
+        hairline(form,1)
         self.prior_list=add_file_row(
-            3,"명세서",self.prior_count_text,self.pick_priors,
+            2,"명세서",self.prior_count_text,self.pick_priors,
             self.remove_priors,self.clear_priors
         )
-        rule(form,4)
+        hairline(form,3)
         self.douzone_list=add_file_row(
-            5,"더존 원장",self.raw_count_text,self.pick_douzone,
+            4,"더존 원장",self.raw_count_text,self.pick_douzone,
             self.remove_douzone,self.clear_douzone
         )
-        rule(form,6)
+        hairline(form,5)
 
         options=ctk.CTkFrame(form,fg_color="transparent")
-        options.grid(row=7,column=0,columnspan=3,sticky="ew",pady=(7,7))
+        options.grid(row=6,column=0,columnspan=3,sticky="ew",padx=18,pady=(8,9))
         ctk.CTkLabel(
-            options,text="미지급금 계정코드",font=font(12,True),text_color=TEXT
-        ).pack(side="left",padx=(0,10))
+            options,text="미지급금 계정코드",font=font(13,True),text_color=TEXT
+        ).pack(side="left",padx=(0,12))
         ctk.CTkEntry(
-            options,textvariable=self.account_codes,width=150,height=30,
-            corner_radius=6,fg_color=CARD,border_color=BORDER_STRONG,
+            options,textvariable=self.account_codes,width=190,height=32,
+            corner_radius=8,fg_color=BG,border_width=0,
             text_color=TEXT,font=font(12)
         ).pack(side="left")
         ctk.CTkLabel(
-            options,text="여러 개면 쉼표로 구분",font=font(11),text_color=MUTED
-        ).pack(side="left",padx=(10,0))
-        rule(form,8)
+            options,text="여러 개면 쉼표(,)로 구분",font=font(11),text_color=MUTED
+        ).pack(side="left",padx=(12,0))
 
         # Actions and live status on one row.
         action_row=ctk.CTkFrame(root,fg_color="transparent")
-        action_row.grid(row=2,column=0,sticky="ew",pady=(12,0))
+        action_row.grid(row=2,column=0,sticky="ew",pady=(14,0))
         action_row.grid_columnconfigure(1,weight=1)
         buttons=ctk.CTkFrame(action_row,fg_color="transparent")
         buttons.grid(row=0,column=0,sticky="nw")
         self.run_btn=ctk.CTkButton(
             buttons,text="대사 시작",command=self.run,width=112,height=40,
-            corner_radius=6,fg_color=ACCENT,hover_color=ACCENT_HOVER,
+            corner_radius=10,fg_color=ACCENT,hover_color=ACCENT_HOVER,
             text_color="white",text_color_disabled="white",font=font(13,True)
         )
         self.run_btn.pack(side="left")
         secondary=dict(
-            height=40,corner_radius=6,fg_color="transparent",hover_color=SOFT,
+            height=40,corner_radius=10,fg_color=SOFT,hover_color=SOFT_HOVER,
             text_color=TEXT,text_color_disabled=DISABLED_FG,font=font(12,True),
-            border_width=1,border_color=BORDER_STRONG
+            border_width=0
         )
         self.month_end_btn=ctk.CTkButton(
             buttons,text="당월 명세서 생성",command=self.export_month_end,state="disabled",
@@ -415,7 +422,7 @@ class App(ctk.CTk):
 
         # Status: plain text, no box. Colour carries only the state.
         self.banner=ctk.CTkFrame(action_row,fg_color="transparent")
-        self.banner.grid(row=0,column=1,sticky="ew",padx=(18,0))
+        self.banner.grid(row=0,column=1,sticky="ew",padx=(20,0))
         banner_inner=ctk.CTkFrame(self.banner,fg_color="transparent")
         banner_inner.pack(fill="x")
         banner_inner.grid_columnconfigure(0,weight=1)
@@ -438,36 +445,37 @@ class App(ctk.CTk):
 
         # Summary: one line of plain numbers, colour only where it carries meaning.
         self.summary=ctk.CTkFrame(root,fg_color="transparent")
-        self.summary.grid(row=3,column=0,sticky="ew",pady=(10,8))
+        self.summary.grid(row=3,column=0,sticky="ew",pady=(12,8))
         self._summary({})
-
-        tk.Frame(root,height=1,bg=BORDER_STRONG,borderwidth=0).grid(row=4,column=0,sticky="ew")
 
         # Result: the main work area.
         result=ctk.CTkFrame(root,fg_color="transparent")
-        result.grid(row=5,column=0,sticky="nsew",pady=(8,0))
+        result.grid(row=4,column=0,sticky="nsew")
 
         result_header=ctk.CTkFrame(result,fg_color="transparent")
-        result_header.pack(fill="x",pady=(0,4))
+        result_header.pack(fill="x",pady=(0,8))
         ctk.CTkLabel(
-            result_header,text="결과 상세",font=font(14,True),text_color=TEXT
+            result_header,text="결과 상세",font=font(16,True),text_color=TEXT
         ).pack(side="left")
-        view_style=dict(height=28,corner_radius=6,font=font(12,True),border_width=0)
-        self.matched_view_btn=ctk.CTkButton(
-            result_header,text="자동 대사 0",command=lambda:self._set_result_view("matched"),
-            width=104,fg_color="transparent",hover_color=SOFT,text_color=TEXT2,**view_style
-        )
-        self.matched_view_btn.pack(side="right")
-        self.review_view_btn=ctk.CTkButton(
-            result_header,text="검토 필요 0",command=lambda:self._set_result_view("review"),
-            width=104,fg_color="transparent",hover_color=SOFT,text_color=TEXT2,**view_style
-        )
-        self.review_view_btn.pack(side="right",padx=(0,4))
+        # Segmented control: a grey track with a white thumb on the active segment.
+        segments=ctk.CTkFrame(result_header,fg_color=SOFT,corner_radius=9)
+        segments.pack(side="right")
+        view_style=dict(height=28,corner_radius=7,font=font(12,True),border_width=0)
         self.all_view_btn=ctk.CTkButton(
-            result_header,text="전체",command=lambda:self._set_result_view("all"),
-            width=64,fg_color=ACCENT,hover_color=ACCENT_HOVER,text_color="white",**view_style
+            segments,text="전체",command=lambda:self._set_result_view("all"),
+            width=64,fg_color=CARD,hover_color=CARD,text_color=TEXT,**view_style
         )
-        self.all_view_btn.pack(side="right",padx=(0,4))
+        self.all_view_btn.pack(side="left",padx=(2,0),pady=2)
+        self.review_view_btn=ctk.CTkButton(
+            segments,text="검토 필요 0",command=lambda:self._set_result_view("review"),
+            width=100,fg_color="transparent",hover_color=SOFT_HOVER,text_color=TEXT2,**view_style
+        )
+        self.review_view_btn.pack(side="left",padx=(0,0),pady=2)
+        self.matched_view_btn=ctk.CTkButton(
+            segments,text="자동 대사 0",command=lambda:self._set_result_view("matched"),
+            width=100,fg_color="transparent",hover_color=SOFT_HOVER,text_color=TEXT2,**view_style
+        )
+        self.matched_view_btn.pack(side="left",padx=(0,2),pady=2)
 
         hints=ctk.CTkFrame(result,fg_color="transparent")
         hints.pack(fill="x",pady=(0,6))
@@ -481,28 +489,26 @@ class App(ctk.CTk):
         self.preflight.pack(side="right")
 
         # The reason of the selected row, read in full (the table clips long text).
-        detail_panel=ctk.CTkFrame(result,fg_color="transparent")
+        detail_panel=group(result)
         detail_panel.pack(side="bottom",fill="x",pady=(8,0))
         panel_head=ctk.CTkFrame(detail_panel,fg_color="transparent")
-        panel_head.pack(fill="x")
+        panel_head.pack(fill="x",padx=14,pady=(9,0))
         ctk.CTkLabel(
             panel_head,text="선택한 항목의 사유",font=font(12,True),text_color=TEXT2
         ).pack(side="left")
         ctk.CTkButton(
-            panel_head,text="사유 복사",command=self._copy_detail,width=76,height=26,
-            corner_radius=6,fg_color="transparent",hover_color=SOFT,text_color=TEXT2,
-            font=font(11,True),border_width=1,border_color=BORDER_STRONG
+            panel_head,text="사유 복사",command=self._copy_detail,width=72,height=26,
+            corner_radius=8,fg_color=SOFT,hover_color=SOFT_HOVER,text_color=TEXT2,
+            font=font(11,True),border_width=0
         ).pack(side="right")
         self.detail_text=ctk.CTkTextbox(
-            detail_panel,height=56,font=font(12),fg_color=CARD,text_color=TEXT,
-            border_width=1,border_color=BORDER_STRONG,corner_radius=6,wrap="word"
+            detail_panel,height=44,font=font(12),fg_color=CARD,text_color=TEXT,
+            border_width=0,corner_radius=0,wrap="word"
         )
-        self.detail_text.pack(fill="x",pady=(4,0))
+        self.detail_text.pack(fill="x",padx=10,pady=(2,8))
         self._show_detail("표에서 항목을 선택하면 사유 전체가 여기에 표시됩니다.")
 
-        table_wrap=ctk.CTkFrame(
-            result,fg_color=CARD,corner_radius=6,border_width=1,border_color=BORDER_STRONG
-        )
+        table_wrap=group(result)
         table_wrap.pack(fill="both",expand=True)
         table_wrap.grid_columnconfigure(0,weight=1)
         table_wrap.grid_rowconfigure(0,weight=1)
@@ -524,12 +530,12 @@ class App(ctk.CTk):
         self.detail.tag_configure("matched",foreground=GREEN)
         self.detail.tag_configure("review",foreground=WARN)
         vsb=ctk.CTkScrollbar(
-            table_wrap,orientation="vertical",command=self.detail.yview,width=12,
-            fg_color=CARD,button_color="#B9BEC7",button_hover_color="#9AA1AD"
+            table_wrap,orientation="vertical",command=self.detail.yview,width=10,
+            fg_color=CARD,button_color="#C7C7CC",button_hover_color="#AEAEB2"
         )
         self.detail.configure(yscrollcommand=vsb.set)
-        self.detail.grid(row=0,column=0,sticky="nsew",padx=(1,0),pady=1)
-        vsb.grid(row=0,column=1,sticky="ns",padx=(0,2),pady=2)
+        self.detail.grid(row=0,column=0,sticky="nsew",padx=(8,0),pady=8)
+        vsb.grid(row=0,column=1,sticky="ns",padx=(0,5),pady=8)
         self.detail.bind("<<TreeviewSelect>>",self._on_detail_select)
 
         # Keyboard shortcuts for repeated monthly use.
@@ -569,7 +575,8 @@ class App(ctk.CTk):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             self.period_text.set(
-                f"{p.previous().label} 말 명세서 + {p.label} 더존 원장 → {p.label} 말 명세서 초안"
+                f"{p.previous().year%100:02d}.{p.previous().month:02d} 말 명세서 + "
+                f"{p.year%100:02d}.{p.month:02d} 원장 → {p.year%100:02d}.{p.month:02d} 말 초안"
             )
             self.year_text.set(str(p.year))
             self.month_text.set(str(p.month))
@@ -657,7 +664,7 @@ class App(ctk.CTk):
                 statement_groups.append(periods)
                 statement_labels.extend(periods)
 
-        codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
+        codes=parse_account_codes(self.account_codes.get())
         raw_groups=[]
         raw_labels=[]
         for path in self.douzone_paths:
@@ -727,7 +734,7 @@ class App(ctk.CTk):
         for label in self._pending_file_labels:
             self._pending_file_list.insert("end", label)
         self._set_banner("running","파일 분석 중","Excel 구조와 회계월을 확인하고 있습니다. 큰 파일은 시간이 걸릴 수 있습니다.")
-        codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
+        codes=parse_account_codes(self.account_codes.get())
         prior=tuple(self.prior_paths)
         raw=tuple(self.douzone_paths)
         def worker():
@@ -944,8 +951,9 @@ class App(ctk.CTk):
         def style(btn,active,label):
             btn.configure(
                 text=label,
-                fg_color=ACCENT if active else "transparent",
-                text_color="white" if active else TEXT2,
+                fg_color=CARD if active else "transparent",
+                hover_color=CARD if active else SOFT_HOVER,
+                text_color=TEXT if active else TEXT2,
                 border_width=0,
             )
 
@@ -1020,7 +1028,7 @@ class App(ctk.CTk):
             self._set_banner("error","대사 중단","회계월을 확인한 뒤 다시 실행해주세요.")
             messagebox.showerror("대사 중단",str(e))
             return
-        codes={x.strip() for x in self.account_codes.get().split(",") if x.strip()}
+        codes=parse_account_codes(self.account_codes.get())
         prior=list(self.prior_paths)
         raw=list(self.douzone_paths)
         source_paths=prior+raw
@@ -1104,7 +1112,10 @@ class App(ctk.CTk):
         detail=completion_detail(
             p,run.prior_count,counts,len(self.new_items),len(self.issues)
         )
-        if breakdown["review"] or breakdown["issues"]:
+        if run.unseen_account_codes:
+            # A typo in one of several codes would otherwise silently drop that account.
+            detail+=" · 이 달 전표가 없는 계정코드: "+", ".join(run.unseen_account_codes)
+        if breakdown["review"] or breakdown["issues"] or run.unseen_account_codes:
             self._set_banner("success","대사 완료 · 확인 항목 있음",detail)
         else:
             self._set_banner("success","대사 완료",detail)

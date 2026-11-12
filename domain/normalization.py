@@ -3,6 +3,12 @@ from decimal import Decimal, InvalidOperation
 from .models import DataQuality, NormalizedAmount
 
 
+def parse_account_codes(text: object) -> set[str]:
+    """Account codes typed in the UI: comma, full-width comma, semicolon, space or newline."""
+    parts = re.split(r"[,，、;；\s]+", "" if text is None else str(text))
+    return {normalize_code(part) for part in parts if part.strip()}
+
+
 def normalize_code(value: object) -> str:
     """Codes are identifiers, never dates. Do not infer or pad missing leading zeroes."""
     if value is None:

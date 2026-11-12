@@ -25,6 +25,9 @@ class ReconciliationRun:
     journal_items: list = field(default_factory=list)
     # Every accepted journal line tracks its original RAW filename, not just orphans.
     journal_sources: dict = field(default_factory=dict)
+    # Typed account codes that had no journal line at all in the period (a typo, or
+    # an account with no activity). Shown to the user; never silently ignored.
+    unseen_account_codes: list = field(default_factory=list)
 
 
 def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
@@ -193,4 +196,8 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
         {id(line):journal_sources.get(id(line),"더존 Raw") for line in standalone_debits},
         journal_items,
         journal_sources,
+        sorted(
+            {normalize_code(code) for code in account_codes}
+            - {normalize_code(line.account_code) for line in journal_items}
+        ),
     )
