@@ -53,7 +53,7 @@
 
 ## 다운로드 · 실행
 
-- **Windows**: [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe)를 받아 바로 실행합니다. 개발 중인 테스트 버전은 `month-end-preview` Release에 있습니다.
+- **Windows**: [PayableRecon.exe](https://github.com/hooya92/payable-reconciliation/releases/download/download-latest/PayableRecon.exe)를 받아 바로 실행합니다.
 - **소스에서 실행**
   ```bash
   python -m venv .venv
