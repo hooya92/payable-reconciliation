@@ -59,3 +59,18 @@ class StatusColumnTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+
+class BrokenXlsAndMergeReasonTests(unittest.TestCase):
+    def test_a_broken_xls_says_what_to_do(self):
+        message=FileFormatMessageTests().read("a.xls",b"\xd0\xcf\x11\xe0 not really an xls")
+        self.assertIn(".xlsx",message)
+        self.assertIn("다시 저장",message)
+
+    def test_a_row_that_reads_empty_because_of_a_merge_says_so(self):
+        from tests.test_export_tolerance import ExportToleranceTests
+        helper=ExportToleranceTests()
+        notices,_,_=helper.kept(lambda wb,ws: ws.merge_cells("C3:D3"))
+        held=[t for t in notices if "명세서 3행" in t]
+        self.assertTrue(held,notices)
+        self.assertIn("병합 셀 C3:D3",held[0])

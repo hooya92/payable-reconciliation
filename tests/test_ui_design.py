@@ -36,13 +36,13 @@ class ListboxStub:
 
 class ContrastTests(unittest.TestCase):
     def test_text_and_status_colours_meet_wcag_aa(self):
+        # the pairs the screen really draws
         pairs=[
-            (A.TEXT,A.CARD),(A.TEXT2,A.BG),(A.MUTED,A.CARD),(A.MUTED,A.BG),
-            (A.MUTED,A.SOFT),(A.MUTED,A.GREEN_BG),(A.MUTED,A.WARN_BG),
-            (A.MUTED,A.RED_BG),(A.MUTED,A.RUN_BG),
-            (A.GREEN,A.CARD),(A.GREEN,A.GREEN_BG),(A.WARN,A.CARD),(A.WARN,A.WARN_BG),
-            (A.RED,A.RED_BG),(A.ACCENT,A.CARD),(A.ACCENT,A.RUN_BG),
-            (A.ACCENT,A.ACCENT_SOFT),("#FFFFFF",A.ACCENT),(A.TEXT2,A.SOFT),
+            (A.TEXT,A.CARD),(A.TEXT,A.BG),(A.TEXT,A.SOFT),(A.TEXT,A.SELECT_BG),
+            (A.TEXT2,A.BG),(A.TEXT2,A.CARD),(A.TEXT2,A.SOFT),
+            (A.MUTED,A.CARD),(A.MUTED,A.BG),(A.MUTED,A.SOFT),(A.DISABLED_FG,A.SOFT),
+            (A.GREEN,A.CARD),(A.GREEN,A.BG),(A.WARN,A.CARD),(A.WARN,A.BG),(A.RED,A.BG),
+            (A.ACCENT,A.CARD),(A.ACCENT,A.BG),(A.ACCENT,A.SOFT),("#FFFFFF",A.ACCENT),
         ]
         for fg,bg in pairs:
             with self.subTest(fg=fg,bg=bg):
@@ -166,8 +166,8 @@ class SmokeTests(unittest.TestCase):
                     app._set_detect_pill(state); app.update()
                     self.assertTrue(app.period_picker.winfo_ismapped(),state)
                     self.assertFalse(app.period_toggle_btn.winfo_ismapped(),state)
-                # Files whose month is detected keep the pickers out of the way.
-                app._period_picker_open=False
+                # Once the situation is over the pickers fold back by themselves (the user never
+                # pressed 변경). Files whose month is detected keep them out of the way.
                 app.prior_paths.append(str(p)); app.prior_list.insert("end",p.name)
                 app.douzone_paths.append(str(r)); app.douzone_list.insert("end",r.name)
                 app._maybe_align_period_from_inputs(); app.update()

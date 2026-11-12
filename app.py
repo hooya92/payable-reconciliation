@@ -26,32 +26,24 @@ CARD="#FFFFFF"
 TEXT="#1D1D1F"
 TEXT2="#424245"
 MUTED="#636366"
-DISABLED_FG="#6E6E73"
+DISABLED_FG="#6B6B70"
 ACCENT="#0066CC"
 ACCENT_HOVER="#0058B0"
-ACCENT_SOFT="#E8F1FC"
-ACCENT_SOFT_HOVER="#D6E6F8"
 GREEN="#1B7233"
-GREEN_BG="#EAF6EE"
-GREEN_BORDER="#BFE0CB"
 WARN="#8A5A00"
-WARN_BG="#FFF4D6"
-WARN_BORDER="#EBCF8F"
 RED="#B42318"
-RED_BG="#FFF1F0"
-RED_BORDER="#F0B8B2"
-RUN_BG="#EEF4FF"
-RUN_BORDER="#BBD4F5"
 BORDER="#E5E5EA"
-BORDER_STRONG="#D2D2D7"
 SOFT="#EDEDF0"
 SOFT_HOVER="#E1E1E6"
-LIST_BG="#F5F5F7"
 SELECT_BG="#E4EEFB"
 
 # Segoe UI has no Hangul glyphs; Windows substitutes a regular-weight font, so
 # bold headings would silently lose their weight. Use the Korean UI font directly.
 FONT="Malgun Gothic" if sys.platform=="win32" else "Segoe UI"
+
+
+BUTTON_PRIMARY=dict(fg_color=ACCENT,hover_color=ACCENT_HOVER,text_color="white",text_color_disabled="white")
+BUTTON_SECONDARY=dict(fg_color=SOFT,hover_color=SOFT_HOVER,text_color=TEXT,text_color_disabled=DISABLED_FG)
 
 
 def font(size, bold=False):
@@ -416,15 +408,10 @@ class App(ctk.CTk):
         buttons.grid(row=0,column=0,sticky="nw")
         self.run_btn=ctk.CTkButton(
             buttons,text="대사 시작",command=self.run,width=112,height=40,
-            corner_radius=10,fg_color=ACCENT,hover_color=ACCENT_HOVER,
-            text_color="white",text_color_disabled="white",font=font(13,True)
+            corner_radius=10,font=font(13,True),**BUTTON_PRIMARY
         )
         self.run_btn.pack(side="left")
-        secondary=dict(
-            height=40,corner_radius=10,fg_color=SOFT,hover_color=SOFT_HOVER,
-            text_color=TEXT,text_color_disabled=DISABLED_FG,font=font(12,True),
-            border_width=0
-        )
+        secondary=dict(height=40,corner_radius=10,font=font(12,True),border_width=0,**BUTTON_SECONDARY)
         self.month_end_btn=ctk.CTkButton(
             buttons,text="당월 명세서 생성",command=self.export_month_end,state="disabled",
             width=132,**secondary
@@ -597,16 +584,7 @@ class App(ctk.CTk):
         self._apply_state_layout()
 
     def _style_button(self,btn,primary):
-        if primary:
-            btn.configure(
-                fg_color=ACCENT,hover_color=ACCENT_HOVER,text_color="white",
-                text_color_disabled="white"
-            )
-        else:
-            btn.configure(
-                fg_color=SOFT,hover_color=SOFT_HOVER,text_color=TEXT,
-                text_color_disabled=DISABLED_FG
-            )
+        btn.configure(**(BUTTON_PRIMARY if primary else BUTTON_SECONDARY))
 
     def _apply_state_layout(self):
         """Show what the next step needs: the primary button, the inputs, or the results."""
@@ -626,7 +604,7 @@ class App(ctk.CTk):
         if done and not self._inputs_open:
             codes=", ".join(sorted(parse_account_codes(self.account_codes.get()))) or "-"
             period=self.last_period
-            label=f"{period.year%100:02d}.{period.month:02d}" if period else ""
+            label=period.short_label if period else ""
             self.input_bar_text.configure(
                 text=f"명세서 {len(self.prior_paths)}개  ·  더존 원장 {len(self.douzone_paths)}개"
                      f"  ·  계정코드 {codes}  ·  {label} 대상"
@@ -675,9 +653,9 @@ class App(ctk.CTk):
         if not hasattr(self,"period_picker"):
             return
         forced=self._detect_state in ("undetected","conflict")
-        if forced:
-            self._period_picker_open=True
-        if self._period_picker_open:
+        # Forced open only while the situation lasts: once detection succeeds again the pickers
+        # fold back, unless the user opened them with 변경.
+        if forced or self._period_picker_open:
             self.period_picker.pack(fill="x",pady=(8,0),anchor="w")
         else:
             self.period_picker.pack_forget()
@@ -695,8 +673,7 @@ class App(ctk.CTk):
         try:
             p=AccountingPeriod(int(self.year.get()),int(self.month.get()))
             self.period_text.set(
-                f"{p.previous().year%100:02d}.{p.previous().month:02d} 말 명세서 + "
-                f"{p.year%100:02d}.{p.month:02d} 원장 → {p.year%100:02d}.{p.month:02d} 말 초안"
+                f"{p.previous().short_label} 말 명세서 + {p.short_label} 원장 → {p.short_label} 말 초안"
             )
             self.year_text.set(str(p.year))
             self.month_text.set(str(p.month))
@@ -1291,7 +1268,8 @@ class App(ctk.CTk):
                 more=f"\n· 외 {len(notices)-12}건 (검토필요 시트 참고)" if len(notices)>12 else ""
                 messagebox.showinfo(
                     "당월 명세서 생성 완료 · 확인할 곳이 있습니다",
-                    "명세서는 만들었습니다. 아래 부분은 읽을 수 없어 대사에서 제외하고 원래 모습 그대로 두었습니다.\n\n"
+                    "명세서는 만들었습니다. 읽을 수 없었거나 그대로 옮길 수 없었던 부분입니다. "
+                    "항목마다 어떻게 처리했는지 적혀 있습니다.\n\n"
                     +shown+more
                 )
         except PermissionError as e:

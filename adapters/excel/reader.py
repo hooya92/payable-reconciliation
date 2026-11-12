@@ -79,6 +79,9 @@ class _XlsWorkbook:
         self._book.release_resources()
 
 
+_XLS_RESAVE_HINT="Excel에서 열어 .xlsx로 다시 저장한 뒤 선택해 주세요."
+
+
 def _xls_contains_formula(path):
     if xlrd is None or compdoc is None:
         raise ValueError(
@@ -93,17 +96,17 @@ def _xls_contains_formula(path):
         else:
             stream=raw
     except Exception as exc:
-        raise ValueError(f"구형 .xls 파일 구조를 읽을 수 없습니다: {exc}") from exc
+        raise ValueError(f"구형 .xls 파일 구조를 읽을 수 없습니다: {exc}. {_XLS_RESAVE_HINT}") from exc
 
     if not stream:
-        raise ValueError("구형 .xls 파일에서 Workbook 스트림을 찾지 못했습니다.")
+        raise ValueError(f"구형 .xls 파일에서 Workbook 스트림을 찾지 못했습니다. {_XLS_RESAVE_HINT}")
 
     pos=0
     while pos+4 <= len(stream):
         opcode,length=struct.unpack("<HH",stream[pos:pos+4])
         end=pos+4+length
         if end>len(stream):
-            raise ValueError("구형 .xls 파일의 BIFF 레코드가 손상되어 안전하게 읽을 수 없습니다.")
+            raise ValueError(f"구형 .xls 파일의 BIFF 레코드가 손상되어 안전하게 읽을 수 없습니다. {_XLS_RESAVE_HINT}")
         if opcode==0x0006:  # BIFF FORMULA record
             return True
         pos=end
@@ -127,7 +130,10 @@ def _load_workbook(path, **kwargs):
         try:
             book=xlrd.open_workbook(str(path),formatting_info=True,on_demand=False)
         except Exception as exc:
-            raise ValueError(f"구형 .xls 파일을 읽을 수 없습니다: {exc}") from exc
+            raise ValueError(
+                f"구형 .xls 파일을 읽을 수 없습니다 ({path.name}): {exc}. "
+                f"파일이 손상됐을 수 있습니다. {_XLS_RESAVE_HINT}"
+            ) from exc
         return _XlsWorkbook(book)
     try:
         return _openpyxl_load_workbook(path,**kwargs)
@@ -525,17 +531,17 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                 # A problem row that still names its vendor only concerns that vendor; a row whose
                 # vendor cannot be read stays unscoped (it could belong to anyone).
                 vendor_cell=row[cols["vendor_code"]-1]
-                known="" if _is_formula(vendor_cell) else _code_from_cell(vendor_cell)
+                row_vendor_code="" if _is_formula(vendor_cell) else _code_from_cell(vendor_cell)
                 an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
 
                 date_cell=row[cols["date"]-1] if cols["date"] else None
                 raw_date=date_cell.value if date_cell else None
                 if date_cell is not None and _is_formula(date_cell):
-                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"수식 날짜는 대상월을 확정할 수 없어 자동 처리하지 않음",known)); continue
+                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"수식 날짜는 대상월을 확정할 수 없어 자동 처리하지 않음",row_vendor_code)); continue
                 if period:
                     parsed_date=parse_date(raw_date)
                     if parsed_date is None:
-                        out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외",known)); continue
+                        out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외",row_vendor_code)); continue
                     if not period.contains(parsed_date): continue
 
                 formula_field=None
@@ -546,31 +552,31 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                         formula_field=(field,cell.value); break
                 if formula_field:
                     out.issues.append(InputIssue("더존",ws.title,r,formula_field[0],formula_field[1],
-                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 처리하지 않음",known)); continue
+                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 처리하지 않음",row_vendor_code)); continue
 
                 d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
                 suspicious=False
                 for field,x in (("차변",d),("대변",cr)):
                     if x.quality==DataQuality.SUSPICIOUS:
-                        out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason,known)); suspicious=True
+                        out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason,row_vendor_code)); suspicious=True
                 if suspicious: continue
 
                 debit=d.value or 0; credit=cr.value or 0
                 if debit==0 and credit==0: continue
                 if debit != 0 and credit != 0:
                     out.issues.append(InputIssue("더존",ws.title,r,"차변/대변",
-                        f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음",known)); continue
+                        f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음",row_vendor_code)); continue
 
-                code=_code_from_cell(row[cols["vendor_code"]-1])
+                code=row_vendor_code
                 vendor_name=_text(row[cols["vendor_name"]-1].value)
                 desc=_text(row[cols["description"]-1].value)
                 row_invalid=False
                 if not code:
                     out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); row_invalid=True
                 if not vendor_name:
-                    out.issues.append(InputIssue("더존",ws.title,r,"거래처명","", "거래처명 없음",known)); row_invalid=True
+                    out.issues.append(InputIssue("더존",ws.title,r,"거래처명","", "거래처명 없음",row_vendor_code)); row_invalid=True
                 if not desc:
-                    out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음",known)); row_invalid=True
+                    out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음",row_vendor_code)); row_invalid=True
                 if row_invalid: continue
 
                 ledger_balance=None
@@ -692,7 +698,9 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                         flush_pending_as_issues("그룹 중간에 수식 셀이 있어 거래처를 안전하게 확정할 수 없음")
                     out.issues.append(InputIssue("명세서",ws.title,r,"수식",amount_cell.value,
                         "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 대사하지 않음"))
-                    if code and vendor_name and summary_label:
+                    if summary_label:
+                        # A subtotal-looking row ends its group even when it cannot be trusted:
+                        # the next vendor's rows must not inherit this group's problem.
                         group_tainted=False
                     continue
 
@@ -715,14 +723,17 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     if pending:
                         flush_pending_as_issues("그룹 중간에 확인이 필요한 금액 형식이 있어 거래처를 확정할 수 없음")
                     out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,a.reason))
-                    if code and vendor_name and summary_label:
+                    if summary_label:
                         group_tainted=False
                     continue
 
-                # Legacy presentation subtotal: vendor-name column itself contains only '소계'.
-                if not code and not desc and _is_summary_label(vendor_name):
+                # A subtotal-looking row without vendor code/name (or the legacy form whose vendor-name
+                # column only says '소계'): its details cannot be attributed, but it still ends the
+                # group, so the next vendor's rows stand on their own.
+                if summary_label and not (code and vendor_name):
                     if pending:
                         flush_pending_as_issues("소계 행에 거래처코드/거래처명이 없어 상세 행의 거래처를 확정할 수 없음")
+                    group_tainted=False
                     continue
 
                 # Group subtotal row: vendor code/name + '소계' and exact sum of preceding details.

@@ -95,8 +95,7 @@ class ExportToleranceTests(unittest.TestCase):
     def test_the_four_cases_that_used_to_stop_the_export(self):
         cases={
             # no subtotal row at all
-            "no subtotal":(lambda wb,ws:(ws.__setitem__("A5",None),ws.__setitem__("B5",None),
-                                         ws.__setitem__("A7",None),ws.__setitem__("B7",None)),"소계"),
+            "no subtotal":(lambda wb,ws:(ws.delete_rows(7),ws.delete_rows(5)),"소계 행을 찾지 못해"),
             # a subtotal row without its vendor code
             "subtotal without code":(lambda wb,ws: ws.__setitem__("A5",None),"거래처코드"),
             # '-' or blank amount
