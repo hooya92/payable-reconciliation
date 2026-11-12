@@ -166,8 +166,8 @@ class SmokeTests(unittest.TestCase):
                     app._set_detect_pill(state); app.update()
                     self.assertTrue(app.period_picker.winfo_ismapped(),state)
                     self.assertFalse(app.period_toggle_btn.winfo_ismapped(),state)
-                # Files whose month is detected keep the pickers out of the way.
-                app._period_picker_open=False
+                # Once the situation is over the pickers fold back by themselves (the user never
+                # pressed 변경). Files whose month is detected keep them out of the way.
                 app.prior_paths.append(str(p)); app.prior_list.insert("end",p.name)
                 app.douzone_paths.append(str(r)); app.douzone_list.insert("end",r.name)
                 app._maybe_align_period_from_inputs(); app.update()

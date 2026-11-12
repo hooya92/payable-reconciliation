@@ -675,9 +675,9 @@ class App(ctk.CTk):
         if not hasattr(self,"period_picker"):
             return
         forced=self._detect_state in ("undetected","conflict")
-        if forced:
-            self._period_picker_open=True
-        if self._period_picker_open:
+        # Forced open only while the situation lasts: once detection succeeds again the pickers
+        # fold back, unless the user opened them with 변경.
+        if forced or self._period_picker_open:
             self.period_picker.pack(fill="x",pady=(8,0),anchor="w")
         else:
             self.period_picker.pack_forget()
