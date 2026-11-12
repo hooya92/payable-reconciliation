@@ -42,8 +42,9 @@ def make_prior(folder, tail=()):
 
 
 def export(tail=()):
-    """Return (kind, reason, rows, fills): "template" when saved in the original format,
-    "refused" (with the reason) when it cannot be. No other file format is ever saved."""
+    """Return (kind, reason, rows, fills): "template" when saved in the original format (reason =
+    the notices about rows left as they were, empty when there are none), "refused" (with the
+    reason) when it cannot be. No other file format is ever saved."""
     with tempfile.TemporaryDirectory() as folder:
         prior=make_prior(folder,tail)
         other=Path(folder)/"raw_dir"; other.mkdir()
@@ -52,7 +53,7 @@ def export(tail=()):
         run=run_reconciliation([prior],[raw],{"25301"},PERIOD)
         out=Path(folder)/"out.xlsx"
         try:
-            write_month_end_statement(
+            notices=write_month_end_statement(
                 out,[prior],run.results,run.new_items,run.issues,PERIOD,
                 standalone_debits=run.standalone_debits,
                 journal_items=run.journal_items,journal_sources=run.journal_sources,
@@ -67,7 +68,7 @@ def export(tail=()):
             fills={i:wb["26.09"].cell(i,1).fill.fgColor.rgb for i in range(1,wb["26.09"].max_row+1)}
         finally:
             wb.close()
-        return "template","",rows,fills
+        return "template","\n".join(notices),rows,fills
 
 
 class StatementEndTests(unittest.TestCase):
@@ -99,11 +100,13 @@ class StatementEndTests(unittest.TestCase):
         self.assertNotIn(123,[row[4] for row in rows[:total_index]])
         self.assertTrue(str(rows[total_index][4]).startswith("=SUMIF("))
 
-    def test_a_real_transaction_below_the_total_is_still_reported(self):
-        kind,reason,_,_=export([(11,3,"2026-08-31"),(11,4,"추가 비용"),(11,5,500)])
-        self.assertEqual(kind,"refused")
+    def test_a_real_transaction_below_the_total_is_kept_and_reported_not_blocking(self):
+        kind,reason,rows,_=export([(11,3,"2026-08-31"),(11,4,"추가 비용"),(11,5,500)])
+        self.assertEqual(kind,"template")
         self.assertIn("명세서 11행",reason)
         self.assertIn("소계",reason)
+        # it is not dropped: it stays on the sheet, outside the accounting
+        self.assertIn("추가 비용",[row[3] for row in rows])
 
     def test_reader_ignores_stray_cells_below_the_total(self):
         with tempfile.TemporaryDirectory() as folder:

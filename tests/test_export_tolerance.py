@@ -53,29 +53,69 @@ class ExportToleranceTests(unittest.TestCase):
             self.assertIn("26.09",load_workbook(out).sheetnames)
 
     def test_unkeepable_template_is_refused_with_a_reason_and_no_other_file(self):
+        # Only whole-sheet problems still stop the export. A single unreadable row never does.
         cases={
-            "merged body":lambda wb,ws: ws.merge_cells("C3:D3"),
             "protected sheet":lambda wb,ws: setattr(ws.protection,"sheet",True),
             "existing target sheet":lambda wb,ws: wb.create_sheet("26.09"),
-            "unreadable amount":lambda wb,ws: ws.__setitem__("E4","N/A"),
         }
         for name,edit in cases.items():
             with self.subTest(name):
                 self.assertTrue(self.reason_for(edit))
 
-    def test_reason_lists_every_problem_row_and_says_how_to_fix(self):
+    def kept(self, edit):
+        """Export a statement with an unreadable part; return (notices, rows of the new sheet)."""
+        with tempfile.TemporaryDirectory() as folder:
+            prior,raw,run,out=self.prepare(folder,edit)
+            notices=write_month_end_statement(
+                out,[prior],run.results,run.new_items,run.issues,PERIOD,
+                standalone_debits=run.standalone_debits,journal_items=run.journal_items,
+                journal_sources=run.journal_sources,source_paths=[prior,raw])
+            self.assertTrue(out.exists())
+            wb=load_workbook(out)
+            try:
+                ws=wb["26.09"]
+                rows=[[c.value for c in row] for row in ws.iter_rows()]
+                merged=[str(r) for r in ws.merged_cells.ranges]
+            finally:
+                wb.close()
+            return notices,rows,merged
+
+    def test_every_unreadable_row_is_kept_and_listed_instead_of_blocking(self):
         def edit(wb,ws):
             ws["E3"]="N/A"; ws["E4"]=None; ws["D6"]=None
-        reason=self.reason_for(edit)
-        for expected in ("3건","명세서 3행","N/A","명세서 4행","빈 칸을 채우거나"):
-            self.assertIn(expected,reason)
+        notices,rows,_=self.kept(edit)
+        text="\n".join(notices)
+        for expected in ("명세서 3행","N/A","명세서 4행","명세서 6행","그대로 두었습니다"):
+            self.assertIn(expected,text)
+        # the unreadable rows are still on the sheet, flagged, and outside the vendor subtotals
+        flat=[cell for row in rows for cell in row]
+        self.assertIn("벨트 교체",flat)
+        self.assertTrue([c for c in flat if isinstance(c,str) and "읽지 못해 그대로 둠" in c])
+
+    def test_the_four_cases_that_used_to_stop_the_export(self):
+        cases={
+            # no subtotal row at all
+            "no subtotal":(lambda wb,ws:(ws.__setitem__("A5",None),ws.__setitem__("B5",None),
+                                         ws.__setitem__("A7",None),ws.__setitem__("B7",None)),"소계"),
+            # a subtotal row without its vendor code
+            "subtotal without code":(lambda wb,ws: ws.__setitem__("A5",None),"거래처코드"),
+            # '-' or blank amount
+            "dash and blank amount":(lambda wb,ws:(ws.__setitem__("E3","-"),ws.__setitem__("E4",None)),"명세서 3행"),
+            # a merge across transaction cells
+            "merged body":(lambda wb,ws: ws.merge_cells("C3:D3"),"C3:D3"),
+        }
+        for name,(edit,word) in cases.items():
+            with self.subTest(name):
+                notices,rows,merged=self.kept(edit)
+                self.assertTrue([t for t in notices if word in t],notices)
+                self.assertEqual(merged,[])
+                # the statement is still a statement: header row and a grand-total-less body exist
+                self.assertEqual(rows[1][:5],["코드","거래처","날짜","적요","금액"])
 
     def test_whole_sheet_reasons_name_the_sheet_or_cells_to_change(self):
         cases=(
             (lambda wb,ws: setattr(ws.protection,"sheet",True),("26.08","보호")),
-            (lambda wb,ws: ws.merge_cells("C3:D3"),("C3:D3","병합")),
             (lambda wb,ws: wb.create_sheet("26.09"),("26.09","삭제하거나 이름을 바꾼")),
-            (lambda wb,ws: ws.__setitem__("A5",None),("소계","코드")),
         )
         for edit,words in cases:
             with self.subTest(words):

@@ -238,7 +238,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             finally:
                 wb.close()
 
-    def test_merged_cells_in_body_are_rejected_without_affecting_source(self):
+    def test_merged_cells_in_body_are_unmerged_in_the_copy_only(self):
         with tempfile.TemporaryDirectory() as folder:
             p=Path(folder)/"prior.xlsx"; o=Path(folder)/"draft.xlsx"
             write_flat(p)
@@ -246,10 +246,16 @@ class TemplateMonthEndTests(unittest.TestCase):
             wb["26.07"].merge_cells("B4:C4")
             wb.save(p)
             initial=p.read_bytes()
-            with self.assertRaisesRegex(ValueError,"병합 셀"):
-                write_month_end_statement(o,[p],[],[],[],TARGET)
+            notices=write_month_end_statement(o,[p],[],[],[],TARGET)
+            self.assertTrue([text for text in notices if "B4:C4" in text],notices)
             self.assertEqual(p.read_bytes(),initial)
-            self.assertFalse(o.exists())
+            wb=load_workbook(o)
+            try:
+                merged=[str(r) for r in wb["26.08"].merged_cells.ranges]
+                self.assertNotIn("B4:C4",merged)
+                self.assertIn("A1:E1",merged)  # the title merge is left alone
+            finally:
+                wb.close()
 
     def test_multiple_prior_files_cannot_silently_lose_other_owners(self):
         with tempfile.TemporaryDirectory() as folder:

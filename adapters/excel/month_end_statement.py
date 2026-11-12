@@ -14,7 +14,7 @@ import re
 
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
-from openpyxl.utils.cell import quote_sheetname
+from openpyxl.utils.cell import get_column_letter, quote_sheetname
 from openpyxl.styles.cell_style import StyleArray
 from openpyxl.worksheet.hyperlink import Hyperlink
 from adapters.excel.text_safe import force_text_formulas, set_text
@@ -44,13 +44,8 @@ def _amount(value):
     return int(value) if value == value.to_integral_value() else float(value)
 
 
-def _raise_problems(problems):
-    """Raise one error listing every row to fix, so the user can correct them in one pass."""
-    if len(problems)==1:
-        raise ValueError(problems[0])
-    shown="\n".join("- "+text for text in problems[:10])
-    more=f"\n- 외 {len(problems)-10}건" if len(problems)>10 else ""
-    raise ValueError(f"양식을 유지하려면 아래 {len(problems)}건을 고쳐야 합니다.\n{shown}{more}")
+class _AsText(str):
+    """A value that must be written as text even when it starts with "=" (a copied formula)."""
 
 
 def _stale_status_columns(sheet, header, business_columns):
@@ -146,15 +141,14 @@ def _template_shapes(sheet, header, fields, auxiliary_rows=()):
                 subtotal=row
     if detail is None:
         raise ValueError("전월 명세서에서 양식으로 사용할 상세 행을 찾지 못했습니다. 적요와 금액이 모두 있는 거래 행이 하나 이상 필요합니다.")
-    if grouped and subtotal is None:
-        raise ValueError(f"'{sheet.title}' 시트에서 소계 행을 찾지 못했습니다. 소계 행은 날짜·적요·거래처명 열 중 한 곳에 '소계'(또는 '합계')라고 적혀 있고, 같은 행에 거래처코드와 거래처명이 모두 있어야 합니다.")
     def styles(row):
         return ([copy(c._style) for c in row],
                 copy(sheet.row_dimensions[row[0].row]))
     return (grouped,styles(detail),styles(subtotal) if subtotal else styles(detail),
             ("date" if fields["date"] and subtotal
              and _is_summary_label(subtotal[fields["date"]-1].value) else "desc"),
-            detail[fields["date"]-1].value if fields["date"] else None)
+            detail[fields["date"]-1].value if fields["date"] else None,
+            grouped and subtotal is None)
 
 
 
@@ -202,9 +196,18 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
              for row in original.iter_rows(min_row=header+1)],
             auxiliary_columns,
         )
-        grouped,detail_style,subtotal_style,subtotal_label,sample_date=_template_shapes(
+        grouped,detail_style,subtotal_style,subtotal_label,sample_date,no_subtotal_sample=_template_shapes(
             original,header,fields,auxiliary_rows
         )
+        # Rows that cannot be read are never a reason to stop: they are kept as they were,
+        # left out of the reconciliation, and listed so the user can look at them.
+        held={}
+        notices=[]
+        def hold(idx,reason):
+            held.setdefault(idx,reason)
+        if no_subtotal_sample:
+            notices.append("전월 명세서에서 거래처 소계 행을 찾지 못해, 새로 만드는 소계 행은 상세 행과 같은 서식으로 만들었습니다. "
+                           "소계 행은 날짜·적요·거래처명 열 중 한 곳에 '소계'라고 적고 같은 행에 거래처코드·거래처명이 있어야 인식됩니다.")
 
         # Retain the original worksheet object, not a worksheet copy:
         # openpyxl's copy_worksheet loses drawings and some sheet properties.
@@ -215,12 +218,16 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         if ws._images or ws._charts or ws._pivots:
             raise ValueError(f"'{ws.title}' 시트에 이미지·차트·피벗이 있어 양식을 안전하게 보존할 수 없습니다. 해당 개체를 제거한 복사본으로 다시 실행해 주세요.")
         auxiliary_merges=[]
-        for region in ws.merged_cells.ranges:
+        for region in list(ws.merged_cells.ranges):
             if region.max_row>header:
                 if all(idx in auxiliary_rows for idx in range(region.min_row,region.max_row+1)):
                     auxiliary_merges.append(copy(region))
                 else:
-                    raise ValueError(f"명세서 본문에 병합 셀({region.coord})이 있습니다. 거래 행에 걸친 병합 셀은 행 추가 시 깨지므로 병합을 해제해 주세요. (제목 줄의 병합은 괜찮습니다)")
+                    # Rows are rebuilt, so a merge across transaction rows cannot follow them.
+                    # Only the new file loses the merge; the original is never touched.
+                    ws.unmerge_cells(region.coord)
+                    notices.append(f"명세서 본문의 병합 셀({region.coord})은 행이 다시 만들어지는 과정에서 유지할 수 없어 "
+                                   "새 파일에서만 병합을 해제했습니다. 병합된 칸에 가려져 있던 값은 읽을 수 없습니다.")
         if ws.tables:
             raise ValueError("명세서가 엑셀 '표(Table)'로 지정되어 있어 행 수가 바뀌면 표 범위가 깨집니다. 표 디자인 > 범위로 변환 후 다시 실행해 주세요.")
         # The selected month is replaced *only in the newly saved workbook*.
@@ -228,7 +235,6 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         source_sheet=ws.title
         ws.title=target_name
         last_template_row=ws.max_row
-        problems=[]
         unclear_rows=set()
         # Auxiliary rows are excluded from accounting and restored below the table.
         for row in ws.iter_rows(min_row=header+1,max_row=last_template_row):
@@ -242,10 +248,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if not _is_blank(values[fields["desc"]-1]) and not _is_blank(values[fields["amount"]-1]):
                 continue
             unclear_rows.add(row[0].row)
-            problems.append(
-                f"명세서 {row[0].row}행: 적요 또는 금액이 비어 있어 거래 행인지 소계·보조 행인지 구분할 수 없습니다. "
-                "빈 칸을 채우거나, 필요 없는 행이면 삭제해 주세요."
-            )
+            hold(row[0].row,"적요 또는 금액이 비어 있어 거래 행인지 소계·보조 행인지 구분할 수 없음")
         # Capture the *original* row archetypes before physically deleting rows.
         # Detail and subtotal rows must retain different formatting (yellow subtotal
         # background, borders, fonts, number format), including when row counts change.
@@ -254,7 +257,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
 
         # Preserve all original business columns, including free-form notes.
         # Only the optional processed-status column may be newly appended.
-        status_column=find_status_column(ws,header)
+        status_column=find_status_column(ws,header,ignore_rows=set(auxiliary_rows))
         opening=[]
         pending=[]
         business_columns={col for col in fields.values() if col}
@@ -274,7 +277,10 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 code=values[fields["code"]-1]
                 name=values[fields["name"]-1]
                 if not code or not name:
-                    problems.append(f"명세서 {idx}행(거래처 소계): 거래처코드 또는 거래처명이 비어 있습니다. 둘 다 입력해 주세요.")
+                    hold(idx,"거래처 소계 행에 거래처코드 또는 거래처명이 없음")
+                    for entry in pending:
+                        hold(entry[0],"소계 행에 거래처코드·거래처명이 없어 거래처를 확정할 수 없음")
+                    pending=[]
                     continue
                 subtotal_styles[(str(code),str(name))]=(
                     [copy(c._style) for c in ws[idx]],copy(ws.row_dimensions[idx])
@@ -284,43 +290,38 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 for col,val in enumerate(values,1):
                     if col not in business_columns and col not in stale_columns and val is not None:
                         if isinstance(val,str) and val.startswith("="):
-                            problems.append(f"명세서 {idx}행 {col}번째 열: 소계 행 추가 열에 수식이 있어 옮기면 참조가 바뀝니다. 값으로 바꿔 주세요.")
-                            continue
+                            # Moving a formula would change what it points at: carry it as text.
+                            val=_AsText(val)
+                            notices.append(f"명세서 {idx}행 {get_column_letter(col)}열의 수식은 옮기면 참조가 바뀌므로 텍스트로 옮겼습니다.")
                         subtotal_extra[(str(code),str(name),col)]=val
                 pending=[]
                 continue
             desc=values[fields["desc"]-1]
             amount=values[fields["amount"]-1]
             if _is_blank(desc) or _is_blank(amount):
-                problems.append(f"명세서 {idx}행: 적요 또는 금액이 비어 있습니다. 빈 칸을 채우거나, 필요 없는 행이면 삭제해 주세요.")
+                hold(idx,"적요 또는 금액이 비어 있음")
                 continue
             if isinstance(amount,bool):
-                problems.append(f"명세서 {idx}행: 금액이 TRUE/FALSE 값입니다. 숫자로 바꿔 주세요.")
+                hold(idx,"금액이 TRUE/FALSE 값임")
                 continue
             if isinstance(amount,str) and amount.startswith("="):
                 # A literal has no references or stale calculation cache.
                 # Other formulas require review rather than guessed evaluation.
                 literal=parse_literal_amount_formula(amount)
                 if literal is None:
-                    problems.append(
-                        f"명세서 {idx}행 금액에 지원하지 않는 수식이 있습니다. "
-                        "원본은 그대로 두고, 복사본에서 확인한 숫자 값으로 바꾼 뒤 다시 실행해 주세요."
-                    )
+                    hold(idx,"금액에 지원하지 않는 수식이 있음")
                     continue
                 amount=literal
             elif isinstance(amount,str):
                 parsed=parse_amount(amount, allow_zero_marker=False)
                 if parsed.quality==DataQuality.SUSPICIOUS or parsed.value is None:
-                    problems.append(
-                        f"명세서 {idx}행 금액 형식을 확정할 수 없습니다: {amount}. "
-                        "검토 후 복사본에서 숫자 값으로 입력해 주세요."
-                    )
+                    hold(idx,f"금액 형식을 확정할 수 없음 ({amount})")
                     continue
                 amount=parsed.value
             try:
                 amount=Decimal(str(amount))
             except (ValueError,ArithmeticError):
-                problems.append(f"명세서 {idx}행 금액을 안전하게 읽을 수 없습니다: {amount!r}. 숫자로 입력해 주세요.")
+                hold(idx,f"금액을 안전하게 읽을 수 없음 ({amount!r})")
                 continue
             extras={col:val for col,val in enumerate(values,1)
                     if col not in business_columns and col not in stale_columns
@@ -333,15 +334,15 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 code=values[fields["code"]-1]
                 name=values[fields["name"]-1]
                 if not code or not name:
-                    problems.append(f"명세서 {idx}행: 거래처코드 또는 거래처명이 비어 있습니다. 입력해 주세요.")
+                    hold(idx,"거래처코드 또는 거래처명이 비어 있음")
                     continue
                 opening.append((str(code),str(name),entry[1],entry[2],entry[3],idx,extras))
-        if pending:
-            rows=", ".join(str(entry[0]) for entry in pending[:10])
-            problems.append(f"명세서 {rows}행{' 등' if len(pending)>10 else ''}: 이 상세 행 아래에 거래처 소계 행이 없습니다. "
-                            "거래처마다 상세 행 바로 아래에 '소계' 행(거래처코드·거래처명·소계 금액)을 추가해 주세요.")
-        if problems:
-            _raise_problems(problems)
+        for entry in pending:
+            hold(entry[0],"이 상세 행 아래에 거래처 소계 행이 없어 거래처를 확정할 수 없음")
+        # Unreadable rows stay where the notes stay: kept as they were, outside the accounting.
+        auxiliary_rows=dict(sorted({**auxiliary_rows,**{idx:"held" for idx in held}}.items()))
+        for idx in sorted(held):
+            notices.append(f"명세서 {idx}행: {held[idx]}. 대사에서 제외하고 원래 모습 그대로 두었습니다.")
 
         # Each retained opening row keeps its own formatting. New RAW rows
         # alone use the existing template's representative detail style.
@@ -423,8 +424,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             ws.row_dimensions[row_no]=row_dim
             for column,value in values.items():
                 # Statement text from the source must stay text, never a formula.
-                if column in (fields["code"],fields["name"],fields["desc"]):
-                    set_text(ws.cell(row_no,column),value)
+                if column in (fields["code"],fields["name"],fields["desc"]) or isinstance(value,_AsText):
+                    set_text(ws.cell(row_no,column),str(value))
                 else:
                     ws.cell(row_no,column).value=value
             row_no+=1
@@ -537,12 +538,25 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 else:
                     amount_cell.value=f"=SUM({letter}{header+1}:{letter}{end})"
                 amount_cell.comment=Comment("당월 명세서 전체 합계입니다. 거래처 소계를 중복 합산하지 않습니다.","대사 안내")
+            elif kind=="held":
+                if amount_cell.value is not None:
+                    previous=amount_cell.comment.text+"\n" if amount_cell.comment else ""
+                    amount_cell.comment=Comment(previous+f"이 행은 읽을 수 없어 대사에서 제외하고 그대로 두었습니다: {held[source_row]}","대사 안내")
+                write_status(ws,target_row,status_column,fields["amount"],"확인 필요",
+                             text=f"확인 필요 · 읽지 못해 그대로 둠\n{held[source_row]}")
             elif amount_cell.value is not None:
                 previous=amount_cell.comment.text+"\n" if amount_cell.comment else ""
                 amount_cell.comment=Comment(previous+"전월 원본의 참고 값입니다. 당월 더존 잔액으로 자동 확정한 값이 아니므로 재확인해 주세요.","대사 안내")
-            audits.append(("보조 행 보존","","",
-                           " / ".join(str(cell.value) for cell in cells if cell.value is not None),
-                           "","대사 계산에서 제외하고 하단에 원본 서식으로 보존",template_path.name,source_row))
+            row_text=" / ".join(str(cell.value) for cell in cells if cell.value is not None)
+            if kind=="held":
+                audits.append(("읽지 못한 행 보존","","",row_text,"",
+                               f"{held[source_row]} · 대사 계산에서 제외하고 원본 서식으로 보존",
+                               template_path.name,source_row))
+                if not any(r[7]==source_row and r[6] in ("명세서",template_path.name) for r in reviews):
+                    reviews.append(("입력 데이터 확인","","",row_text,"",held[source_row],"명세서",source_row))
+            else:
+                audits.append(("보조 행 보존","","",row_text,
+                               "","대사 계산에서 제외하고 하단에 원본 서식으로 보존",template_path.name,source_row))
             source_targets[(template_path.name,source_row)]=[target_row]
         for region in auxiliary_merges:
             ws.merge_cells(start_row=auxiliary_targets[region.min_row],
@@ -643,5 +657,6 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         wb.calculation=CalcProperties(calcMode="auto",fullCalcOnLoad=True,forceFullCalc=True)
         wb.active=wb.worksheets.index(ws)
         wb.save(out)
+        return notices
     finally:
         wb.close()

@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 import re
 import struct
+import zipfile
 from itertools import islice
 
 try:
@@ -15,6 +16,7 @@ except ImportError:
 
 from openpyxl import load_workbook as _openpyxl_load_workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.exceptions import InvalidFileException
 
 from domain.models import DataQuality, JournalLine, PayableItem, SourceRef
 from domain.normalization import normalize_code, parse_amount, parse_literal_amount_formula
@@ -127,7 +129,19 @@ def _load_workbook(path, **kwargs):
         except Exception as exc:
             raise ValueError(f"구형 .xls 파일을 읽을 수 없습니다: {exc}") from exc
         return _XlsWorkbook(book)
-    return _openpyxl_load_workbook(path,**kwargs)
+    try:
+        return _openpyxl_load_workbook(path,**kwargs)
+    except InvalidFileException as exc:
+        raise ValueError(
+            f"지원하지 않는 파일 형식입니다 ({path.suffix or '확장자 없음'}). "
+            "Excel에서 '다른 이름으로 저장 → Excel 통합 문서(.xlsx)'로 저장한 뒤 선택해 주세요. "
+            "읽을 수 있는 형식: .xlsx · .xlsm · .xls"
+        ) from exc
+    except zipfile.BadZipFile as exc:
+        raise ValueError(
+            f"엑셀 파일로 읽을 수 없습니다 ({path.name}). 엑셀 파일이 아니거나 손상됐거나 암호가 걸려 있을 수 있습니다. "
+            "Excel에서 열어 확인한 뒤 암호를 해제하고 .xlsx로 다시 저장해 주세요."
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -508,16 +522,20 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                 ac=_code_from_cell(account_cell)
                 if ac not in wanted:
                     continue
+                # A problem row that still names its vendor only concerns that vendor; a row whose
+                # vendor cannot be read stays unscoped (it could belong to anyone).
+                vendor_cell=row[cols["vendor_code"]-1]
+                known="" if _is_formula(vendor_cell) else _code_from_cell(vendor_cell)
                 an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
 
                 date_cell=row[cols["date"]-1] if cols["date"] else None
                 raw_date=date_cell.value if date_cell else None
                 if date_cell is not None and _is_formula(date_cell):
-                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"수식 날짜는 대상월을 확정할 수 없어 자동 처리하지 않음")); continue
+                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"수식 날짜는 대상월을 확정할 수 없어 자동 처리하지 않음",known)); continue
                 if period:
                     parsed_date=parse_date(raw_date)
                     if parsed_date is None:
-                        out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외")); continue
+                        out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외",known)); continue
                     if not period.contains(parsed_date): continue
 
                 formula_field=None
@@ -528,20 +546,20 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                         formula_field=(field,cell.value); break
                 if formula_field:
                     out.issues.append(InputIssue("더존",ws.title,r,formula_field[0],formula_field[1],
-                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 처리하지 않음")); continue
+                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 처리하지 않음",known)); continue
 
                 d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
                 suspicious=False
                 for field,x in (("차변",d),("대변",cr)):
                     if x.quality==DataQuality.SUSPICIOUS:
-                        out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason)); suspicious=True
+                        out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason,known)); suspicious=True
                 if suspicious: continue
 
                 debit=d.value or 0; credit=cr.value or 0
                 if debit==0 and credit==0: continue
                 if debit != 0 and credit != 0:
                     out.issues.append(InputIssue("더존",ws.title,r,"차변/대변",
-                        f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음")); continue
+                        f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음",known)); continue
 
                 code=_code_from_cell(row[cols["vendor_code"]-1])
                 vendor_name=_text(row[cols["vendor_name"]-1].value)
@@ -550,9 +568,9 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                 if not code:
                     out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); row_invalid=True
                 if not vendor_name:
-                    out.issues.append(InputIssue("더존",ws.title,r,"거래처명","", "거래처명 없음")); row_invalid=True
+                    out.issues.append(InputIssue("더존",ws.title,r,"거래처명","", "거래처명 없음",known)); row_invalid=True
                 if not desc:
-                    out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음")); row_invalid=True
+                    out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음",known)); row_invalid=True
                 if row_invalid: continue
 
                 ledger_balance=None
@@ -571,7 +589,10 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
     finally:
         wb.close()
     if not out.items and not out.review_journal_items and not out.issues:
-        raise ValueError("더존 파일에서 대상 미지급금 전표를 찾지 못했습니다.")
+        raise ValueError(
+            "더존 파일에서 대상 미지급금 전표를 찾지 못했습니다 "
+            f"(입력한 계정코드: {', '.join(sorted(wanted))}). 계정코드와 회계월을 확인해주세요."
+        )
     return out
 
 
