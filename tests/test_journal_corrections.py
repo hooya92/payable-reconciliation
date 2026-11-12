@@ -75,10 +75,15 @@ class JournalCorrectionTests(unittest.TestCase):
                 self.assertEqual(ws["E9"].value,"=SUM(E3:E8)")
                 self.assertEqual(ws["E9"].number_format,'#,##0;[Red](#,##0);"0";@')
                 self.assertEqual(ws["E9"].fill.fgColor.rgb,"00FFFF00")
-                self.assertEqual(ws["F9"].value,"소계 0")
+                # A zero subtotal is still marked "소계 0"; the vendor arithmetic follows it.
+                self.assertTrue(str(ws["F9"].value).startswith("소계 0"))
+                self.assertIn("= 말 잔액  0",str(ws["F9"].value))
                 self.assertTrue(all(ws.cell(r,6).value.startswith("오발행·취소 의심") for r in range(4,8)))
-                self.assertEqual(ws["F3"].value,"자동 대사")
-                self.assertEqual(ws["F8"].value,"자동 대사")
+                # A confirmed one-to-one pair names its counterpart row and links to it.
+                self.assertEqual(ws["F3"].value,"자동 대사 ↔ 8행")
+                self.assertEqual(ws["F8"].value,"자동 대사 ↔ 3행")
+                self.assertTrue(ws["F3"].hyperlink.location.endswith("D8"))
+                self.assertTrue(ws["F8"].hyperlink.location.endswith("D3"))
                 self.assertIn("전월 동일 금액 발생 후보 1건",ws["F5"].comment.text)
                 self.assertIn("양수 동일 금액 후보 1건",ws["F5"].comment.text)
                 self.assertEqual([row[3].value for row in wb["대사내역"].iter_rows(min_row=2)
