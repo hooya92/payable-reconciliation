@@ -13,7 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from adapters.excel.reader import classify_excel_input, detect_douzone_periods, detect_statement_periods, read_douzone, read_prior
 from adapters.excel.writer import write_result
-from application.month_end_export import export_month_end_draft
+from adapters.excel.month_end_statement import write_month_end_statement
 from domain.models import Status
 from domain.period import AccountingPeriod
 from application.service import run_reconciliation
@@ -1158,25 +1158,18 @@ class App(ctk.CTk):
             return
         try:
             run=self.last_reconciliation_run
-            kind,reason=export_month_end_draft(
-                path,self.prior_paths,run,p,self.last_source_paths
+            write_month_end_statement(
+                path,self.prior_paths,run.results,run.new_items,run.issues,p,
+                standalone_debits=run.standalone_debits,
+                standalone_debit_sources=run.standalone_debit_sources,
+                journal_items=run.journal_items,
+                journal_sources=run.journal_sources,
+                source_paths=self.last_source_paths,
             )
-            if kind=="template":
-                self._set_banner(
-                    "success","당월 명세서 초안 생성",
-                    f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다."
-                )
-            else:
-                self._set_banner(
-                    "success","간이 초안 저장 (양식 유지 불가)",
-                    f"{Path(path).name} · 전월 양식을 유지할 수 없어 대사 결과 기준으로 저장했습니다. 사유: {reason}"
-                )
-                messagebox.showinfo(
-                    "전월 양식 유지 불가 · 간이 초안으로 저장",
-                    "전월 명세서의 양식을 그대로 유지할 수 없어 대사 결과 기준의 간이 초안으로 저장했습니다.\n"
-                    "대사 결과 자체는 정상입니다.\n\n"
-                    f"사유: {reason}"
-                )
+            self._set_banner(
+                "success","당월 명세서 초안 생성",
+                f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다."
+            )
         except PermissionError as e:
             messagebox.showerror(
                 "파일 접근 거부",
@@ -1185,6 +1178,19 @@ class App(ctk.CTk):
                 "계속 실패하면 다른 파일명이나 쓰기 가능한 폴더에 저장해 주세요.\n"
                 "파일·폴더의 읽기 전용 설정과 쓰기 권한도 확인해 주세요.\n\n"
                 f"문제 파일: {e.filename or path}"
+            )
+            return
+        except ValueError as e:
+            # The month-end statement is always built from the original statement
+            # format. If that format cannot be kept, say exactly why and do not
+            # save a differently shaped file in its place.
+            self._set_banner("error","당월 명세서 생성 불가","전월 양식을 유지할 수 없어 생성하지 않았습니다.")
+            messagebox.showerror(
+                "당월 명세서 생성 실패",
+                f"{e}\n\n"
+                "전월 양식을 그대로 유지할 수 없어 당월 명세서를 만들지 않았습니다. "
+                "다른 형태의 파일로 대신 만들지 않습니다.\n"
+                "위 내용을 고친 뒤 다시 시도해 주세요. 대사 결과만 필요하면 '대사 결과 저장'을 사용하세요."
             )
             return
         except Exception as e:

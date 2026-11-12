@@ -7,7 +7,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 
 from adapters.excel.reader import read_prior
-from application.month_end_export import export_month_end_draft
+from adapters.excel.month_end_statement import write_month_end_statement
 from application.service import run_reconciliation
 from domain.period import AccountingPeriod
 from tests import test_journal_corrections as fixtures
@@ -42,6 +42,8 @@ def make_prior(folder, tail=()):
 
 
 def export(tail=()):
+    """Return (kind, reason, rows, fills): "template" when saved in the original format,
+    "refused" (with the reason) when it cannot be. No other file format is ever saved."""
     with tempfile.TemporaryDirectory() as folder:
         prior=make_prior(folder,tail)
         other=Path(folder)/"raw_dir"; other.mkdir()
@@ -49,16 +51,23 @@ def export(tail=()):
             ("001111","가상공영","벨트 교체",700000,0,"2026-09-03")])[1]
         run=run_reconciliation([prior],[raw],{"25301"},PERIOD)
         out=Path(folder)/"out.xlsx"
-        kind,reason=export_month_end_draft(out,[prior],run,PERIOD,[prior,raw])
-        if kind!="template":
-            return kind,reason,[],{}
+        try:
+            write_month_end_statement(
+                out,[prior],run.results,run.new_items,run.issues,PERIOD,
+                standalone_debits=run.standalone_debits,
+                journal_items=run.journal_items,journal_sources=run.journal_sources,
+                source_paths=[prior,raw],
+            )
+        except ValueError as exc:
+            assert not out.exists()
+            return "refused",str(exc),[],{}
         wb=load_workbook(out)
         try:
             rows=[[c.value for c in row] for row in wb["26.09"].iter_rows()]
             fills={i:wb["26.09"].cell(i,1).fill.fgColor.rgb for i in range(1,wb["26.09"].max_row+1)}
         finally:
             wb.close()
-        return kind,reason,rows,fills
+        return "template","",rows,fills
 
 
 class StatementEndTests(unittest.TestCase):
@@ -92,7 +101,7 @@ class StatementEndTests(unittest.TestCase):
 
     def test_a_real_transaction_below_the_total_is_still_reported(self):
         kind,reason,_,_=export([(11,3,"2026-08-31"),(11,4,"추가 비용"),(11,5,500)])
-        self.assertEqual(kind,"plain")
+        self.assertEqual(kind,"refused")
         self.assertIn("명세서 11행",reason)
         self.assertIn("소계",reason)
 
