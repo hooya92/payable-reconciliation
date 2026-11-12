@@ -78,7 +78,7 @@ def write_result(path, results, new_items, issues, source_paths:Iterable, period
     ok=wb.create_sheet("자동대사완료"); ok.append(["상태","거래처코드","거래처명","명세서적요","금액","더존행","참고"])
     for x in results:
         if x.status == Status.MATCHED:
-            note=x.reason if x.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE" else ""
+            note=x.reason if x.rule in ("CODE_AMOUNT_UNIQUE_WITH_NOTE","CODE_AMOUNT_UNIQUE_MONTH_ONLY") else ""
             ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,int(x.prior.amount),x.journal.row_number,note])
         elif x.status == Status.SIGNED_NET_AUTO:
             ok.append([x.status.value,x.prior.vendor_code,x.prior.vendor_name,x.prior.description,

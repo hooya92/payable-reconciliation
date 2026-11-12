@@ -179,7 +179,7 @@ def run_reconciliation(prior_paths, douzone_paths, account_codes, period):
     fresh.extend(NewPayable(line,line.credit,scoped_raw[id(line)],False)
                  for line in journal_items if line.credit>0 and id(line) in scoped_raw)
     for result in results:
-        if result.journal is not None and (result.status!=Status.MATCHED or result.rule=="CODE_AMOUNT_UNIQUE_WITH_NOTE"):
+        if result.journal is not None and (result.status!=Status.MATCHED or result.rule in ("CODE_AMOUNT_UNIQUE_WITH_NOTE","CODE_AMOUNT_UNIQUE_MONTH_ONLY")):
             p=result.prior
             j=result.journal
             result.reason+=(f" · 명세서 {p.source.file_name} / {p.source.sheet} {p.source.row}행 "

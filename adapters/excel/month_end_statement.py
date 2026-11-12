@@ -15,6 +15,7 @@ import re
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
 from openpyxl.utils.cell import quote_sheetname
+from openpyxl.styles.cell_style import StyleArray
 from openpyxl.worksheet.hyperlink import Hyperlink
 from adapters.excel.text_safe import force_text_formulas, set_text
 
@@ -25,7 +26,7 @@ from domain.models import Status, DataQuality
 from domain.normalization import parse_amount, parse_literal_amount_formula
 from application.month_end_plan import build_month_end_plan
 from adapters.excel.month_end_status import (
-    find_status_column, prepare_status_header, write_status,
+    find_status_column, is_generated_status, link_note_text, prepare_status_header, write_status,
 )
 from domain.period import AccountingPeriod
 
@@ -50,6 +51,27 @@ def _raise_problems(problems):
     shown="\n".join("- "+text for text in problems[:10])
     more=f"\n- 외 {len(problems)-10}건" if len(problems)>10 else ""
     raise ValueError(f"양식을 유지하려면 아래 {len(problems)}건을 고쳐야 합니다.\n{shown}{more}")
+
+
+def _stale_status_columns(sheet, header, business_columns):
+    """Columns that only hold status words this program wrote in an earlier month.
+
+    Such a column (no header, every value one of our own status labels) is last
+    month's output, not the owner's notes, and must not be copied into the new
+    month: it would show last month's status next to this month's rows.
+    A column with any free-form text or its own header is never touched.
+    """
+    found={}
+    for row in sheet.iter_rows(min_row=header+1):
+        for cell in row:
+            if cell.column in business_columns or _is_blank(cell.value):
+                continue
+            found.setdefault(cell.column,[]).append(cell.value)
+    return {
+        column for column,values in found.items()
+        if _is_blank(sheet.cell(header,column).value)
+        and all(is_generated_status(value) for value in values)
+    }
 
 
 def _change_heading(sheet, header_row, previous, current):
@@ -237,6 +259,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         pending=[]
         business_columns={col for col in fields.values() if col}
         business_columns.add(status_column)
+        stale_columns=_stale_status_columns(ws,header,business_columns)
         subtotal_extra={}
         subtotal_styles={}
         for idx in range(header+1,last_template_row+1):
@@ -259,7 +282,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 for source_row,desc,amount,when,extras in pending:
                     opening.append((str(code),str(name),desc,amount,when,source_row,extras))
                 for col,val in enumerate(values,1):
-                    if col not in business_columns and val is not None:
+                    if col not in business_columns and col not in stale_columns and val is not None:
                         if isinstance(val,str) and val.startswith("="):
                             problems.append(f"명세서 {idx}행 {col}번째 열: 소계 행 추가 열에 수식이 있어 옮기면 참조가 바뀝니다. 값으로 바꿔 주세요.")
                             continue
@@ -300,7 +323,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 problems.append(f"명세서 {idx}행 금액을 안전하게 읽을 수 없습니다: {amount!r}. 숫자로 입력해 주세요.")
                 continue
             extras={col:val for col,val in enumerate(values,1)
-                    if col not in business_columns and val is not None}
+                    if col not in business_columns and col not in stale_columns
+                    and val is not None}
             entry=(idx,str(desc),amount,
                    values[fields["date"]-1] if fields["date"] else None,extras)
             if grouped:
@@ -392,7 +416,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             # The original cell style carries font, border, fill, number format,
             # alignment and protection. Row properties are copied as well.
             for column,style in enumerate(styles,1):
-                ws.cell(row_no,column)._style=copy(style)
+                ws.cell(row_no,column)._style=(
+                    StyleArray() if column in stale_columns else copy(style))
             row_dim=copy(dimension)
             row_dim.index=row_no
             ws.row_dimensions[row_no]=row_dim
@@ -418,10 +443,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                     values[column]=value
             write_row(values,*subtotal_styles.get(vendor,subtotal_style))
             write_status(ws,row_no-1,status_column,fields["amount"],"소계",subtotal=True,
-                         subtotal_zero=(total==0))
+                         subtotal_zero=(total==0),note=plan.subtotal_notes.get(vendor))
         vendor=None
         start=None
         total=Decimal(0)
+        record_rows={}
         for rec in records:
             current=(rec.vendor_code,rec.vendor_name)
             if vendor is not None and current!=vendor:
@@ -456,12 +482,25 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if source_ref is not None:
                 source_targets.setdefault(source_ref,[]).append(row_no)
             write_row(values,*(original_style or detail_style))
+            record_rows[id(rec)]=row_no-1
             write_status(ws,row_no-1,status_column,fields["amount"],rec.status,
-                         reason=plan.status_reasons.get(id(rec),""))
+                         reason=plan.status_reasons.get(id(rec),""),
+                         text=plan.status_notes.get(id(rec)))
             total+=Decimal(rec.amount)
             vendor=current
         if vendor is not None:
             finish_subtotal(vendor,start,total)
+        # Say which rows each row is offset against ("8행과 대차"). Row numbers are final
+        # here (nothing is inserted afterwards). Plain text: no link, the rows are close.
+        for rec in records:
+            note=plan.link_notes.get(id(rec))
+            if note is None or id(rec) not in record_rows:
+                continue
+            partner_rows=[record_rows[p] for p in note.partners if p in record_rows]
+            if partner_rows:
+                cell=ws.cell(record_rows[id(rec)],status_column)
+                text=link_note_text(note,partner_rows)
+                cell.value=f"{cell.value}\n{text}" if note.append and cell.value else text
         auxiliary_targets={}
         for source_row,kind in auxiliary_rows.items():
             auxiliary_targets[source_row]=row_no
@@ -469,6 +508,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             write_row({},[cell._style for cell in cells],auxiliary_dimensions[source_row])
             target_row=row_no-1
             for cell in cells:
+                if cell.column in stale_columns:
+                    continue
                 target=ws.cell(target_row,cell.column)
                 target.value=cell.value
                 target.comment=copy(cell.comment)

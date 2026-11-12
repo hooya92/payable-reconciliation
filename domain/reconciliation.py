@@ -3,6 +3,7 @@ from collections import defaultdict
 from decimal import Decimal
 from .models import JournalLine, NewPayable, PayableItem, ReconcileResult, Status
 from .normalization import normalize_code, normalize_text
+from .offset_hints import differs_only_by_month
 
 
 def journal_correction_reviews(lines):
@@ -204,7 +205,11 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
             notes=[]
             if not same_name:
                 notes.append(("거래처명 오타 의심" if _text_typo(line.vendor_name,item.vendor_name) else "거래처명 차이") + f": 명세서 ‘{item.vendor_name}’ / 원장 ‘{line.vendor_name}’")
-            if not same_desc:
+            # Same item, only the month number differs ("7월 …_GS팀" paid as "8월 …_GS팀"):
+            # not a description error, the pairing stays a clean automatic match.
+            month_only=(not same_desc
+                        and differs_only_by_month(item.description,line.description))
+            if not same_desc and not month_only:
                 notes.append(("적요 오타 의심" if _text_typo(line.description,item.description) else "적요 차이") + f": 명세서 ‘{item.description}’ / 원장 ‘{line.description}’")
 
             if notes:
@@ -212,6 +217,13 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
                     Status.MATCHED, item, line,
                     "거래처코드·금액이 유일하게 일치 · 참고: " + " / ".join(notes),
                     "CODE_AMOUNT_UNIQUE_WITH_NOTE"
+                ))
+            elif month_only:
+                results.append(ReconcileResult(
+                    Status.MATCHED, item, line,
+                    "거래처코드·금액이 유일하게 일치 · 적요는 월만 다름: "
+                    f"명세서 ‘{item.description}’ / 원장 ‘{line.description}’",
+                    "CODE_AMOUNT_UNIQUE_MONTH_ONLY"
                 ))
             else:
                 results.append(ReconcileResult(

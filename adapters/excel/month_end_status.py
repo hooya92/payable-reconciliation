@@ -5,7 +5,10 @@ generated to the right of all occupied source columns and can be deleted by
 the person reviewing the draft.
 """
 from copy import copy
+from decimal import Decimal
 
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, PatternFill
 from openpyxl.comments import Comment
 from openpyxl.utils import get_column_letter
@@ -26,6 +29,136 @@ _DISPLAY={
     "대사 일치":"자동 대사",
     "당월 발생":"당월 신규",
 }
+
+
+# Words this program itself writes into the status column. Used to recognise a
+# status column left over from the previous month's output, which must not be
+# carried into the new month as if it were the owner's own notes.
+_GENERATED_LABELS=(
+    "자동 대사","순잔액 대사","전월 이월","당월 신규","당월 지급","원장 단독",
+    "확인 필요","오타 의심","오발행·취소 의심","대사 일치","당월 발생","소계",
+)
+
+
+def is_generated_status(value):
+    """True for text this program wrote as a row status (never for free-form notes)."""
+    if not isinstance(value,str):
+        return False
+    text=value.strip()
+    return text.startswith(_SUBTOTAL_VERDICTS) or any(
+        text==label or text.startswith((label+" ·",label+" ↔",label+" 0"))
+        for label in _GENERATED_LABELS
+    )
+
+
+# The one-line verdicts this program writes on a vendor subtotal row.
+_SUBTOTAL_VERDICTS=("✓ 검산","△ 검산","✗ 검산")
+
+
+def row_ranges_text(rows):
+    """[3, 4, 5, 9] -> "3~5·9": row numbers, consecutive runs shortened."""
+    rows=sorted(set(rows))
+    if not rows:
+        return ""
+    parts=[]
+    start=prev=rows[0]
+    for row in rows[1:]+[None]:
+        if row is not None and row==prev+1:
+            prev=row
+            continue
+        parts.append(f"{start}~{prev}" if prev>start else str(start))
+        if row is not None:
+            start=prev=row
+    return "·".join(parts)
+
+
+def link_note_text(note, rows):
+    """Wording for "this row is offset against rows ...", given the partners' row numbers."""
+    where=row_ranges_text(rows)
+    if note.confirmed:
+        # pair: "5행과 대차"; group of several rows: "4·5행과 함께 대차 (합계 0)"
+        together=f"{where}행과 함께 대차" if note.together else f"{where}행과 대차"
+        tail=(" (합계 0 · 금액만 일치)" if note.candidate else " (합계 0)") if note.together else note.suffix
+        if note.append:
+            # under the engine's own status line: not confirmed by the engine, so "후보"
+            return f"{together} 후보{tail}"
+        return f"{note.head} · {together}{' 후보' if note.candidate else ''}{tail}"
+    return f"{note.head}\n{note.noun} {where}행과 대차 후보"
+
+
+_GREEN="1B7233"
+_AMBER="8A5A00"
+_RED="B42318"
+_GRAY="5F6368"
+_DARK="1D1D1F"
+
+
+def _num(value):
+    value=Decimal(value)
+    text=f"{abs(value):,.0f}" if value==value.to_integral_value() else f"{abs(value):,.2f}"
+    return ("−" if value<0 else "")+text
+
+
+def subtotal_note_text(note, font_name="맑은 고딕", font_size=10):
+    """Vendor subtotal explanation as one rich-text cell (bold / colour / line breaks).
+
+    The whole explanation lives in this single status cell so that deleting the
+    status column removes all of it and nothing is added around the statement.
+    """
+    def run(text, color=_DARK, bold=False):
+        return TextBlock(InlineFont(rFont=font_name,sz=font_size,b=bold or None,color=color),text)
+
+    terms=[("전월 합계",note.opening,"")]
+    if note.credit:
+        terms.append(("+ 당월 대변",note.credit,""))
+    if note.debit:
+        terms.append(("− 당월 차변",note.debit,""))
+
+    if note.state=="mismatch":
+        head=("✗ 검산 불일치",_RED)
+    elif note.state=="hold":
+        head=("△ 검산 보류 · 입력 확인 필요",_AMBER)
+    elif note.review:
+        head=("△ 검산 일치 · 확인 필요 항목 있음",_AMBER)
+    else:
+        head=("✓ 검산 일치",_GREEN)
+
+    if note.closing==0:
+        # Documented rule: an exactly-zero subtotal is always marked "소계 0".
+        head=("소계 0 · "+head[0],head[1])
+    parts=[]
+    if len(terms)<3 and not note.groups and note.state=="ok" and not note.review:
+        # Short vendor: the whole explanation on one line.
+        pieces=[f"전월 {_num(note.opening)}"]
+        if note.credit:
+            pieces.append(f"+ 대변 {_num(note.credit)}")
+        if note.debit:
+            pieces.append(f"− 차변 {_num(note.debit)}")
+        return CellRichText(
+            run(head[0],head[1],True),
+            run("  "+" ".join(pieces)+f" = {_num(note.closing)}",_GRAY),
+        )
+    parts.append(run(head[0]+"\n",head[1],True))
+    for label,value,_ in terms:
+        parts+=[run(f"{label}  ",_GRAY),run(_num(value)+"\n")]
+    parts+=[run("= 말 잔액  ",_GRAY),run(_num(note.closing),bold=True)]
+    if note.state=="mismatch":
+        parts+=[run(f"\n계산상 잔액  {_num(note.expected)}",_RED)]
+    for group in note.groups:
+        remaining=group.remaining
+        if remaining==0:
+            tail=("✓ 일치 (후보)",_GREEN,"=")
+        elif remaining>0:
+            tail=(f"△ 남음 {_num(remaining)} (후보)",_AMBER,"−")
+        else:
+            tail=(f"△ 초과 {_num(-remaining)} (후보)",_AMBER,"−")
+        parts+=[run("\n\n"),run(f"{group.month}월 묶음  ",bold=True),run(tail[0]+"\n",tail[1],True),
+                run(f"청구 {_num(group.claims)} {tail[2]} 지급 {_num(group.payments)}",_GRAY)]
+    return CellRichText(*parts)
+
+
+def note_line_count(rich):
+    return str(rich).count("\n")+1
 
 
 def find_status_column(sheet, header_row):
@@ -65,7 +198,8 @@ def prepare_status_header(sheet, header_row, status_col, example_header_col):
         sheet.column_dimensions[letter].width=32
 
 
-def write_status(sheet, row, column, amount_column, status, *, subtotal=False, reason="", subtotal_zero=False):
+def write_status(sheet, row, column, amount_column, status, *, subtotal=False, reason="", subtotal_zero=False,
+                 text=None, note=None):
     cell=sheet.cell(row,column)
     # Row styles are cloned by the Excel writer. The status cell receives the
     # same base font/border, before only its status-specific fill is applied.
@@ -94,6 +228,16 @@ def write_status(sheet, row, column, amount_column, status, *, subtotal=False, r
             if len(sections)>=3:
                 sections[2]='"0"'
                 amount.number_format=";".join(sections)
+        if note is not None:
+            rich=subtotal_note_text(note,cell.font.name or "맑은 고딕",cell.font.sz or 10)
+            cell.value=rich
+            cell.alignment=Alignment(horizontal="left",vertical="top",wrap_text=True)
+            # Excel fits a row without a fixed height by itself; only a template
+            # row that fixes its height smaller than the text needs is enlarged.
+            needed=15*note_line_count(rich)+3
+            current=sheet.row_dimensions[row].height
+            if current is not None and current<needed:
+                sheet.row_dimensions[row].height=needed
         return
 
     label=_DISPLAY.get(status,status or "확인 필요")
@@ -117,6 +261,10 @@ def write_status(sheet, row, column, amount_column, status, *, subtotal=False, r
                 topics.append(title)
         cell.value=label+" · "+(", ".join(topics) if topics else reason)
         cell.comment=Comment(reason,"대사 검토")
+    if text:
+        # Explicit wording (what the row was offset against); the generated
+        # reason above stays in the cell comment.
+        cell.value=text
     cell.number_format="General"
     cell.alignment=Alignment(horizontal="center",vertical="center",wrap_text=True)
     cell.fill=PatternFill(fill_type="solid",fgColor=_STATUS_COLORS.get(label,"FFFFFF"))
