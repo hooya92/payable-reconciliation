@@ -692,7 +692,9 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                         flush_pending_as_issues("그룹 중간에 수식 셀이 있어 거래처를 안전하게 확정할 수 없음")
                     out.issues.append(InputIssue("명세서",ws.title,r,"수식",amount_cell.value,
                         "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 대사하지 않음"))
-                    if code and vendor_name and summary_label:
+                    if summary_label:
+                        # A subtotal-looking row ends its group even when it cannot be trusted:
+                        # the next vendor's rows must not inherit this group's problem.
                         group_tainted=False
                     continue
 
@@ -715,14 +717,17 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
                     if pending:
                         flush_pending_as_issues("그룹 중간에 확인이 필요한 금액 형식이 있어 거래처를 확정할 수 없음")
                     out.issues.append(InputIssue("명세서",ws.title,r,"금액",a.raw,a.reason))
-                    if code and vendor_name and summary_label:
+                    if summary_label:
                         group_tainted=False
                     continue
 
-                # Legacy presentation subtotal: vendor-name column itself contains only '소계'.
-                if not code and not desc and _is_summary_label(vendor_name):
+                # A subtotal-looking row without vendor code/name (or the legacy form whose vendor-name
+                # column only says '소계'): its details cannot be attributed, but it still ends the
+                # group, so the next vendor's rows stand on their own.
+                if summary_label and not (code and vendor_name):
                     if pending:
                         flush_pending_as_issues("소계 행에 거래처코드/거래처명이 없어 상세 행의 거래처를 확정할 수 없음")
+                    group_tainted=False
                     continue
 
                 # Group subtotal row: vendor code/name + '소계' and exact sum of preceding details.
