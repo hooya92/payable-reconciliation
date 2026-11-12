@@ -78,11 +78,11 @@ def link_note_text(note, rows):
     if note.confirmed:
         # pair: "5행과 대차"; group of several rows: "4·5행과 함께 대차 (합계 0)"
         together=f"{where}행과 함께 대차" if note.together else f"{where}행과 대차"
-        tail=" (합계 0)" if note.together else note.suffix
+        tail=(" (합계 0 · 금액만 일치)" if note.candidate else " (합계 0)") if note.together else note.suffix
         if note.append:
             # under the engine's own status line: not confirmed by the engine, so "후보"
             return f"{together} 후보{tail}"
-        return f"{note.head} · {together}{tail}"
+        return f"{note.head} · {together}{' 후보' if note.candidate else ''}{tail}"
     return f"{note.head}\n{note.noun} {where}행과 대차 후보"
 
 

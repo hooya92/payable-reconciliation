@@ -324,7 +324,8 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
                 replace=code in verified and rec.status in heads
                 link_notes[key]=LinkNote(
                     heads[rec.status] if replace else "","",partners,True,suffix,
-                    together=found.kind=="group",append=not replace)
+                    together=found.kind in ("group","mixed"),append=not replace,
+                    candidate=found.kind=="mixed")
         if code not in verified:
             continue
         # Month groups (candidates) for the rest of a verified net vendor's rows.
