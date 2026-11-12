@@ -176,7 +176,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         if len(selected)!=1:
             raise ValueError("당월 양식으로 복사할 전월 명세서 시트를 하나만 식별해야 합니다.")
         original,header,headers=selected[0]
-        target_name=f"{period.year%100:02d}.{period.month:02d}"
+        target_name=period.short_label
         if any(ws.title==target_name for ws in wb.worksheets):
             raise ValueError(f"양식 파일에 당월 시트({target_name})가 이미 있습니다. 그 시트를 삭제하거나 이름을 바꾼 뒤 다시 실행해 주세요.")
         fields={

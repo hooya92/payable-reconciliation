@@ -21,6 +21,11 @@ class AccountingPeriod:
     def label(self) -> str:
         return f"{self.year}년 {self.month}월"
 
+    @property
+    def short_label(self) -> str:
+        """The sheet-tab style used in statements: 26.09."""
+        return f"{self.year % 100:02d}.{self.month:02d}"
+
     def contains(self, value: object) -> bool:
         parsed = parse_date(value)
         return parsed is not None and parsed.year == self.year and parsed.month == self.month

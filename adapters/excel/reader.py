@@ -531,17 +531,17 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                 # A problem row that still names its vendor only concerns that vendor; a row whose
                 # vendor cannot be read stays unscoped (it could belong to anyone).
                 vendor_cell=row[cols["vendor_code"]-1]
-                known="" if _is_formula(vendor_cell) else _code_from_cell(vendor_cell)
+                row_vendor_code="" if _is_formula(vendor_cell) else _code_from_cell(vendor_cell)
                 an=_text(row[cols["account_name"]-1].value) if cols["account_name"] else ""
 
                 date_cell=row[cols["date"]-1] if cols["date"] else None
                 raw_date=date_cell.value if date_cell else None
                 if date_cell is not None and _is_formula(date_cell):
-                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"수식 날짜는 대상월을 확정할 수 없어 자동 처리하지 않음",known)); continue
+                    out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"수식 날짜는 대상월을 확정할 수 없어 자동 처리하지 않음",row_vendor_code)); continue
                 if period:
                     parsed_date=parse_date(raw_date)
                     if parsed_date is None:
-                        out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외",known)); continue
+                        out.issues.append(InputIssue("더존",ws.title,r,"기표일자",raw_date,"날짜를 해석할 수 없어 대상월 필터에서 제외",row_vendor_code)); continue
                     if not period.contains(parsed_date): continue
 
                 formula_field=None
@@ -552,31 +552,31 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
                         formula_field=(field,cell.value); break
                 if formula_field:
                     out.issues.append(InputIssue("더존",ws.title,r,formula_field[0],formula_field[1],
-                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 처리하지 않음",known)); continue
+                        "수식 셀은 계산값의 최신성을 보장할 수 없어 자동 처리하지 않음",row_vendor_code)); continue
 
                 d=parse_amount(row[cols["debit"]-1].value); cr=parse_amount(row[cols["credit"]-1].value)
                 suspicious=False
                 for field,x in (("차변",d),("대변",cr)):
                     if x.quality==DataQuality.SUSPICIOUS:
-                        out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason,known)); suspicious=True
+                        out.issues.append(InputIssue("더존",ws.title,r,field,x.raw,x.reason,row_vendor_code)); suspicious=True
                 if suspicious: continue
 
                 debit=d.value or 0; credit=cr.value or 0
                 if debit==0 and credit==0: continue
                 if debit != 0 and credit != 0:
                     out.issues.append(InputIssue("더존",ws.title,r,"차변/대변",
-                        f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음",known)); continue
+                        f"{debit}/{credit}","한 행에 차변과 대변이 동시에 있어 자동 처리하지 않음",row_vendor_code)); continue
 
-                code=_code_from_cell(row[cols["vendor_code"]-1])
+                code=row_vendor_code
                 vendor_name=_text(row[cols["vendor_name"]-1].value)
                 desc=_text(row[cols["description"]-1].value)
                 row_invalid=False
                 if not code:
                     out.issues.append(InputIssue("더존",ws.title,r,"거래처코드","", "거래처코드 없음")); row_invalid=True
                 if not vendor_name:
-                    out.issues.append(InputIssue("더존",ws.title,r,"거래처명","", "거래처명 없음",known)); row_invalid=True
+                    out.issues.append(InputIssue("더존",ws.title,r,"거래처명","", "거래처명 없음",row_vendor_code)); row_invalid=True
                 if not desc:
-                    out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음",known)); row_invalid=True
+                    out.issues.append(InputIssue("더존",ws.title,r,"적요","", "적요 없음",row_vendor_code)); row_invalid=True
                 if row_invalid: continue
 
                 ledger_balance=None
