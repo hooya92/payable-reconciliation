@@ -127,7 +127,7 @@ class SmokeTests(unittest.TestCase):
     def test_window_builds_and_result_table_is_visible_at_minimum_size(self):
         app=A.App()
         try:
-            app.geometry("1080x760+0+0")
+            app.geometry("900x680+0+0")
             app.update()
             # Not collapsed: header plus part of a row stay visible. Font metrics
             # differ between Windows and Linux, so this is a floor, not an exact size.
