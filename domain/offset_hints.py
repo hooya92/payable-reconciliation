@@ -49,6 +49,15 @@ class VendorNote:
     groups: tuple = ()
 
 
+@dataclass(frozen=True)
+class LinkNote:
+    """"This row is offset against those rows": the wording, resolved to row numbers when written."""
+    head: str            # e.g. "자동 대사", "순잔액 대사 · 7월 묶음"
+    noun: str            # what the partner rows are, e.g. "지급", "7월 청구"; "" for a confirmed pair
+    partners: tuple      # ids of the partner StatementRow objects
+    confirmed: bool      # True only for a one-to-one pair the reconciliation itself confirmed
+
+
 def month_groups(claims, payments):
     """Group by month the months that appear on BOTH sides.
 

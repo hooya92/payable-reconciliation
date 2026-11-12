@@ -26,7 +26,7 @@ from domain.models import Status, DataQuality
 from domain.normalization import parse_amount, parse_literal_amount_formula
 from application.month_end_plan import build_month_end_plan
 from adapters.excel.month_end_status import (
-    find_status_column, is_generated_status, prepare_status_header, write_status,
+    find_status_column, is_generated_status, link_note_text, prepare_status_header, write_status,
 )
 from domain.period import AccountingPeriod
 
@@ -490,23 +490,15 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             vendor=current
         if vendor is not None:
             finish_subtotal(vendor,start,total)
-        # Confirmed one-to-one pairs: say which row each was offset against, with a
-        # link to it. Row numbers are final here (nothing is inserted afterwards).
+        # Say which rows each row is offset against ("8행과 대차"). Row numbers are final
+        # here (nothing is inserted afterwards). Plain text: no link, the rows are close.
         for rec in records:
-            other=plan.pair_links.get(id(rec))
-            if other is None or id(rec) not in record_rows or other not in record_rows:
+            note=plan.link_notes.get(id(rec))
+            if note is None or id(rec) not in record_rows:
                 continue
-            target=record_rows[other]
-            cell=ws.cell(record_rows[id(rec)],status_column)
-            cell.value=f"자동 대사 ↔ {target}행"
-            cell.hyperlink=Hyperlink(
-                ref=cell.coordinate,
-                location=f"{quote_sheetname(ws.title)}!{ws.cell(target,fields['desc']).coordinate}",
-                tooltip="대사된 상대 행으로 이동")
-            font=copy(cell.font)
-            font.color="0563C1"
-            font.underline="single"
-            cell.font=font
+            partner_rows=[record_rows[p] for p in note.partners if p in record_rows]
+            if partner_rows:
+                ws.cell(record_rows[id(rec)],status_column).value=link_note_text(note,partner_rows)
         auxiliary_targets={}
         for source_row,kind in auxiliary_rows.items():
             auxiliary_targets[source_row]=row_no

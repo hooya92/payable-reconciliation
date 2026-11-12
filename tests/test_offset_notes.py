@@ -8,7 +8,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import PatternFill
 
 from adapters.excel.month_end_statement import write_month_end_statement
-from adapters.excel.month_end_status import is_generated_status, subtotal_note_text
+from adapters.excel.month_end_status import (
+    is_generated_status, row_ranges_text, subtotal_note_text)
 from application.service import run_reconciliation
 from domain.offset_hints import MonthGroup, VendorNote, month_groups, month_token
 from tests import test_journal_corrections as fixtures
@@ -96,34 +97,49 @@ class OffsetHintTests(unittest.TestCase):
         self.assertIn("계산상 잔액  70",text)
 
     def test_generated_status_words_are_recognised_but_notes_are_not(self):
-        for text in ("자동 대사","소계","소계 0","당월 지급 · 7월 묶음 (후보)","자동 대사 ↔ 8행"):
+        for text in ("자동 대사","소계","소계 0","당월 지급 · 7월 묶음","자동 대사 · 8행과 대차",
+                     "✓ 검산 일치\n전월 합계  590","△ 검산 일치 · 확인 필요 항목 있음","✗ 검산 불일치"):
             self.assertTrue(is_generated_status(text),text)
         for text in ("담당자 메모","비고","7월분 확인함",None,123):
             self.assertFalse(is_generated_status(text),text)
 
 
+class RowRangeTests(unittest.TestCase):
+    def test_consecutive_rows_are_shortened(self):
+        self.assertEqual(row_ranges_text([3,4,5]),"3~5")
+        self.assertEqual(row_ranges_text([7]),"7")
+        self.assertEqual(row_ranges_text([3,5,6,9]),"3·5~6·9")
+        self.assertEqual(row_ranges_text([9,3,3]),"3·9")
+        self.assertEqual(row_ranges_text([]),"")
+
+
 class StatementNotesTests(unittest.TestCase):
-    def test_net_vendor_rows_and_subtotal_explain_the_offset(self):
+    def test_net_vendor_rows_name_the_rows_they_are_offset_against(self):
         with tempfile.TemporaryDirectory() as folder:
             run,out=generate(folder)
             wb=load_workbook(out,rich_text=True)
             try:
                 ws=wb["26.09"]
-                rows={r:[ws.cell(r,c).value for c in range(1,7)] for r in range(3,ws.max_row+1)}
-                status={r:str(v[5]) for r,v in rows.items() if v[5] is not None}
-                joined="\n".join(status.values())
-                # claims of a month and payments naming that month carry the same group label
-                self.assertEqual(joined.count("순잔액 대사 · 7월 묶음 (후보)"),3)
-                self.assertEqual(joined.count("순잔액 대사 · 8월 묶음 (후보)"),1)
-                self.assertIn("당월 지급 · 7월 묶음 (후보)\n순잔액에서 차감, 건별 연결 미확정",joined)
-                self.assertIn("당월 지급 · 8월 묶음 (후보)",joined)
+                status={r:str(ws.cell(r,6).value) for r in range(3,ws.max_row+1)
+                        if ws.cell(r,6).value is not None}
+                desc={r:ws.cell(r,4).value for r in range(3,ws.max_row+1)}
+                # rows 3-5: 7월 claims (+100, +200, -10 adjustment), row 6: 8월 claim,
+                # row 7: 지급(7월분), row 8: 지급(8월분), row 9: new credit
+                for row in (3,4,5):
+                    self.assertEqual(status[row],"순잔액 대사 · 7월 묶음\n지급 7행과 대차 후보",row)
+                self.assertEqual(status[6],"순잔액 대사 · 8월 묶음\n지급 8행과 대차 후보")
+                self.assertEqual(status[7],"당월 지급 · 7월 묶음\n7월 청구 3~5행과 대차 후보")
+                self.assertEqual(status[8],"당월 지급 · 8월 묶음\n8월 청구 6행과 대차 후보")
+                self.assertEqual(status[9],"당월 신규")
+                # the named rows really are the partners (same month in the description)
+                self.assertIn("7월",desc[7]); self.assertIn("8월",desc[8])
+                self.assertEqual(sum(ws.cell(r,5).value for r in (3,4,5))+ws.cell(7,5).value,0)
                 subtotal=next(v for r,v in status.items() if "검산" in v)
                 for expected in ("✓ 검산 일치","= 말 잔액  250","7월 묶음  ✓ 일치 (후보)",
                                  "8월 묶음  △ 남음 200 (후보)"):
                     self.assertIn(expected,subtotal)
-                # the amount column itself is untouched: closing balance matches the subtotal sum
-                self.assertEqual(sum(v[4] for v in rows.values() if isinstance(v[4],(int,float))
-                                     and v[2]!="소계" and v[0]!="합 계"),250)
+                # no links anywhere on the statement
+                self.assertEqual(len(ws._hyperlinks),0)
             finally:
                 wb.close()
 

@@ -8,7 +8,7 @@ from decimal import Decimal
 
 from domain.models import Status
 from domain.balance_check import build_balance_checks
-from domain.offset_hints import VendorNote, month_groups, month_token
+from domain.offset_hints import LinkNote, VendorNote, month_groups, month_token
 from domain.normalization import normalize_code, normalize_text
 from domain.reconciliation import journal_correction_reviews, correction_scope
 
@@ -42,7 +42,7 @@ class MonthEndPlan:
     # Display-only explanations. Keys: id(StatementRow) / (vendor code, name).
     status_notes: dict = field(default_factory=dict)
     subtotal_notes: dict = field(default_factory=dict)
-    pair_links: dict = field(default_factory=dict)
+    link_notes: dict = field(default_factory=dict)
 
 
 def _status_for_opening(result):
@@ -269,11 +269,11 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                          else f"원장 차액 {check[10]:,.0f}원")
             reviews.append(("잔액 확인",check[0],check[1],"거래처 잔액 검증",_amount(check[6]),
                             f"계산 차액 {check[7]:,.0f}원 / {ledger_text} · {check[12]}","당월 잔액검증",None))
-    status_notes,subtotal_notes,pair_links=_offset_explanations(
+    status_notes,subtotal_notes,link_notes=_offset_explanations(
         records,balances,net_vendors,results,matched_debits,opening_records,
         journal_records,source_name,source_sheet,correction_status)
     return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons,record_sources,balances,
-                        status_notes,subtotal_notes,pair_links)
+                        status_notes,subtotal_notes,link_notes)
 
 
 def _offset_explanations(records, balances, net_vendors, results, matched_debits,
@@ -287,7 +287,7 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
     """
     status_notes={}
     subtotal_notes={}
-    pair_links={}
+    link_notes={}
     by_vendor={}
     for rec in records:
         by_vendor.setdefault(normalize_code(rec.vendor_code),[]).append(rec)
@@ -302,16 +302,25 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
             [(r.description,-r.amount) for r in vendor_records if r.status=="당월 지급"],
         )
         groups_by_vendor[code]=groups
+        claims_of={}
+        payments_of={}
         for rec in vendor_records:
             month=month_token(rec.description)
             if rec.status=="순잔액 대사" and month in groups:
-                status_notes[id(rec)]=f"순잔액 대사 · {month}월 묶음 (후보)"
+                claims_of.setdefault(month,[]).append(rec)
             elif rec.status=="당월 지급":
                 if month in groups:
-                    status_notes[id(rec)]=(f"당월 지급 · {month}월 묶음 (후보)\n"
-                                           "순잔액에서 차감, 건별 연결 미확정")
+                    payments_of.setdefault(month,[]).append(rec)
                 else:
                     status_notes[id(rec)]="당월 지급 · 순잔액에서 차감\n건별 연결 미확정"
+        # Each claim says which payments it is a candidate to be offset by, and vice versa.
+        for month in groups:
+            claim_ids=tuple(id(r) for r in claims_of.get(month,[]))
+            payment_ids=tuple(id(r) for r in payments_of.get(month,[]))
+            for rec in claims_of.get(month,[]):
+                link_notes[id(rec)]=LinkNote(f"순잔액 대사 · {month}월 묶음","지급",payment_ids,False)
+            for rec in payments_of.get(month,[]):
+                link_notes[id(rec)]=LinkNote(f"당월 지급 · {month}월 묶음",f"{month}월 청구",claim_ids,False)
 
     review_statuses=("확인 필요","오타 의심",correction_status)
     for check in balances:
@@ -340,6 +349,6 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
         journal_rec=journal_records.get(id(journal))
         if (opening_rec is not None and journal_rec is not None
                 and opening_rec.status=="대사 일치" and journal_rec.status=="대사 일치"):
-            pair_links[id(opening_rec)]=id(journal_rec)
-            pair_links[id(journal_rec)]=id(opening_rec)
-    return status_notes,subtotal_notes,pair_links
+            link_notes[id(opening_rec)]=LinkNote("자동 대사","",(id(journal_rec),),True)
+            link_notes[id(journal_rec)]=LinkNote("자동 대사","",(id(opening_rec),),True)
+    return status_notes,subtotal_notes,link_notes

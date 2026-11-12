@@ -45,10 +45,39 @@ def is_generated_status(value):
     if not isinstance(value,str):
         return False
     text=value.strip()
-    return any(
+    return text.startswith(_SUBTOTAL_VERDICTS) or any(
         text==label or text.startswith((label+" ·",label+" ↔",label+" 0"))
         for label in _GENERATED_LABELS
     )
+
+
+# The one-line verdicts this program writes on a vendor subtotal row.
+_SUBTOTAL_VERDICTS=("✓ 검산","△ 검산","✗ 검산")
+
+
+def row_ranges_text(rows):
+    """[3, 4, 5, 9] -> "3~5·9": row numbers, consecutive runs shortened."""
+    rows=sorted(set(rows))
+    if not rows:
+        return ""
+    parts=[]
+    start=prev=rows[0]
+    for row in rows[1:]+[None]:
+        if row is not None and row==prev+1:
+            prev=row
+            continue
+        parts.append(f"{start}~{prev}" if prev>start else str(start))
+        if row is not None:
+            start=prev=row
+    return "·".join(parts)
+
+
+def link_note_text(note, rows):
+    """Wording for "this row is offset against rows ...", given the partners' row numbers."""
+    where=row_ranges_text(rows)
+    if note.confirmed:
+        return f"{note.head} · {where}행과 대차"
+    return f"{note.head}\n{note.noun} {where}행과 대차 후보"
 
 
 _GREEN="1B7233"
