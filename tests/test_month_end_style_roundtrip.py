@@ -101,8 +101,8 @@ class FullTemplateStyleTests(unittest.TestCase):
             self.assertEqual(prior.read_bytes(),before)
             wb=load_workbook(prior);wb["26.07"]["E4"]="=-E3"
             wb.save(prior);wb.close()
-            with self.assertRaisesRegex(ValueError,"4행.*지원하지 않는 수식"):
-                write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+            notices=write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
+            self.assertTrue([text for text in notices if "4행" in text and "지원하지 않는 수식" in text],notices)
             self.assertTrue(read_prior(prior,period=AccountingPeriod(2026,7)).issues)
 
     def test_retained_rows_keep_individual_styles_and_original_dates(self):

@@ -161,11 +161,12 @@ def note_line_count(rich):
     return str(rich).count("\n")+1
 
 
-def find_status_column(sheet, header_row):
-    """Use existing status column, or append without overwriting owner columns.
+def find_status_column(sheet, header_row, ignore_rows=()):
+    """Use the existing status column, or the first free column right of the table.
 
-    A new column is F when E is the last occupied business column, but is
-    farther right when the source includes notes or other user data.
+    That is F when E is the last header column. A column is skipped only when a table
+    row really uses it (the owner's own notes column); stray cells in note rows below the
+    table (`ignore_rows`) and last month's generated status words do not push it away.
     """
     existing=[
         cell.column for cell in sheet[header_row]
@@ -176,14 +177,24 @@ def find_status_column(sheet, header_row):
     if existing:
         return existing[0]
 
-    last=max(
-        (cell.column for cell in sheet._cells.values()
-         if cell.row>=header_row and cell.value is not None),
-        default=0,
-    )
-    if not last:
+    header_columns=[cell.column for cell in sheet[header_row] if cell.value is not None]
+    if not header_columns:
         raise ValueError("명세서의 데이터 열을 확인할 수 없습니다.")
-    return last+1
+    occupied={}
+    for cell in sheet._cells.values():
+        if cell.row>header_row and cell.row not in ignore_rows and cell.value is not None:
+            occupied.setdefault(cell.column,[]).append(cell.value)
+    def in_use(column):
+        values=occupied.get(column)
+        if not values:
+            return False
+        # A header-less column of nothing but our own status words is last month's output.
+        no_header=sheet.cell(header_row,column).value is None
+        return not (no_header and all(is_generated_status(v) for v in values))
+    column=max(header_columns)+1
+    while in_use(column) or sheet.cell(header_row,column).value is not None:
+        column+=1
+    return column
 
 
 def prepare_status_header(sheet, header_row, status_col, example_header_col):

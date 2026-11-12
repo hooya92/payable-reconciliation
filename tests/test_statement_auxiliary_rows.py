@@ -142,7 +142,7 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
                 wb.close()
             self.assertEqual(prior.read_bytes(),before)
 
-    def test_dated_or_identified_broken_transactions_remain_errors(self):
+    def test_dated_or_identified_broken_transactions_are_reported_and_kept(self):
         with tempfile.TemporaryDirectory() as folder:
             for code,name,when in ((None,None,"2026-07-31"),("000011","가상A",None)):
                 with self.subTest(code=code):
@@ -153,6 +153,8 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
                     wb.save(prior);wb.close()
                     read=read_prior(prior,period=AccountingPeriod(2026,7))
                     self.assertTrue(read.issues)
-                    with self.assertRaisesRegex(ValueError,"6행"):
-                        write_month_end_statement(Path(folder)/"result.xlsx",[prior],[],[],[],
-                                                  AccountingPeriod(2026,8))
+                    out=Path(folder)/"result.xlsx"
+                    notices=write_month_end_statement(out,[prior],[],[],[],AccountingPeriod(2026,8))
+                    self.assertTrue([text for text in notices if "6행" in text],notices)
+                    ws=load_workbook(out)["26.08"]
+                    self.assertIn("추가 거래",[ws.cell(r,4).value for r in range(1,ws.max_row+1)])

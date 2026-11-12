@@ -4,6 +4,7 @@ from datetime import date, datetime
 from pathlib import Path
 import re
 import struct
+import zipfile
 from itertools import islice
 
 try:
@@ -15,6 +16,7 @@ except ImportError:
 
 from openpyxl import load_workbook as _openpyxl_load_workbook
 from openpyxl.utils import get_column_letter
+from openpyxl.utils.exceptions import InvalidFileException
 
 from domain.models import DataQuality, JournalLine, PayableItem, SourceRef
 from domain.normalization import normalize_code, parse_amount, parse_literal_amount_formula
@@ -127,7 +129,19 @@ def _load_workbook(path, **kwargs):
         except Exception as exc:
             raise ValueError(f"구형 .xls 파일을 읽을 수 없습니다: {exc}") from exc
         return _XlsWorkbook(book)
-    return _openpyxl_load_workbook(path,**kwargs)
+    try:
+        return _openpyxl_load_workbook(path,**kwargs)
+    except InvalidFileException as exc:
+        raise ValueError(
+            f"지원하지 않는 파일 형식입니다 ({path.suffix or '확장자 없음'}). "
+            "Excel에서 '다른 이름으로 저장 → Excel 통합 문서(.xlsx)'로 저장한 뒤 선택해 주세요. "
+            "읽을 수 있는 형식: .xlsx · .xlsm · .xls"
+        ) from exc
+    except zipfile.BadZipFile as exc:
+        raise ValueError(
+            f"엑셀 파일로 읽을 수 없습니다 ({path.name}). 엑셀 파일이 아니거나 손상됐거나 암호가 걸려 있을 수 있습니다. "
+            "Excel에서 열어 확인한 뒤 암호를 해제하고 .xlsx로 다시 저장해 주세요."
+        ) from exc
 
 
 @dataclass(frozen=True)
