@@ -205,6 +205,9 @@ class App(ctk.CTk):
         self.douzone_paths=[]
         self.account_codes=tk.StringVar(value="25301")
         self.period_text=tk.StringVar()
+        self.period_value_text=tk.StringVar(value="")
+        self._period_picker_open=False
+        self._detect_state="none"
         self.year_text=tk.StringVar(value=str(today.year))
         self.month_text=tk.StringVar(value=str(today.month))
         self.status_text=tk.StringVar(value=IDLE_HINT)
@@ -310,9 +313,27 @@ class App(ctk.CTk):
         row_label(0,"대상 회계월")
         period_box=ctk.CTkFrame(form,fg_color="transparent")
         period_box.grid(row=0,column=1,columnspan=2,sticky="ew",pady=(8,8),padx=(0,18))
+        # One quiet line: the month, how it was chosen, and "변경". The pickers appear only
+        # when detection failed or the files disagree, or when the user asks to change it.
         period_row=ctk.CTkFrame(period_box,fg_color="transparent")
         period_row.pack(fill="x")
         today=date.today()
+        ctk.CTkLabel(
+            period_row,textvariable=self.period_value_text,font=font(14,True),text_color=TEXT
+        ).pack(side="left",padx=(0,12))
+        # Plain text, not a badge: how the month was chosen.
+        self.detect_pill=ctk.CTkLabel(period_row,text="",font=font(11,True),anchor="w")
+        self.detect_pill.pack(side="left",padx=(0,6))
+        self.period_toggle_btn=ctk.CTkButton(
+            period_row,text="변경",command=self._toggle_period_picker,width=52,height=26,
+            corner_radius=8,fg_color="transparent",hover_color=SOFT,text_color=ACCENT,
+            font=font(12,True),border_width=0
+        )
+        self.period_toggle_btn.pack(side="left")
+        ctk.CTkLabel(
+            period_row,textvariable=self.period_text,font=font(11),text_color=MUTED,anchor="e"
+        ).pack(side="right")
+        self.period_picker=ctk.CTkFrame(period_box,fg_color="transparent")
         menu_style=dict(
             height=32,corner_radius=8,fg_color=SOFT,button_color=SOFT,
             button_hover_color=SOFT_HOVER,text_color=TEXT,dropdown_fg_color=CARD,
@@ -320,21 +341,15 @@ class App(ctk.CTk):
             font=font(12,True),dropdown_font=font(12),
         )
         ctk.CTkOptionMenu(
-            period_row,values=[str(y) for y in range(today.year-6,today.year+2)],
+            self.period_picker,values=[str(y) for y in range(today.year-10,today.year+2)],
             variable=self.year_text,command=self._on_period_menu,width=92,**menu_style
         ).pack(side="left")
-        ctk.CTkLabel(period_row,text="년",font=font(12),text_color=TEXT).pack(side="left",padx=(5,9))
+        ctk.CTkLabel(self.period_picker,text="년",font=font(12),text_color=TEXT).pack(side="left",padx=(5,9))
         ctk.CTkOptionMenu(
-            period_row,values=[str(m) for m in range(1,13)],
+            self.period_picker,values=[str(m) for m in range(1,13)],
             variable=self.month_text,command=self._on_period_menu,width=72,**menu_style
         ).pack(side="left")
-        ctk.CTkLabel(period_row,text="월",font=font(12),text_color=TEXT).pack(side="left",padx=(5,14))
-        # Plain text, not a badge: how the month was chosen.
-        self.detect_pill=ctk.CTkLabel(period_row,text="",font=font(11,True),anchor="w")
-        self.detect_pill.pack(side="left",padx=(0,12))
-        ctk.CTkLabel(
-            period_row,textvariable=self.period_text,font=font(11),text_color=MUTED,anchor="e"
-        ).pack(side="right")
+        ctk.CTkLabel(self.period_picker,text="월",font=font(12),text_color=TEXT).pack(side="left",padx=(5,0))
         self._set_detect_pill("none")
 
         def add_file_row(row,title,count_var,add_command,remove_selected,remove_all):
@@ -651,6 +666,30 @@ class App(ctk.CTk):
             "conflict":("파일의 월과 다름",WARN),
         }[state]
         self.detect_pill.configure(text=text,text_color=fg)
+        self._detect_state=state
+        self._sync_period_picker()
+
+    def _sync_period_picker(self):
+        """The year/month pickers are a fallback: shown when detection failed or the files
+        disagree (the user has to choose), or when the user pressed 변경."""
+        if not hasattr(self,"period_picker"):
+            return
+        forced=self._detect_state in ("undetected","conflict")
+        if forced:
+            self._period_picker_open=True
+        if self._period_picker_open:
+            self.period_picker.pack(fill="x",pady=(8,0),anchor="w")
+        else:
+            self.period_picker.pack_forget()
+        if forced:
+            self.period_toggle_btn.pack_forget()
+        else:
+            self.period_toggle_btn.pack(side="left")
+            self.period_toggle_btn.configure(text="접기" if self._period_picker_open else "변경")
+
+    def _toggle_period_picker(self):
+        self._period_picker_open=not self._period_picker_open
+        self._sync_period_picker()
 
     def _update_period(self):
         try:
@@ -661,8 +700,10 @@ class App(ctk.CTk):
             )
             self.year_text.set(str(p.year))
             self.month_text.set(str(p.month))
+            self.period_value_text.set(f"{p.year}년 {p.month}월")
         except Exception:
             self.period_text.set("파일을 추가하면 회계월을 자동으로 감지합니다.")
+            self.period_value_text.set("-")
         if hasattr(self,"prior_count_text"):
             self._refresh_file_counts()
 
