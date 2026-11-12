@@ -79,6 +79,9 @@ class _XlsWorkbook:
         self._book.release_resources()
 
 
+_XLS_RESAVE_HINT="Excel에서 열어 .xlsx로 다시 저장한 뒤 선택해 주세요."
+
+
 def _xls_contains_formula(path):
     if xlrd is None or compdoc is None:
         raise ValueError(
@@ -93,17 +96,17 @@ def _xls_contains_formula(path):
         else:
             stream=raw
     except Exception as exc:
-        raise ValueError(f"구형 .xls 파일 구조를 읽을 수 없습니다: {exc}") from exc
+        raise ValueError(f"구형 .xls 파일 구조를 읽을 수 없습니다: {exc}. {_XLS_RESAVE_HINT}") from exc
 
     if not stream:
-        raise ValueError("구형 .xls 파일에서 Workbook 스트림을 찾지 못했습니다.")
+        raise ValueError(f"구형 .xls 파일에서 Workbook 스트림을 찾지 못했습니다. {_XLS_RESAVE_HINT}")
 
     pos=0
     while pos+4 <= len(stream):
         opcode,length=struct.unpack("<HH",stream[pos:pos+4])
         end=pos+4+length
         if end>len(stream):
-            raise ValueError("구형 .xls 파일의 BIFF 레코드가 손상되어 안전하게 읽을 수 없습니다.")
+            raise ValueError(f"구형 .xls 파일의 BIFF 레코드가 손상되어 안전하게 읽을 수 없습니다. {_XLS_RESAVE_HINT}")
         if opcode==0x0006:  # BIFF FORMULA record
             return True
         pos=end
@@ -127,7 +130,10 @@ def _load_workbook(path, **kwargs):
         try:
             book=xlrd.open_workbook(str(path),formatting_info=True,on_demand=False)
         except Exception as exc:
-            raise ValueError(f"구형 .xls 파일을 읽을 수 없습니다: {exc}") from exc
+            raise ValueError(
+                f"구형 .xls 파일을 읽을 수 없습니다 ({path.name}): {exc}. "
+                f"파일이 손상됐을 수 있습니다. {_XLS_RESAVE_HINT}"
+            ) from exc
         return _XlsWorkbook(book)
     try:
         return _openpyxl_load_workbook(path,**kwargs)

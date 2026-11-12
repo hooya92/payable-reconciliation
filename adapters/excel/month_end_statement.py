@@ -203,7 +203,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # left out of the reconciliation, and listed so the user can look at them.
         held={}
         notices=[]
+        unmerged_rows={}
         def hold(idx,reason):
+            if idx in unmerged_rows:
+                # The value may have been hidden behind a merge, which is why it reads as empty.
+                reason=f"{reason} (병합 셀 {unmerged_rows[idx]}에 가려진 값일 수 있음)"
             held.setdefault(idx,reason)
         if no_subtotal_sample:
             notices.append("전월 명세서에서 거래처 소계 행을 찾지 못해, 새로 만드는 소계 행은 상세 행과 같은 서식으로 만들었습니다. "
@@ -226,6 +230,8 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                     # Rows are rebuilt, so a merge across transaction rows cannot follow them.
                     # Only the new file loses the merge; the original is never touched.
                     ws.unmerge_cells(region.coord)
+                    for merged_row in range(region.min_row,region.max_row+1):
+                        unmerged_rows[merged_row]=region.coord
                     notices.append(f"명세서 본문의 병합 셀({region.coord})은 행이 다시 만들어지는 과정에서 유지할 수 없어 "
                                    "새 파일에서만 병합을 해제했습니다. 병합된 칸에 가려져 있던 값은 읽을 수 없습니다.")
         if ws.tables:

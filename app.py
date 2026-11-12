@@ -1291,7 +1291,8 @@ class App(ctk.CTk):
                 more=f"\n· 외 {len(notices)-12}건 (검토필요 시트 참고)" if len(notices)>12 else ""
                 messagebox.showinfo(
                     "당월 명세서 생성 완료 · 확인할 곳이 있습니다",
-                    "명세서는 만들었습니다. 아래 부분은 읽을 수 없어 대사에서 제외하고 원래 모습 그대로 두었습니다.\n\n"
+                    "명세서는 만들었습니다. 읽을 수 없었거나 그대로 옮길 수 없었던 부분입니다. "
+                    "항목마다 어떻게 처리했는지 적혀 있습니다.\n\n"
                     +shown+more
                 )
         except PermissionError as e:
