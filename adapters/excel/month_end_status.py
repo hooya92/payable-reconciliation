@@ -76,7 +76,7 @@ def link_note_text(note, rows):
     """Wording for "this row is offset against rows ...", given the partners' row numbers."""
     where=row_ranges_text(rows)
     if note.confirmed:
-        return f"{note.head} · {where}행과 대차"
+        return f"{note.head} · {where}행과 대차{note.suffix}"
     return f"{note.head}\n{note.noun} {where}행과 대차 후보"
 
 

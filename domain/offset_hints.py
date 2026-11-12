@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from decimal import Decimal
 
+from .normalization import normalize_text
+
 _MONTH=re.compile(r"(?<!\d)(1[0-2]|0?[1-9])\s*월")
 
 
@@ -23,6 +25,40 @@ def month_token(text):
     """
     months={int(m.group(1)) for m in _MONTH.finditer(text or "")}
     return months.pop() if len(months)==1 else None
+
+
+def differs_only_by_month(left, right):
+    """True when two descriptions are the same item and only the month number differs.
+
+    "7월 위탁물류비용_GS팀" and "8월 위탁물류비용_GS팀" -> True. Anything else that
+    differs (another team, another word) -> False; identical text -> False.
+    """
+    a=normalize_text(left)
+    b=normalize_text(right)
+    return (a!=b and _MONTH.search(a) is not None
+            and _MONTH.sub("#월",a)==_MONTH.sub("#월",b))
+
+
+def offsetting_pairs(rows):
+    """Rows that offset each other one-to-one: the same item (month ignored), equal
+    amounts of opposite sign, and nothing else that could be the partner.
+
+    rows: iterable of (key, description, signed amount). Returns {key: partner key}
+    for both sides of every unambiguous pair; ambiguous rows are left out.
+    """
+    buckets={}
+    for key,description,amount in rows:
+        amount=Decimal(amount)
+        if amount==0:
+            continue
+        item=_MONTH.sub("#월",normalize_text(description))
+        buckets.setdefault((item,abs(amount)),([],[]))[0 if amount>0 else 1].append(key)
+    pairs={}
+    for positive,negative in buckets.values():
+        if len(positive)==1 and len(negative)==1:
+            pairs[positive[0]]=negative[0]
+            pairs[negative[0]]=positive[0]
+    return pairs
 
 
 @dataclass(frozen=True)
@@ -55,7 +91,8 @@ class LinkNote:
     head: str            # e.g. "자동 대사", "순잔액 대사 · 7월 묶음"
     noun: str            # what the partner rows are, e.g. "지급", "7월 청구"; "" for a confirmed pair
     partners: tuple      # ids of the partner StatementRow objects
-    confirmed: bool      # True only for a one-to-one pair the reconciliation itself confirmed
+    confirmed: bool      # True for a one-to-one pair (equal and opposite amounts, same item)
+    suffix: str = ""     # e.g. " (월만 다름)" when only the month in the description differs
 
 
 def month_groups(claims, payments):

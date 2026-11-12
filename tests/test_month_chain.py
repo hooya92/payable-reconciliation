@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 
 from adapters.excel.month_end_statement import write_month_end_statement
 from application.service import run_reconciliation
-from domain.offset_hints import month_token
+from domain.offset_hints import differs_only_by_month, month_token
 from domain.period import AccountingPeriod
 from tests import test_journal_corrections as fixtures
 from tests.test_offset_notes import generate, raw_file
@@ -65,9 +65,14 @@ def assert_links_point_at_real_partners(testcase, ws):
             rows+=range(int(low),int(high or low)+1)
         testcase.assertTrue(rows,(r,text))
         testcase.assertNotIn(r,rows,(r,text))
-        if text.startswith("자동 대사"):
+        if "후보" not in text:
+            # a one-to-one pair: one partner, equal and opposite amount, same item (month ignored)
             testcase.assertEqual(len(rows),1,(r,text))
-            testcase.assertEqual(ws.cell(r,5).value,-ws.cell(rows[0],5).value,(r,text))
+            partner=rows[0]
+            testcase.assertEqual(ws.cell(r,5).value,-ws.cell(partner,5).value,(r,text))
+            mine,theirs=ws.cell(r,4).value,ws.cell(partner,4).value
+            testcase.assertTrue(mine==theirs or differs_only_by_month(mine,theirs),(r,text,mine,theirs))
+            testcase.assertEqual("(월만 다름)" in text,mine!=theirs,(r,text,mine,theirs))
         else:
             head=text.splitlines()[0]
             month=int(re.search(r"(\d+)월 묶음",head).group(1))
@@ -100,8 +105,11 @@ class MonthChainTests(unittest.TestCase):
             self.assertNotIn("7월 묶음",statuses)
             self.assertNotIn("8월 묶음",statuses)
             # September's subtotal text (prior 590) is replaced by October's own arithmetic
-            self.assertIn("전월 합계  250",statuses)
-            self.assertNotIn("전월 합계  590",statuses)
+            # October's own arithmetic (the 9월 claim and its payment are now an exact pair,
+            # so the subtotal is the short one-line form); never September's 590
+            self.assertIn("전월 250 − 차변 50 = 200",statuses)
+            self.assertIn("순잔액 대사 · 10행과 대차",statuses)
+            self.assertNotIn("590",statuses)
             self.assertEqual(len(ws._hyperlinks),0)
 
     def test_still_works_when_the_status_column_or_its_header_was_removed(self):
@@ -115,7 +123,7 @@ class MonthChainTests(unittest.TestCase):
                 self.assertEqual(body(ws)[:len(expected)],expected)
                 texts=[str(c.value) for row in ws.iter_rows(min_row=3) for c in row[5:] if c.value is not None]
                 # nothing of September's own wording survives in any column
-                self.assertFalse([t for t in texts if "7월 묶음" in t or "전월 합계  590" in t],texts)
+                self.assertFalse([t for t in texts if "7월 묶음" in t or "590" in t],texts)
 
     def test_three_months_in_a_row(self):
         with tempfile.TemporaryDirectory() as folder:
