@@ -19,7 +19,7 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 from adapters.excel.text_safe import force_text_formulas, set_text
 
 from adapters.excel.reader import (
-    _first, _header, _is_summary_label, _select_prior_sheets, _statement_auxiliary_kind,
+    _first, _header, _is_blank, _is_summary_label, _select_prior_sheets, _statement_row_kinds,
 )
 from domain.models import Status, DataQuality
 from domain.normalization import parse_amount, parse_literal_amount_formula
@@ -175,10 +175,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         auxiliary_columns={"vendor_code":fields["code"],"vendor_name":fields["name"],
                            "date":fields["date"],"description":fields["desc"],
                            "amount":fields["amount"]}
-        auxiliary_rows={
-            row[0].row:kind for row in original.iter_rows(min_row=header+1)
-            if (kind:=_statement_auxiliary_kind([cell.value for cell in row],auxiliary_columns))
-        }
+        auxiliary_rows=_statement_row_kinds(
+            [(row[0].row,[cell.value for cell in row])
+             for row in original.iter_rows(min_row=header+1)],
+            auxiliary_columns,
+        )
         grouped,detail_style,subtotal_style,subtotal_label,sample_date=_template_shapes(
             original,header,fields,auxiliary_rows
         )
@@ -212,11 +213,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if row[0].row in auxiliary_rows:
                 continue
             values=[cell.value for cell in row]
-            if not any(value is not None for value in values):
+            if all(_is_blank(value) for value in values):
                 continue
             if any(_is_summary_label(values[i-1]) for i in (fields["date"],fields["desc"],fields["name"]) if i):
                 continue
-            if values[fields["desc"]-1] is not None and values[fields["amount"]-1] is not None:
+            if not _is_blank(values[fields["desc"]-1]) and not _is_blank(values[fields["amount"]-1]):
                 continue
             unclear_rows.add(row[0].row)
             problems.append(
@@ -242,7 +243,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             if idx in auxiliary_rows or idx in unclear_rows:
                 continue
             values=[cell.value for cell in ws[idx]]
-            if not any(v is not None for v in values):
+            if all(_is_blank(v) for v in values):
                 continue
             summary=any(_is_summary_label(values[col-1]) for col in
                         (fields["date"],fields["desc"],fields["name"]) if col)
@@ -267,7 +268,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 continue
             desc=values[fields["desc"]-1]
             amount=values[fields["amount"]-1]
-            if desc is None or amount is None:
+            if _is_blank(desc) or _is_blank(amount):
                 problems.append(f"명세서 {idx}행: 적요 또는 금액이 비어 있습니다. 빈 칸을 채우거나, 필요 없는 행이면 삭제해 주세요.")
                 continue
             if isinstance(amount,bool):
