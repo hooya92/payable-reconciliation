@@ -640,6 +640,7 @@ class App(ctk.CTk):
         exe=Path(sys.executable)
         staged=updater.stage_path(exe)
         self.update_btn.configure(state="disabled",text="내려받는 중… 0%")
+        updater.stop_old_swap_scripts()   # leftovers of an earlier failed update
         q=queue.Queue()
 
         def worker():
