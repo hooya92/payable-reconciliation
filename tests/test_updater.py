@@ -26,6 +26,13 @@ class UpdaterTests(unittest.TestCase):
         self.assertIsNone(updater.parse_release({"body": "no build info", "assets": PAYLOAD["assets"]}))
         self.assertIsNone(updater.parse_release({"body": PAYLOAD["body"], "assets": []}))
 
+    def test_release_date_is_read_for_people(self):
+        body=f"PayableRecon 최신 정식 배포입니다. Build: {SHA}. Date: 2026-11-13 14:05 KST."
+        r=updater.parse_release({**PAYLOAD,"body":body})
+        self.assertEqual(r.date,"2026-11-13 14:05")
+        self.assertEqual(updater.parse_release(PAYLOAD).date,"")   # old notes without a date still work
+        self.assertEqual(updater.version_label(),"개발 버전")      # source run
+
     def test_is_newer(self):
         self.assertFalse(updater.is_newer("dev", SHA))
         self.assertFalse(updater.is_newer(SHA, SHA))

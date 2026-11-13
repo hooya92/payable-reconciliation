@@ -224,6 +224,7 @@ class App(ctk.CTk):
         self._file_add_queue=queue.Queue()
         self._update_queue=queue.Queue()
         self._update_release=None
+        self._update_text="새 버전 업데이트"
 
         self._build()
         self._update_period()
@@ -281,10 +282,15 @@ class App(ctk.CTk):
             font=font(12),text_color=MUTED,anchor="w"
         ).grid(row=1,column=0,sticky="w",pady=(3,0))
         self.update_btn=ctk.CTkButton(
-            header,text="새 버전 업데이트",width=130,height=32,corner_radius=8,
+            header,text="새 버전 업데이트",width=190,height=32,corner_radius=8,
             font=font(11,True),command=self._start_update,**BUTTON_PRIMARY
         )
-        self.update_btn.grid(row=0,column=1,rowspan=2,sticky="e")
+        self.version_label=ctk.CTkLabel(
+            header,text=(updater.version_label() if updater.version_label()=="개발 버전" else "버전 "+updater.version_label()) if updater.version_label() else "",
+            font=font(10),text_color=MUTED,anchor="e"
+        )
+        self.version_label.grid(row=0,column=1,sticky="e")
+        self.update_btn.grid(row=1,column=1,sticky="e")
         self.update_btn.grid_remove()
 
         def group(parent):
@@ -603,6 +609,8 @@ class App(ctk.CTk):
             return
         if release is not None:
             self._update_release=release
+            self._update_text="새 버전 업데이트"+(f" ({release.date[:10]})" if release.date else "")
+            self.update_btn.configure(text=self._update_text)
             self.update_btn.grid()
 
     def _start_update(self):
@@ -611,6 +619,8 @@ class App(ctk.CTk):
             return
         if not messagebox.askyesno(
             "업데이트",
+            (f"현재 버전: {updater.version_label() or '알 수 없음'}\n"
+             f"새 버전: {release.date or '최신'}\n\n")+
             "새 버전을 내려받아 프로그램을 다시 시작합니다.\n"
             "작업 중인 대사 결과는 사라지니, 필요하면 먼저 저장해 주세요.\n\n업데이트할까요?"
         ):
@@ -637,7 +647,7 @@ class App(ctk.CTk):
                         pct=int(msg[1]*100/msg[2]) if msg[2] else 0
                         self.update_btn.configure(text=f"내려받는 중… {pct}%")
                     elif msg[0]=="err":
-                        self.update_btn.configure(state="normal",text="새 버전 업데이트")
+                        self.update_btn.configure(state="normal",text=self._update_text)
                         messagebox.showerror("업데이트 실패",msg[1]+"\n\n지금 쓰던 버전은 그대로입니다.")
                         return
                     else:
@@ -646,7 +656,7 @@ class App(ctk.CTk):
                         except OSError as e:
                             try: staged.unlink()
                             except OSError: pass
-                            self.update_btn.configure(state="normal",text="새 버전 업데이트")
+                            self.update_btn.configure(state="normal",text=self._update_text)
                             messagebox.showerror("업데이트 실패",f"교체를 시작하지 못했습니다: {e}")
                             return
                         self.destroy()
