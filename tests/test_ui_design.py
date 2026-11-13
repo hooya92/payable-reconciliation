@@ -141,6 +141,42 @@ class SmokeTests(unittest.TestCase):
         finally:
             app.destroy()
 
+    def test_everything_stays_inside_a_500px_window(self):
+        import tempfile
+        import time
+        from pathlib import Path
+        from tests.test_account_codes import prior,raw
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/"p.xlsx"; r=Path(d)/"r.xlsx"; prior(p); raw(r)
+            app=A.App()
+            try:
+                app.minsize(300,300)
+                app.geometry("500x800+0+0")
+                app.prior_paths.append(str(p)); app.prior_list.insert("end",p.name)
+                app.douzone_paths.append(str(r)); app.douzone_list.insert("end",r.name)
+                app.year.set(2026); app.month.set(9)
+                app.update()
+
+                def inside(widgets,stage):
+                    for name in widgets:
+                        w=getattr(app,name)
+                        self.assertTrue(w.winfo_ismapped(),f"{stage}: {name} not shown")
+                        right=w.winfo_rootx()-app.winfo_rootx()+w.winfo_width()
+                        self.assertLessEqual(right,app.winfo_width(),f"{stage}: {name} runs off the right edge")
+
+                inside(("run_btn","month_end_btn","form","result_empty"),"before a run")
+                app.run()
+                deadline=time.time()+30
+                while (app._run_busy or app.last_reconciliation_run is None) and time.time()<deadline:
+                    app.update(); time.sleep(0.05)
+                app.update()
+                inside(("run_btn","month_end_btn","save_btn","input_bar","detail","preflight",
+                        "all_view_btn","review_view_btn","matched_view_btn","detail_text"),"after a run")
+                # The table keeps the columns a person reads; the source file moves to the reason panel.
+                self.assertEqual(list(app.detail["displaycolumns"]),["vendor","amount","status","reason"])
+            finally:
+                app.destroy()
+
     def test_period_pickers_are_a_fallback_shown_only_when_needed(self):
         import tempfile
         from pathlib import Path

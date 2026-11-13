@@ -57,7 +57,7 @@ class PeriodCacheTests(unittest.TestCase):
     def test_a_file_is_read_once_until_it_changes(self):
         import os, tempfile
         from unittest import mock
-        import app
+        from application import workflow as app
         with tempfile.TemporaryDirectory() as folder:
             path=os.path.join(folder,"a.xlsx"); open(path,"wb").write(b"x")
             cache={}
