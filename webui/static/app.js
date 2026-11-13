@@ -150,7 +150,7 @@ function render() {
   app.innerHTML = `${DEV ? "" : `<div class="winbtns"><button class="wb" id="wmin" aria-label="최소화" title="최소화">&#8211;</button><button class="wb close" id="wclose" aria-label="닫기" title="닫기">&#10005;</button></div>`}
     <div class="dragbar" id="dragbar"></div>
     <div class="top"><div><div class="brand"><img class="logo" src="rabbit.png" alt=""><h1>명세서 대사</h1></div>
-      <div class="sub">전월 말 명세서를 당월 더존 전표와 대사해 당월 말 명세서 초안을 만듭니다. 원본 파일은 수정하지 않습니다.</div></div>
+      <div class="sub">전월 말 명세서와 당월 더존 전표를 대사해 당월 말 명세서 초안을 만듭니다. 원본 파일은 수정되지 않습니다.</div></div>
       <div class="side"><div class="ver">${s.version ? (s.version === "개발 버전" ? "개발 버전" : "버전 " + esc(s.version)) : ""}</div>${updateBtn}${updErr}</div></div>
     ${done ? recap : form}${buttons}${status}${body}
     ${DEV ? "" : '<div class="grip grip-s" data-grip="s"></div><div class="grip grip-se" data-grip="se"></div>'}`;
