@@ -37,6 +37,14 @@ class ApiTests(unittest.TestCase):
         api.minimize_window(); api.close_window()
         self.assertEqual(calls, ["min", "quit"])
 
+    def test_drag_requests_reach_the_window_and_bad_modes_are_refused(self):
+        seen = []
+        api = Api(Session(FakeDialogs(), drag_callback=lambda mode: seen.append(mode) or True))
+        self.assertTrue(api.begin_drag("move")); self.assertTrue(api.begin_drag("se"))
+        self.assertEqual(seen, ["move", "se"])
+        with self.assertRaises(ValueError):
+            api.begin_drag("../x")
+
     def test_state_is_plain_json(self):
         json.dumps(Api(Session(FakeDialogs())).get_state())
 
@@ -92,7 +100,8 @@ class PageSafetyTests(unittest.TestCase):
     def test_the_title_row_has_the_rabbit_and_the_window_has_no_native_title_bar(self):
         js = (launch.static_dir() / "app.js").read_text(encoding="utf-8")
         self.assertIn('src="rabbit.png"', js)
-        self.assertIn("pywebview-drag-region", js)       # the page provides the drag area
+        self.assertIn('id="dragbar"', js)                # the page provides the drag area
+        self.assertIn("begin_drag", js)
         css = (launch.static_dir() / "app.css").read_text(encoding="utf-8")
         import re
         height = int(re.search(r"\.dragbar\{[^}]*height:(\d+)px", css).group(1))

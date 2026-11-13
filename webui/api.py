@@ -5,7 +5,7 @@ from __future__ import annotations
 _PUBLIC = (
     "get_state", "add_files", "add_paths", "remove_file", "clear_files", "set_account_codes",
     "set_period", "toggle_picker", "open_inputs", "run_reconciliation", "export_month_end",
-    "export_result", "check_update", "start_update", "minimize_window", "close_window",
+    "export_result", "check_update", "start_update", "minimize_window", "close_window", "begin_drag",
 )
 
 
@@ -60,6 +60,12 @@ class Api:
 
     def close_window(self):
         self._session.quit()
+
+    def begin_drag(self, mode):
+        """Called on mouse-down on the title area (move) or a resize grip (se / s / e)."""
+        if mode not in ("move", "se", "s", "e"):
+            raise ValueError("알 수 없는 창 동작입니다.")
+        return bool(self._session.begin_drag(mode))
 
 
 def _kind(kind):
