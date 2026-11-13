@@ -271,10 +271,15 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         stale_columns=_stale_status_columns(ws,header,business_columns)
         subtotal_extra={}
         subtotal_styles={}
+        # ws[row] recomputes max_column over every cell on each call (quadratic on big
+        # statements); the column count is fixed here, so read it once.
+        sheet_columns=ws.max_column
+        def row_cells(idx):
+            return [ws.cell(idx,col) for col in range(1,sheet_columns+1)]
         for idx in range(header+1,last_template_row+1):
             if idx in auxiliary_rows or idx in unclear_rows:
                 continue
-            values=[cell.value for cell in ws[idx]]
+            values=[cell.value for cell in row_cells(idx)]
             if all(_is_blank(v) for v in values):
                 continue
             summary=any(_is_summary_label(values[col-1]) for col in
@@ -289,7 +294,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                     pending=[]
                     continue
                 subtotal_styles[(str(code),str(name))]=(
-                    [copy(c._style) for c in ws[idx]],copy(ws.row_dimensions[idx])
+                    [copy(c._style) for c in row_cells(idx)],copy(ws.row_dimensions[idx])
                 )
                 for source_row,desc,amount,when,extras in pending:
                     opening.append((str(code),str(name),desc,amount,when,source_row,extras))
@@ -353,7 +358,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         # Each retained opening row keeps its own formatting. New RAW rows
         # alone use the existing template's representative detail style.
         opening_styles={
-            id(entry[6]):([copy(c._style) for c in ws[entry[5]]],
+            id(entry[6]):([copy(c._style) for c in row_cells(entry[5])],
                           copy(ws.row_dimensions[entry[5]]))
             for entry in opening
         }
@@ -371,7 +376,7 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         records,audits,offsets,reviews=(
             plan.records,plan.audits,plan.offsets,plan.reviews
         )
-        auxiliary_cells={idx:[copy(cell) for cell in ws[idx]] for idx in auxiliary_rows}
+        auxiliary_cells={idx:[copy(cell) for cell in row_cells(idx)] for idx in auxiliary_rows}
         auxiliary_dimensions={idx:copy(ws.row_dimensions[idx]) for idx in auxiliary_rows}
         cached=None
         if any(cell.data_type=="f" for cells in auxiliary_cells.values() for cell in cells):

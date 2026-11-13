@@ -4,7 +4,7 @@ import unittest
 from decimal import Decimal as D
 
 from domain.models import JournalLine, PayableItem, SourceRef, Status
-from domain.reconciliation import reconcile
+from domain.reconciliation import new_payables, reconcile
 
 
 def build(count):
@@ -28,6 +28,20 @@ class ReconcileScalingTests(unittest.TestCase):
         self.assertTrue(all(r.status==Status.MATCHED for r in results))
         # It was ~10 s when every item rescanned the whole statement (quadratic); now well under 1 s.
         self.assertLess(elapsed,4.0)
+
+    def test_new_payables_does_not_rescan_all_debits_per_credit(self):
+        lines=[]
+        for i in range(6000):
+            code=f"{i % 500:06d}"
+            if i % 3==0:
+                lines.append(JournalLine(code,"거래처","25301","미지급금",f"7월 비용{i}",D(0),D(100+i),"2026-08-10",i+2))
+            else:
+                lines.append(JournalLine(code,"거래처","25301","미지급금",f"8월 신규{i}",D(500+i),D(0),"2026-08-10",i+2))
+        started=time.perf_counter()
+        result=new_payables(lines,[])
+        elapsed=time.perf_counter()-started
+        self.assertEqual(len(result),2000)   # one per credit line
+        self.assertLess(elapsed,3.0)   # ~20 s when every credit rescanned every debit
 
     def test_a_larger_debit_on_a_competing_item_still_blocks_an_automatic_pairing(self):
         # two opening items of one vendor; the debit equals the small one but the large one
