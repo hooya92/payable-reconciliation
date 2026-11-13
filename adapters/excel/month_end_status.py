@@ -208,7 +208,7 @@ def prepare_status_header(sheet, header_row, status_col, example_header_col):
     target.value="처리상태"
     letter=get_column_letter(status_col)
     if sheet.column_dimensions[letter].width==13.0:
-        sheet.column_dimensions[letter].width=32
+        sheet.column_dimensions[letter].width=44
 
 
 def write_status(sheet, row, column, amount_column, status, *, subtotal=False, reason="", subtotal_zero=False,
