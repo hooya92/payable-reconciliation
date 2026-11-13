@@ -240,6 +240,7 @@ class App(ctk.CTk):
 
         self._build()
         self._update_period()
+        self._sync_file_hints()
         if updater.can_self_update():
             threading.Thread(target=updater.cleanup_stale,args=(Path(sys.executable),),daemon=True).start()
             self._start_update_check()
@@ -374,7 +375,9 @@ class App(ctk.CTk):
         ctk.CTkLabel(self.period_picker,text="월",font=font(12),text_color=TEXT).pack(side="left",padx=(5,0))
         self._set_detect_pill("none")
 
-        def add_file_row(row,title,count_var,add_command,remove_selected,remove_all):
+        self._file_hints=[]
+
+        def add_file_row(row,title,count_var,add_command,remove_selected,remove_all,placeholder=""):
             row_label(row,title,count_var)
             file_box=ctk.CTkFrame(
                 form,fg_color=BG,corner_radius=8,border_width=0,height=42
@@ -389,6 +392,11 @@ class App(ctk.CTk):
             )
             lb.pack(side="left",fill="both",expand=True,padx=(12,8),pady=3)
             lb.bind("<Delete>",lambda _e:remove_selected())
+            # Says what the empty box is for; shown only while the list has nothing in it.
+            hint=ctk.CTkLabel(file_box,text=placeholder,font=font(11),text_color=MUTED,
+                              fg_color=BG,anchor="w",cursor="hand2")
+            hint.bind("<Button-1>",lambda _e:add_command())
+            self._file_hints.append((lb,hint))
 
             actions=ctk.CTkFrame(form,fg_color="transparent")
             actions.grid(row=row,column=2,padx=(10,14),pady=(8,8),sticky="e")
@@ -407,12 +415,14 @@ class App(ctk.CTk):
         hairline(form,1)
         self.prior_list=add_file_row(
             2,"명세서",self.prior_count_text,self.pick_priors,
-            self.remove_priors,self.clear_priors
+            self.remove_priors,self.clear_priors,
+            "전월 말 명세서 파일을 추가하세요"
         )
         hairline(form,3)
         self.douzone_list=add_file_row(
             4,"더존 원장",self.raw_count_text,self.pick_douzone,
-            self.remove_douzone,self.clear_douzone
+            self.remove_douzone,self.clear_douzone,
+            "당월 더존 원장 파일을 추가하세요"
         )
         hairline(form,5)
 
@@ -496,17 +506,26 @@ class App(ctk.CTk):
         # Before a run there is nothing to list: show how the flow goes instead of an empty table.
         self.result_empty=group(result)
         ctk.CTkLabel(
-            self.result_empty,text="결과가 여기에 나타납니다",font=font(15,True),
+            self.result_empty,text="이렇게 진행합니다",font=font(15,True),
             text_color=TEXT,anchor="w"
-        ).pack(anchor="w",padx=22,pady=(20,8))
-        for line in (
-            "1.  전월 말 명세서와 당월 더존 원장을 추가합니다.",
-            "2.  대사를 시작하면 자동으로 짝을 맞추고, 사람이 볼 항목만 추려 줍니다.",
-            "3.  결과를 검토한 뒤 당월 명세서를 생성합니다. 전월 명세서 양식 그대로 저장됩니다.",
+        ).pack(anchor="w",padx=22,pady=(20,6))
+        for number,title,detail in (
+            ("1","파일 추가","전월 말 명세서와 당월 더존 원장을 추가합니다. 회계월은 파일에서 자동으로 잡힙니다."),
+            ("2","대사 시작","자동으로 짝을 맞추고, 사람이 봐야 할 항목만 추려 줍니다."),
+            ("3","당월 명세서 생성","결과를 검토한 뒤 저장합니다. 전월 명세서 양식 그대로 나옵니다."),
         ):
-            ctk.CTkLabel(
-                self.result_empty,text=line,font=font(12),text_color=TEXT2,anchor="w"
-            ).pack(anchor="w",padx=22,pady=3)
+            step=ctk.CTkFrame(self.result_empty,fg_color="transparent")
+            step.pack(fill="x",padx=22,pady=(8,2))
+            step.grid_columnconfigure(1,weight=1)
+            badge=ctk.CTkFrame(step,width=26,height=26,corner_radius=13,fg_color=ACCENT)
+            badge.grid(row=0,column=0,rowspan=2,sticky="n",padx=(0,12))
+            badge.grid_propagate(False)
+            ctk.CTkLabel(badge,text=number,font=font(11,True),text_color="white",
+                         fg_color="transparent").place(relx=0.5,rely=0.5,anchor="center")
+            ctk.CTkLabel(step,text=title,font=font(12,True),text_color=TEXT,anchor="w").grid(
+                row=0,column=1,sticky="w")
+            ctk.CTkLabel(step,text=detail,font=font(11),text_color=MUTED,anchor="w").grid(
+                row=1,column=1,sticky="w",pady=(1,0))
         ctk.CTkFrame(self.result_empty,height=14,fg_color="transparent").pack()
         result_main=ctk.CTkFrame(result,fg_color="transparent")
         self.result_main=result_main
@@ -696,6 +715,14 @@ class App(ctk.CTk):
 
         threading.Thread(target=worker,daemon=True).start()
         self.after(100,poll)
+
+    def _sync_file_hints(self):
+        for lb,hint in self._file_hints:
+            if lb.size()==0:
+                hint.place(x=12,rely=0.5,anchor="w")
+            else:
+                hint.place_forget()
+        self.after(300,self._sync_file_hints)
 
     def _style_button(self,btn,primary):
         btn.configure(**(BUTTON_PRIMARY if primary else BUTTON_SECONDARY))
