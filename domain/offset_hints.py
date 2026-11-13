@@ -155,6 +155,7 @@ class VendorNote:
     state: str           # "ok" | "mismatch" | "hold" (inputs incomplete)
     review: bool         # some row of the vendor still needs a person
     groups: tuple = ()
+    hold_cause: str = ""   # why the check is on hold, in words
 
 
 @dataclass(frozen=True)

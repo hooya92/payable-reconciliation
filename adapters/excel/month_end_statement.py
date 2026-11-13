@@ -5,6 +5,7 @@ review explanations and change history live on removable companion sheets.
 """
 from __future__ import annotations
 
+from collections import Counter
 from copy import copy
 from datetime import date, datetime
 from decimal import Decimal
@@ -14,6 +15,7 @@ import re
 
 from openpyxl import load_workbook
 from openpyxl.comments import Comment
+from openpyxl.styles import Font
 from openpyxl.utils.cell import get_column_letter, quote_sheetname
 from openpyxl.styles.cell_style import StyleArray
 from openpyxl.worksheet.hyperlink import Hyperlink
@@ -589,6 +591,24 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 row[idx].number_format="#,##0;[Red](#,##0);-"
 
         # Status is the sole optional extra column; detailed reasons stay removable.
+        # Diagnosis sheet: one glance (or one screenshot) tells what kind of trouble this run has.
+        by_status=Counter(r[0] for r in reviews)
+        input_rows=[r for r in reviews if r[0]=="입력 데이터 확인"]
+        unknown=sum(1 for r in input_rows if not r[1])
+        hold=[c for c in plan.balances if c[8]=="입력 확인 필요"]
+        diag=wb.create_sheet("진단요약")
+        for k,v in [("진단 요약",""),
+                    ("검토 항목 합계",f"{len(reviews)}건"),
+                    *[(f"  {kind}",f"{n}건") for kind,n in by_status.most_common()],
+                    ("입력 오류 중 거래처 불명",f"{unknown}건"+(" → 모든 거래처 검산 보류의 원인" if unknown else "")),
+                    ("입력 오류 중 거래처 특정",f"{len(input_rows)-unknown}건 → 해당 거래처만 보류"),
+                    ("검산 보류 거래처",f"{len(hold)}곳 / 전체 {len(plan.balances)}곳"),
+                    ("읽지 못해 그대로 둔 행",f"{len(held)}행"),
+                    ("대사 대상",f"전월 {len(opening)}행 · 더존 {plan.raw_count}건")]:
+            diag.append([k,v])
+        diag["A1"].font=Font(bold=True)
+        diag.column_dimensions["A"].width=28
+        diag.column_dimensions["B"].width=56
         summary=wb.create_sheet("검토필요")
         summary.append(["검토 상태","거래처코드","거래처명","적요·원본값","금액","사유","원본파일","원본행"])
         summary["J1"]="MONTH_END_DRAFT_REVIEW"

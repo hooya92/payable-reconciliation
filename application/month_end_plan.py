@@ -69,8 +69,22 @@ def _amount(value):
 
 
 def issue_detail(issue):
+    scope=(f"→ 거래처 {issue.vendor_code}의 검산 보류" if issue.vendor_code
+           else "→ 거래처를 특정할 수 없어 모든 거래처 검산 보류")
     return (f"{issue.source} / {issue.sheet} {issue.row}행 / {issue.field}: "
-            f"원본값 {issue.raw_value!r} · {issue.reason}")
+            f"원본값 {issue.raw_value!r} · {issue.reason} {scope}")
+
+
+def hold_cause(code, issues):
+    """Words for why a vendor's balance check is on hold (empty when it is not)."""
+    own=[i for i in issues if i.vendor_code and normalize_code(i.vendor_code)==code]
+    unknown=[i for i in issues if not i.vendor_code]
+    parts=[]
+    if own:
+        parts.append(f"이 거래처의 입력 오류 {len(own)}건 (예: {own[0].source} {own[0].row}행 {own[0].field})")
+    if unknown:
+        parts.append(f"거래처 불명 입력 오류 {len(unknown)}건 (예: {unknown[0].source} {unknown[0].row}행 {unknown[0].field})")
+    return " · ".join(parts)
 
 
 def build_month_end_plan(opening, results, new_items, issues, source_name, source_sheet,
@@ -272,7 +286,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                             f"계산 차액 {check[7]:,.0f}원 / {ledger_text} · {check[12]}","당월 잔액검증",None))
     status_notes,subtotal_notes,link_notes=_offset_explanations(
         records,balances,net_vendors,results,matched_debits,opening_records,
-        journal_records,source_name,source_sheet,correction_status,status_reasons)
+        journal_records,source_name,source_sheet,correction_status,status_reasons,issues)
     return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons,record_sources,balances,
                         status_notes,subtotal_notes,link_notes)
 
@@ -282,7 +296,7 @@ _VENDOR_DOUBT=("코드 오타","거래처코드 차이","다른 거래처코드"
 
 def _offset_explanations(records, balances, net_vendors, results, matched_debits,
                          opening_records, journal_records, source_name, source_sheet,
-                         correction_status, status_reasons):
+                         correction_status, status_reasons, issues=()):
     """Short texts for the status column: what each row was offset against.
 
     Display only. Confirmed one-to-one pairs are linked; for vendors whose net
@@ -369,6 +383,7 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
             state={"계산 일치":"ok","계산 불일치":"mismatch"}.get(calculation,"hold"),
             review=any(r.status in review_statuses for r in vendor_records),
             groups=tuple(groups_by_vendor.get(code,{}).values()),
+            hold_cause=hold_cause(code,issues) if calculation=="입력 확인 필요" else "",
         )
 
     for result in results:
