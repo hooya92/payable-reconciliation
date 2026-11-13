@@ -126,3 +126,8 @@ select,.input{border:0;background:var(--soft);border-radius:10px;padding:8px 12p
 .dlg.error h3{color:var(--red)}.dlg.warning h3{color:var(--amber)}
 .dlg .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}
 .dlg .btn{height:38px;padding:0 18px;flex:none}
+
+.grip{position:fixed;z-index:6}
+.grip-s{left:16px;right:20px;bottom:0;height:6px;cursor:ns-resize}
+.grip-se{right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;
+  background:linear-gradient(135deg,transparent 55%,#b9b9c0 55%,#b9b9c0 62%,transparent 62%,transparent 72%,#b9b9c0 72%,#b9b9c0 79%,transparent 79%)}

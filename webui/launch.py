@@ -76,18 +76,21 @@ def run(selftest: bool = False) -> bool:
         dialogs = WebviewDialogs(webview)
         holder = {}
         session = Session(dialogs, quit_callback=lambda: holder["window"].destroy(),
-                          minimize_callback=lambda: holder["window"].minimize())
+                          minimize_callback=lambda: holder["window"].minimize(),
+                          drag_callback=lambda mode: holder["mover"].begin(mode))
         options = dict(
             url=str(static_dir() / "index.html"), js_api=Api(session), width=500, height=820,
             min_size=(460, 640), background_color="#F5F5F7",
             # No Windows title bar: the page draws its own header, drag area and window buttons.
-            frameless=True, easy_drag=False,
+            frameless=True, easy_drag=False, resizable=True,
         )
         import inspect
         if "shadow" in inspect.signature(webview.create_window).parameters:
             options["shadow"] = True
         window = webview.create_window("명세서 대사", **options)
         holder["window"] = dialogs.window = window
+        from webui.winmove import WindowMover
+        holder["mover"] = WindowMover(window)
         from adapters import updater
         if updater.can_self_update():
             threading.Thread(target=updater.cleanup_stale, args=(Path(sys.executable),), daemon=True).start()
