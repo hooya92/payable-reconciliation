@@ -61,8 +61,8 @@ class _XlsSheet:
     def cell(self, row, column):
         return _XlsCell(self._book,self._sheet,row-1,column-1)
 
-    def iter_rows(self, min_row=1, values_only=False):
-        for rowx in range(max(min_row-1,0),self.max_row):
+    def iter_rows(self, min_row=1, max_row=None, values_only=False):
+        for rowx in range(max(min_row-1,0),min(self.max_row,max_row) if max_row else self.max_row):
             cells=tuple(self.cell(rowx+1,colx+1) for colx in range(self.max_column))
             if values_only:
                 yield tuple(cell.value for cell in cells)
@@ -159,6 +159,7 @@ class InputIssue:
     raw_value: object
     reason: str
     vendor_code: str = ""
+    row_text: str = ""   # what the whole source row holds, so a reader can tell which row this is
 
 
 @dataclass
@@ -492,6 +493,38 @@ def classify_excel_input(path: str|Path) -> str:
     return "unknown"
 
 
+def _attach_row_text(path, out):
+    """Fill InputIssue.row_text from the source rows. Best effort: never breaks the read."""
+    if not out.issues:
+        return
+    wanted={}
+    for issue in out.issues:
+        wanted.setdefault(issue.sheet,set()).add(issue.row)
+    texts={}
+    try:
+        wb=_load_workbook(path,read_only=True,data_only=False)
+        try:
+            for ws in wb.worksheets:
+                rows=wanted.get(ws.title)
+                if not rows:
+                    continue
+                last=max(rows)
+                for idx,values in enumerate(ws.iter_rows(max_row=last,values_only=True),start=1):
+                    if idx in rows:
+                        cells=[]
+                        for value in values:
+                            if value is None or str(value).strip()=="":
+                                continue
+                            cells.append(value.strftime("%Y-%m-%d") if hasattr(value,"strftime") else str(value).strip())
+                        text=" / ".join(cells)
+                        texts[(ws.title,idx)]=text if len(text)<=120 else text[:117]+"…"
+        finally:
+            wb.close()
+    except Exception:
+        return
+    out.issues=[replace(i,row_text=texts.get((i.sheet,i.row),"")) for i in out.issues]
+
+
 def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: AccountingPeriod|None=None) -> ReadResult:
     wanted={normalize_code(x) for x in (account_codes or set()) if x}
     if not wanted:
@@ -599,6 +632,7 @@ def read_douzone(path: str|Path, account_codes:set[str]|None=None, period: Accou
             "더존 파일에서 대상 미지급금 전표를 찾지 못했습니다 "
             f"(입력한 계정코드: {', '.join(sorted(wanted))}). 계정코드와 회계월을 확인해주세요."
         )
+    _attach_row_text(path,out)
     return out
 
 
@@ -867,5 +901,6 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
     if not out.items and not out.review_items and not out.issues and verified_zero_groups==0:
         target=f" {period.label}" if period else ""
         raise ValueError(f"명세서에서{target} 대사할 항목을 찾지 못했습니다.")
+    _attach_row_text(path,out)
     return out
 

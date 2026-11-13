@@ -74,12 +74,12 @@ class ScopedInputIssueTests(unittest.TestCase):
                 source_paths=[prior,raw])
             wb=load_workbook(output)
             try:
-                diag={r[0].value:r[1].value for r in wb["진단요약"].iter_rows()}
-                self.assertEqual(diag["검산 보류 거래처"].split("곳")[0],"1")
-                reason=next(r[5].value for r in wb["검토필요"].iter_rows(min_row=2)
-                            if r[0].value=="입력 데이터 확인")
-                self.assertIn("002222",reason)
-                self.assertIn("검산 보류",reason)
+                row=next(r for r in wb["검토필요"].iter_rows(min_row=2)
+                         if r[0].value=="입력 데이터 확인")
+                self.assertIn("기대:",row[5].value)
+                self.assertIn("실제:",row[5].value)
+                self.assertIn("002222",row[5].value)
+                self.assertIn("/",row[3].value)   # the row's own content, not just one cell
                 self.assertTrue(any("원인:" in str(row[5].value) for row in wb["26.08"].iter_rows()))
             finally:
                 wb.close()

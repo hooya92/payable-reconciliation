@@ -68,11 +68,29 @@ def _amount(value):
     return int(value) if value==value.to_integral_value() else float(value)
 
 
+_EXPECTED={
+    "거래처코드":"거래처코드가 적혀 있어야 함",
+    "거래처명":"거래처명이 적혀 있어야 함",
+    "적요":"적요(거래 내용)가 적혀 있어야 함",
+    "금액":"숫자 금액이어야 함",
+    "소계":"상세 행 합계와 같은 숫자여야 함",
+    "수식":"계산식이 아닌 숫자 값이어야 함",
+    "기표일자":"읽을 수 있는 날짜여야 함",
+    "계정코드":"계정코드가 값으로 적혀 있어야 함",
+    "차변/대변":"차변·대변 중 숫자 금액이 있어야 함",
+}
+
+
 def issue_detail(issue):
-    scope=(f"→ 거래처 {issue.vendor_code}의 검산 보류" if issue.vendor_code
-           else "→ 거래처를 특정할 수 없어 모든 거래처 검산 보류")
-    return (f"{issue.source} / {issue.sheet} {issue.row}행 / {issue.field}: "
-            f"원본값 {issue.raw_value!r} · {issue.reason} {scope}")
+    """Where it is, what was expected, what is there instead, and what it holds back."""
+    actual=str(issue.raw_value).strip()
+    actual=repr(actual) if actual else "비어 있음"
+    expected=_EXPECTED.get(issue.field)
+    scope=(f"거래처 {issue.vendor_code}만 자동 반영·검산 보류" if issue.vendor_code
+           else "거래처를 특정할 수 없어 모든 거래처 검산 보류")
+    compare=f"기대: {expected} / 실제: {actual} · " if expected else f"원본값 {actual} · "
+    return (f"{issue.source} {issue.sheet} {issue.row}행의 '{issue.field}' · "
+            f"{compare}{issue.reason} → {scope}")
 
 
 def hold_cause(code, issues):
@@ -274,7 +292,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                             source_files.get(id(line),"더존 Raw"),line.row_number))
 
     for issue in issues:
-        reviews.append(("입력 데이터 확인",issue.vendor_code,"",str(issue.raw_value),"",
+        reviews.append(("입력 데이터 확인",issue.vendor_code,"",issue.row_text or str(issue.raw_value),"",
                         issue_detail(issue),issue.source,issue.row))
     records.sort(key=lambda record:vendor_order[(record.vendor_code,record.vendor_name)])
     balances=build_balance_checks(opening,records,sources,source_files,issues)
