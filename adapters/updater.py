@@ -181,10 +181,38 @@ def finish_update(exe: Path, staged: Path, wait: float = 60.0, sleep=None, launc
     return True, ""
 
 
+def stop_old_swap_scripts() -> None:
+    """Stop and delete swap scripts left over from the earlier batch-file updater.
+
+    Only processes whose command line names our own script (payablerecon_update_*.bat) are touched.
+    """
+    for bat in Path(tempfile.gettempdir()).glob("payablerecon_update_*.bat"):
+        try:
+            bat.unlink()    # a looping script stops when its file is gone
+        except OSError:
+            pass
+    if sys.platform != "win32":
+        return
+    command = ("Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*payablerecon_update_*' } "
+               "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }")
+    try:
+        subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), timeout=20,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
 def cleanup_stale(exe: Path, tries: int = 10, sleep=None) -> None:
     """Delete the leftover download of a finished update (the finisher may still be exiting)."""
     import time
     sleep = sleep or time.sleep
+    stop_old_swap_scripts()
+    for leftover in (exe.with_name(exe.name + ".new"),):
+        try:
+            leftover.unlink()
+        except OSError:
+            pass
     staged = stage_path(exe)
     for _ in range(tries):
         if not staged.exists():

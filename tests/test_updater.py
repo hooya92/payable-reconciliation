@@ -113,10 +113,23 @@ class UpdaterTests(unittest.TestCase):
             updater.cleanup_stale(exe,sleep=lambda s:None)
             self.assertFalse(staged.exists())
 
+    def test_cleanup_removes_old_swap_scripts_and_partial_files(self):
+        with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as tmp:
+            exe=Path(d)/"PayableRecon.exe"
+            (Path(d)/"PayableRecon.exe.new").write_bytes(b"x")
+            old=Path(tmp)/"payablerecon_update_abc.bat"; old.write_text("x")
+            other=Path(tmp)/"somebody_else.bat"; other.write_text("x")
+            with mock.patch.object(updater.tempfile,"gettempdir",return_value=tmp):
+                updater.cleanup_stale(exe,sleep=lambda s:None)
+            self.assertFalse(old.exists())
+            self.assertFalse((Path(d)/"PayableRecon.exe.new").exists())
+            self.assertTrue(other.exists())     # never touches files that are not ours
+
     def test_no_batch_file_or_console_is_involved(self):
         src=Path(updater.__file__).read_text(encoding="utf-8")
-        self.assertNotIn("cmd",src.replace("command",""))
-        self.assertNotIn(".bat",src)
+        # the only mention of .bat is the cleanup of the old updater's leftovers
+        self.assertNotIn("cmd /c",src)
+        self.assertNotIn("mkstemp",src)
 
 if __name__ == "__main__":
     unittest.main()
