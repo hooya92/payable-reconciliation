@@ -11,6 +11,8 @@ on:
       - "domain/**"
       - "adapters/excel/**"
       - "adapters/updater.py"
+      - "adapters/build_info.py"
+      - "webui/**"
       - "requirements.txt"
       - "assets/**"
 
@@ -55,7 +57,20 @@ jobs:
       - name: Build Windows EXE
         shell: pwsh
         run: |
-          python -m PyInstaller --noconfirm --clean --windowed --onefile --icon "assets/app.ico" --add-data "assets/app.ico;assets" --name "PayableRecon" app.py
+          python -m PyInstaller --noconfirm --clean --windowed --onefile --icon "assets/app.ico" --add-data "assets/app.ico;assets" --add-data "webui/static;webui/static" --collect-all webview --hidden-import webview.platforms.edgechromium --name "PayableRecon" app.py
+
+      - name: Smoke test - the web screen opens from the built EXE
+        shell: pwsh
+        run: |
+          # The packaged app must open its web window and talk to Python; otherwise nothing is released.
+          $out = Join-Path $env:RUNNER_TEMP "selftest.txt"
+          Remove-Item $out -ErrorAction SilentlyContinue
+          $env:PAYABLE_SELFTEST_OUT = $out
+          $p = Start-Process -FilePath "dist/PayableRecon.exe" -ArgumentList "--selftest" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill(); throw "Smoke test timed out (the window never closed)" }
+          $verdict = if (Test-Path $out) { Get-Content $out -Raw } else { "no result file" }
+          Write-Host "Smoke test result: $verdict (exit $($p.ExitCode))"
+          if ($verdict.Trim() -ne "WEBUI_OK") { throw "Web screen smoke test failed: $verdict" }
 
       - name: Verify Windows Explorer file icon
         shell: pwsh

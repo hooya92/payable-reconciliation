@@ -27,6 +27,14 @@ class DependencyContractTests(unittest.TestCase):
                     if item.startswith(("app","adapters","application","openpyxl","tkinter"))
                 ])
 
+    def test_web_session_has_no_gui_toolkit(self):
+        for path in ("webui/session.py","webui/api.py","application/workflow.py"):
+            with self.subTest(path=path):
+                self.assertFalse([
+                    item for item in imports(path)
+                    if item=="app" or item.startswith(("tkinter","customtkinter","webview"))
+                ])
+
     def test_planner_has_no_excel_ui_or_reader_dependencies(self):
         self.assertFalse([
             item for item in imports("application/month_end_plan.py")

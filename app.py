@@ -1380,4 +1380,14 @@ if __name__=="__main__":
                 f"새 파일은 {sys.argv[3]} 에 있습니다. 필요하면 이 파일 이름을 PayableRecon.exe로 바꿔 쓰세요."
             )
         sys.exit(0 if ok else 1)
+    if "--tk" not in sys.argv:
+        # New web screen first; the classic screen stays as the fallback when no WebView2 engine exists.
+        from webui.launch import run as run_web
+        if run_web(selftest="--selftest" in sys.argv):
+            sys.exit(0)
+        if "--selftest" in sys.argv:
+            out=os.environ.get("PAYABLE_SELFTEST_OUT")
+            if out:
+                Path(out).write_text("FAIL: web screen could not start (fell back)",encoding="utf-8")
+            sys.exit(1)
     App().mainloop()
