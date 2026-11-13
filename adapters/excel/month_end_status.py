@@ -139,6 +139,8 @@ def subtotal_note_text(note, font_name="맑은 고딕", font_size=10):
             run("  "+" ".join(pieces)+f" = {_num(note.closing)}",_GRAY),
         )
     parts.append(run(head[0]+"\n",head[1],True))
+    if note.state=="hold" and note.hold_cause:
+        parts.append(run("원인: "+note.hold_cause+"\n",_AMBER))
     for label,value,_ in terms:
         parts+=[run(f"{label}  ",_GRAY),run(_num(value)+"\n")]
     parts+=[run("= 말 잔액  ",_GRAY),run(_num(note.closing),bold=True)]

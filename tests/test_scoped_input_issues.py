@@ -62,6 +62,28 @@ class ScopedInputIssueTests(unittest.TestCase):
             self.assertTrue(all(item.auto_carry for item in run.new_items))
             self.assertTrue(all(r.status!=Status.SIGNED_OPENING_REVIEW for r in run.results))
 
+    def test_review_data_names_the_cause_of_a_hold(self):
+        with tempfile.TemporaryDirectory() as folder:
+            run=self.run_case(folder)
+            prior=Path(folder)/"prior.xlsx";raw=Path(folder)/"raw.xlsx"
+            output=Path(folder)/"result.xlsx"
+            write_month_end_statement(
+                output,[prior],run.results,run.new_items,run.issues,run.period,
+                standalone_debits=run.standalone_debits,
+                journal_items=run.journal_items,journal_sources=run.journal_sources,
+                source_paths=[prior,raw])
+            wb=load_workbook(output)
+            try:
+                row=next(r for r in wb["검토필요"].iter_rows(min_row=2)
+                         if r[0].value=="입력 데이터 확인" and "'소계'" in r[5].value)
+                self.assertIn("기대:",row[5].value)
+                self.assertIn("실제:",row[5].value)
+                self.assertIn("002222",row[5].value)
+                self.assertIn("/",row[3].value)   # the row's own content, not just one cell
+                self.assertTrue(any("원인:" in str(row[5].value) for row in wb["26.08"].iter_rows()))
+            finally:
+                wb.close()
+
     def test_generated_status_limits_input_hold_to_known_vendor(self):
         with tempfile.TemporaryDirectory() as folder:
             run=self.run_case(folder)

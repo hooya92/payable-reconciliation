@@ -68,9 +68,41 @@ def _amount(value):
     return int(value) if value==value.to_integral_value() else float(value)
 
 
+_EXPECTED={
+    "거래처코드":"거래처코드가 적혀 있어야 함",
+    "거래처명":"거래처명이 적혀 있어야 함",
+    "적요":"적요(거래 내용)가 적혀 있어야 함",
+    "금액":"숫자 금액이어야 함",
+    "소계":"상세 행 합계와 같은 숫자여야 함",
+    "수식":"계산식이 아닌 숫자 값이어야 함",
+    "기표일자":"읽을 수 있는 날짜여야 함",
+    "계정코드":"계정코드가 값으로 적혀 있어야 함",
+    "차변/대변":"차변·대변 중 숫자 금액이 있어야 함",
+}
+
+
 def issue_detail(issue):
-    return (f"{issue.source} / {issue.sheet} {issue.row}행 / {issue.field}: "
-            f"원본값 {issue.raw_value!r} · {issue.reason}")
+    """Where it is, what was expected, what is there instead, and what it holds back."""
+    actual=str(issue.raw_value).strip()
+    actual=repr(actual) if actual else "비어 있음"
+    expected=_EXPECTED.get(issue.field)
+    scope=(f"거래처 {issue.vendor_code}만 자동 반영·검산 보류" if issue.vendor_code
+           else "거래처를 특정할 수 없어 모든 거래처 검산 보류")
+    compare=f"기대: {expected} / 실제: {actual} · " if expected else f"원본값 {actual} · "
+    return (f"{issue.source} {issue.sheet} {issue.row}행의 '{issue.field}' · "
+            f"{compare}{issue.reason} → {scope}")
+
+
+def hold_cause(code, issues):
+    """Words for why a vendor's balance check is on hold (empty when it is not)."""
+    own=[i for i in issues if i.vendor_code and normalize_code(i.vendor_code)==code]
+    unknown=[i for i in issues if not i.vendor_code]
+    parts=[]
+    if own:
+        parts.append(f"이 거래처의 입력 오류 {len(own)}건 (예: {own[0].source} {own[0].row}행 {own[0].field})")
+    if unknown:
+        parts.append(f"거래처 불명 입력 오류 {len(unknown)}건 (예: {unknown[0].source} {unknown[0].row}행 {unknown[0].field})")
+    return " · ".join(parts)
 
 
 def build_month_end_plan(opening, results, new_items, issues, source_name, source_sheet,
@@ -260,7 +292,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                             source_files.get(id(line),"더존 Raw"),line.row_number))
 
     for issue in issues:
-        reviews.append(("입력 데이터 확인",issue.vendor_code,"",str(issue.raw_value),"",
+        reviews.append(("입력 데이터 확인",issue.vendor_code,"",issue.row_text or str(issue.raw_value),"",
                         issue_detail(issue),issue.source,issue.row))
     records.sort(key=lambda record:vendor_order[(record.vendor_code,record.vendor_name)])
     balances=build_balance_checks(opening,records,sources,source_files,issues)
@@ -272,7 +304,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
                             f"계산 차액 {check[7]:,.0f}원 / {ledger_text} · {check[12]}","당월 잔액검증",None))
     status_notes,subtotal_notes,link_notes=_offset_explanations(
         records,balances,net_vendors,results,matched_debits,opening_records,
-        journal_records,source_name,source_sheet,correction_status,status_reasons)
+        journal_records,source_name,source_sheet,correction_status,status_reasons,issues)
     return MonthEndPlan(records,audits,offsets,reviews,len(seen),status_reasons,record_sources,balances,
                         status_notes,subtotal_notes,link_notes)
 
@@ -282,7 +314,7 @@ _VENDOR_DOUBT=("코드 오타","거래처코드 차이","다른 거래처코드"
 
 def _offset_explanations(records, balances, net_vendors, results, matched_debits,
                          opening_records, journal_records, source_name, source_sheet,
-                         correction_status, status_reasons):
+                         correction_status, status_reasons, issues=()):
     """Short texts for the status column: what each row was offset against.
 
     Display only. Confirmed one-to-one pairs are linked; for vendors whose net
@@ -369,6 +401,7 @@ def _offset_explanations(records, balances, net_vendors, results, matched_debits
             state={"계산 일치":"ok","계산 불일치":"mismatch"}.get(calculation,"hold"),
             review=any(r.status in review_statuses for r in vendor_records),
             groups=tuple(groups_by_vendor.get(code,{}).values()),
+            hold_cause=hold_cause(code,issues) if calculation=="입력 확인 필요" else "",
         )
 
     for result in results:
