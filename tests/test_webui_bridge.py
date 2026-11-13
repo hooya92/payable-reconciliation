@@ -93,6 +93,10 @@ class PageSafetyTests(unittest.TestCase):
         js = (launch.static_dir() / "app.js").read_text(encoding="utf-8")
         self.assertIn('src="rabbit.png"', js)
         self.assertIn("pywebview-drag-region", js)       # the page provides the drag area
+        css = (launch.static_dir() / "app.css").read_text(encoding="utf-8")
+        import re
+        height = int(re.search(r"\.dragbar\{[^}]*height:(\d+)px", css).group(1))
+        self.assertGreaterEqual(height, 90)               # the whole title area, not a thin strip
         src = (Path(launch.__file__)).read_text(encoding="utf-8")
         self.assertIn("frameless=True", src)
         self.assertTrue((launch.static_dir() / "rabbit.png").read_bytes().startswith(b"\x89PNG"))
