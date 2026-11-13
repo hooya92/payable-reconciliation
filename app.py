@@ -118,6 +118,17 @@ def completion_detail(period, prior_count, counts, new_count=0, issue_count=0):
     )
 
 
+def cached_periods(cache, kind, path, codes):
+    """Months found in a file. Reading a big workbook is slow, so remember the answer until
+    the file (size / modification time) or, for the ledger, the account codes change."""
+    stat=os.stat(path)
+    key=(kind,str(path),stat.st_size,stat.st_mtime_ns,tuple(sorted(codes)) if kind=="douzone" else ())
+    if key not in cache:
+        cache[key]=(detect_statement_periods(path) if kind=="prior"
+                    else detect_douzone_periods(path,codes))
+    return cache[key]
+
+
 def suggest_reconciliation_period(current_period, statement_period_groups):
     """Infer the target accounting month directly from the latest statement month."""
     groups=[set(group) for group in statement_period_groups if group]
@@ -222,6 +233,7 @@ class App(ctk.CTk):
         self._detail_reasons={}
         self._file_add_busy=False
         self._file_add_queue=queue.Queue()
+        self._period_cache={}
         self._update_queue=queue.Queue()
         self._update_release=None
         self._update_text="새 버전 업데이트"
@@ -229,6 +241,7 @@ class App(ctk.CTk):
         self._build()
         self._update_period()
         if updater.can_self_update():
+            threading.Thread(target=updater.cleanup_stale,args=(Path(sys.executable),),daemon=True).start()
             threading.Thread(target=lambda:self._update_queue.put(updater.check_latest()),daemon=True).start()
             self.after(500,self._poll_update_check)
 
@@ -651,7 +664,7 @@ class App(ctk.CTk):
                         return
                     else:
                         try:
-                            updater.launch_swap(exe,staged)
+                            updater.launch_finisher(exe,staged)
                         except OSError as e:
                             try: staged.unlink()
                             except OSError: pass
@@ -842,7 +855,7 @@ class App(ctk.CTk):
         for path in self.prior_paths:
             try:
                 periods=(detected[path] if detected is not None and path in detected
-                         else detect_statement_periods(path))
+                         else cached_periods(self._period_cache,"prior",path,()))
             except Exception:
                 periods=[]
             if periods:
@@ -855,7 +868,7 @@ class App(ctk.CTk):
         for path in self.douzone_paths:
             try:
                 periods=(detected[path] if detected is not None and path in detected
-                         else detect_douzone_periods(path,codes))
+                         else cached_periods(self._period_cache,"douzone",path,codes))
             except Exception:
                 periods=[]
             if periods:
@@ -936,10 +949,10 @@ class App(ctk.CTk):
                 new_prior=prior+tuple(p for p,k,e in classified if k=="prior" and not e and p not in prior)
                 new_raw=raw+tuple(p for p,k,e in classified if k=="douzone" and not e and p not in raw)
                 for p in new_prior:
-                    try: detected[p]=detect_statement_periods(p)
+                    try: detected[p]=cached_periods(self._period_cache,"prior",p,codes)
                     except Exception: detected[p]=[]
                 for p in new_raw:
-                    try: detected[p]=detect_douzone_periods(p,codes)
+                    try: detected[p]=cached_periods(self._period_cache,"douzone",p,codes)
                     except Exception: detected[p]=[]
                 self._file_add_queue.put((classified,requested_kind,detected,None))
             except Exception as e:
@@ -1425,4 +1438,15 @@ class App(ctk.CTk):
 
 
 if __name__=="__main__":
+    if len(sys.argv)>=4 and sys.argv[1]==updater.FINISH_FLAG:
+        # Second half of a self-update: we are the freshly downloaded exe.
+        ok,message=updater.finish_update(Path(sys.argv[2]),Path(sys.argv[3]))
+        if not ok:
+            root=tk.Tk(); root.withdraw()
+            messagebox.showerror(
+                "업데이트 실패",
+                message+"\n\n지금까지 쓰던 프로그램은 그대로입니다.\n"
+                f"새 파일은 {sys.argv[3]} 에 있습니다. 필요하면 이 파일 이름을 PayableRecon.exe로 바꿔 쓰세요."
+            )
+        sys.exit(0 if ok else 1)
     App().mainloop()

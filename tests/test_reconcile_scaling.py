@@ -53,5 +53,27 @@ class ReconcileScalingTests(unittest.TestCase):
         self.assertEqual(results["A 청구"].rule,"COMPETING_PARTIAL")
 
 
+class PeriodCacheTests(unittest.TestCase):
+    def test_a_file_is_read_once_until_it_changes(self):
+        import os, tempfile
+        from unittest import mock
+        import app
+        with tempfile.TemporaryDirectory() as folder:
+            path=os.path.join(folder,"a.xlsx"); open(path,"wb").write(b"x")
+            cache={}
+            with mock.patch.object(app,"detect_statement_periods",return_value=["m"]) as det:
+                self.assertEqual(app.cached_periods(cache,"prior",path,()),["m"])
+                app.cached_periods(cache,"prior",path,())
+                self.assertEqual(det.call_count,1)
+                open(path,"wb").write(b"changed")          # new size -> read again
+                app.cached_periods(cache,"prior",path,())
+                self.assertEqual(det.call_count,2)
+            with mock.patch.object(app,"detect_douzone_periods",return_value=["d"]) as det:
+                app.cached_periods(cache,"douzone",path,{"25301"})
+                app.cached_periods(cache,"douzone",path,{"25301"})
+                app.cached_periods(cache,"douzone",path,{"25301","25302"})   # other codes -> read again
+                self.assertEqual(det.call_count,2)
+
+
 if __name__=="__main__":
     unittest.main()

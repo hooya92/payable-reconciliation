@@ -72,16 +72,51 @@ class UpdaterTests(unittest.TestCase):
     def test_source_run_never_self_updates(self):
         self.assertFalse(updater.can_self_update())
 
-    def test_swap_script_replaces_then_relaunches(self):
-        s = updater.swap_script(Path(r"C:\한글 폴더\PayableRecon.exe"), Path(r"C:\한글 폴더\PayableRecon.update.exe"))
-        self.assertLess(s.index("move /y"), s.index('start ""'))
-        self.assertIn("PYINSTALLER_RESET_ENVIRONMENT=1", s)
-        self.assertIn("한글 폴더", s)
-        # giving up must not leave the staged exe or the script behind
-        tail = s[s.index(":giveup"):]
-        self.assertIn("PayableRecon.update.exe", tail)
-        self.assertIn('del "%~f0"', tail)
+    def test_finish_update_replaces_when_old_exe_is_free_and_relaunches(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe=Path(d)/"PayableRecon.exe"; staged=Path(d)/"PayableRecon.update.exe"
+            exe.write_bytes(b"old"); staged.write_bytes(b"MZnew")
+            launched=[]
+            ok,msg=updater.finish_update(exe,staged,sleep=lambda s:None,launch=lambda:launched.append(1))
+            self.assertTrue(ok,msg)
+            self.assertEqual(exe.read_bytes(),b"MZnew")
+            self.assertEqual(launched,[1])
+            self.assertFalse((Path(d)/"PayableRecon.exe.new").exists())
 
+    def test_finish_update_waits_for_the_old_exe_to_be_released(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe=Path(d)/"PayableRecon.exe"; staged=Path(d)/"PayableRecon.update.exe"
+            exe.write_bytes(b"old"); staged.write_bytes(b"MZnew")
+            real=updater.os.replace; calls=[]
+            def locked_twice(src,dst):
+                calls.append(1)
+                if len(calls)<=2: raise PermissionError("in use")
+                return real(src,dst)
+            with mock.patch.object(updater.os,"replace",side_effect=locked_twice):
+                ok,msg=updater.finish_update(exe,staged,sleep=lambda s:None,launch=lambda:None)
+            self.assertTrue(ok,msg); self.assertEqual(len(calls),3)
+
+    def test_finish_update_gives_up_cleanly_and_keeps_the_old_exe(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe=Path(d)/"PayableRecon.exe"; staged=Path(d)/"PayableRecon.update.exe"
+            exe.write_bytes(b"old"); staged.write_bytes(b"MZnew")
+            with mock.patch.object(updater.os,"replace",side_effect=PermissionError("in use")):
+                ok,msg=updater.finish_update(exe,staged,wait=1,sleep=lambda s:None,launch=lambda:None)
+            self.assertFalse(ok); self.assertIn("교체하지 못했습니다",msg)
+            self.assertEqual(exe.read_bytes(),b"old")
+            self.assertFalse((Path(d)/"PayableRecon.exe.new").exists())
+
+    def test_cleanup_removes_the_leftover_download(self):
+        with tempfile.TemporaryDirectory() as d:
+            exe=Path(d)/"PayableRecon.exe"; staged=updater.stage_path(exe)
+            staged.write_bytes(b"MZ")
+            updater.cleanup_stale(exe,sleep=lambda s:None)
+            self.assertFalse(staged.exists())
+
+    def test_no_batch_file_or_console_is_involved(self):
+        src=Path(updater.__file__).read_text(encoding="utf-8")
+        self.assertNotIn("cmd",src.replace("command",""))
+        self.assertNotIn(".bat",src)
 
 if __name__ == "__main__":
     unittest.main()
