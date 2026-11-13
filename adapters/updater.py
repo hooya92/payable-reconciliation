@@ -116,32 +116,81 @@ def stage_path(exe: Path) -> Path:
     return exe.with_name(exe.stem + ".update.exe")
 
 
-def swap_script(exe: Path, staged: Path) -> str:
-    """Batch text: wait until the old exe is free, replace it, relaunch, delete itself."""
-    return (
-        "@echo off\r\n"
-        "chcp 65001 >nul\r\n"
-        "set PYINSTALLER_RESET_ENVIRONMENT=1\r\n"
-        "set tries=0\r\n"
-        ":retry\r\n"
-        "set /a tries+=1\r\n"
-        f'move /y "{staged}" "{exe}" >nul 2>&1\r\n'
-        "if errorlevel 1 (\r\n"
-        "  if %tries% geq 60 goto giveup\r\n"
-        "  ping -n 2 127.0.0.1 >nul\r\n"
-        "  goto retry\r\n"
-        ")\r\n"
-        f'start "" "{exe}"\r\n'
-        '(goto) 2>nul & del "%~f0"\r\n'
-        ":giveup\r\n"
-        f'del "{staged}" >nul 2>&1\r\n'
-        '(goto) 2>nul & del "%~f0"\r\n'
-    )
+def _log(message: str) -> None:
+    """Best-effort trace in %TEMP% so a failed swap can be diagnosed afterwards."""
+    try:
+        with open(Path(tempfile.gettempdir()) / "payablerecon_update.log", "a", encoding="utf-8") as fh:
+            fh.write(message + "\n")
+    except OSError:
+        pass
 
 
-def launch_swap(exe: Path, staged: Path) -> None:
-    fd, bat = tempfile.mkstemp(suffix=".bat", prefix="payablerecon_update_")
-    with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
-        fh.write(swap_script(exe, staged))
-    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
-    subprocess.Popen(["cmd", "/c", bat], creationflags=flags, close_fds=True)
+def launch_finisher(exe: Path, staged: Path) -> None:
+    """Start the downloaded exe in 'finish the update' mode, then let this process exit.
+
+    No batch file and no console window: the new exe waits until the old one is released,
+    copies itself over it and starts it.
+    """
+    env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")
+    flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    subprocess.Popen([str(staged), FINISH_FLAG, str(exe), str(staged)],
+                     creationflags=flags, close_fds=True, env=env)
+
+
+FINISH_FLAG = "--finish-update"
+
+
+def finish_update(exe: Path, staged: Path, wait: float = 60.0, sleep=None, launch=None):
+    """Runs inside the NEW exe. Replace `exe` with this file and start it. Returns (ok, message)."""
+    import shutil
+    import time
+    sleep = sleep or time.sleep
+    tmp = exe.with_name(exe.name + ".new")
+    try:
+        shutil.copyfile(staged, tmp)
+        if tmp.stat().st_size != staged.stat().st_size:
+            raise OSError("복사본 크기가 맞지 않습니다")
+    except OSError as e:
+        _log(f"copy failed: {e}")
+        return False, f"새 파일을 준비하지 못했습니다: {e}"
+    waited = 0.0
+    last = None
+    while True:
+        try:
+            os.replace(tmp, exe)   # fails while the old program still holds the file
+            break
+        except OSError as e:
+            last = e
+            if waited >= wait:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                _log(f"replace gave up after {waited:.0f}s: {last}")
+                return False, f"기존 프로그램이 닫히지 않아 교체하지 못했습니다 ({last})"
+            sleep(0.5)
+            waited += 0.5
+    _log(f"replaced after {waited:.1f}s")
+    try:
+        (launch or (lambda: subprocess.Popen(
+            [str(exe)], close_fds=True,
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0),
+            env=dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1"))))()
+    except OSError as e:
+        return False, f"교체는 끝났지만 새 버전을 자동으로 열지 못했습니다: {e}"
+    return True, ""
+
+
+def cleanup_stale(exe: Path, tries: int = 10, sleep=None) -> None:
+    """Delete the leftover download of a finished update (the finisher may still be exiting)."""
+    import time
+    sleep = sleep or time.sleep
+    staged = stage_path(exe)
+    for _ in range(tries):
+        if not staged.exists():
+            return
+        try:
+            staged.unlink()
+            return
+        except OSError:
+            sleep(1.0)

@@ -241,6 +241,7 @@ class App(ctk.CTk):
         self._build()
         self._update_period()
         if updater.can_self_update():
+            threading.Thread(target=updater.cleanup_stale,args=(Path(sys.executable),),daemon=True).start()
             threading.Thread(target=lambda:self._update_queue.put(updater.check_latest()),daemon=True).start()
             self.after(500,self._poll_update_check)
 
@@ -663,7 +664,7 @@ class App(ctk.CTk):
                         return
                     else:
                         try:
-                            updater.launch_swap(exe,staged)
+                            updater.launch_finisher(exe,staged)
                         except OSError as e:
                             try: staged.unlink()
                             except OSError: pass
@@ -1437,4 +1438,15 @@ class App(ctk.CTk):
 
 
 if __name__=="__main__":
+    if len(sys.argv)>=4 and sys.argv[1]==updater.FINISH_FLAG:
+        # Second half of a self-update: we are the freshly downloaded exe.
+        ok,message=updater.finish_update(Path(sys.argv[2]),Path(sys.argv[3]))
+        if not ok:
+            root=tk.Tk(); root.withdraw()
+            messagebox.showerror(
+                "업데이트 실패",
+                message+"\n\n지금까지 쓰던 프로그램은 그대로입니다.\n"
+                f"새 파일은 {sys.argv[3]} 에 있습니다. 필요하면 이 파일 이름을 PayableRecon.exe로 바꿔 쓰세요."
+            )
+        sys.exit(0 if ok else 1)
     App().mainloop()
