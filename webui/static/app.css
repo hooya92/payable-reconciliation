@@ -12,14 +12,19 @@ body{color:var(--text);font:14px/1.5 "Pretendard Variable",Pretendard,"Segoe UI 
   letter-spacing:-.011em;font-feature-settings:"ss06";-webkit-font-smoothing:antialiased;min-width:440px}
 button,input,select{font-family:inherit;letter-spacing:inherit}
 html{border:1px solid #d7d7dc;min-height:100vh}
-.app{max-width:560px;margin:0 auto;padding:18px 16px 28px}
+.app{max-width:560px;margin:0 auto;padding:38px 16px 28px}
+/* the topmost row (grip + window buttons): a hair darker than the page */
+.topstrip{position:fixed;top:0;left:0;right:0;height:30px;background:#ececf0;z-index:3}
 .brand{display:flex;align-items:center;gap:11px}
 .logo{width:36px;height:36px;border-radius:9px;flex:none;-webkit-user-drag:none;user-select:none}
-.winbtns{position:fixed;top:6px;right:8px;display:flex;gap:2px;z-index:5}
+.winbtns{position:fixed;top:1px;right:8px;display:flex;gap:2px;z-index:5}
 .wb{width:32px;height:28px;border:0;border-radius:8px;background:none;color:var(--muted);display:grid;place-items:center;font-size:15px;line-height:1}
 .wb:hover{background:var(--soft);color:var(--text)}
 .wb.close:hover{background:#e81123;color:#fff}
-.dragbar{position:fixed;top:0;left:0;right:200px;height:104px;z-index:4;cursor:default}
+.dragbar{position:fixed;top:0;left:0;right:76px;height:112px;z-index:4;cursor:default}
+.dragbar::before{content:"";position:absolute;left:50%;top:13px;width:38px;height:4px;margin-left:-19px;border-radius:4px;background:#d2d2d8}
+.dragbar:hover::before{background:#b6b6bd}
+.upd,.upd-err{position:relative;z-index:5}
 button{font:inherit;cursor:pointer}
 button:focus-visible,input:focus-visible,select:focus-visible,.drop:focus-visible,.item:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 

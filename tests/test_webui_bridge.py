@@ -106,6 +106,7 @@ class PageSafetyTests(unittest.TestCase):
         import re
         height = int(re.search(r"\.dragbar\{[^}]*height:(\d+)px", css).group(1))
         self.assertNotIn("grab", css)                     # plain arrow while dragging, no hand
+        self.assertRegex(css, r"\.dragbar\{[^}]*left:0;right:\d{1,2}px")   # the full header width, minus the window buttons
         self.assertGreaterEqual(height, 90)               # the whole title area, not a thin strip
         src = (Path(launch.__file__)).read_text(encoding="utf-8")
         self.assertIn("frameless=True", src)
