@@ -282,7 +282,7 @@ class App(ctk.CTk):
             font=font(12),text_color=MUTED,anchor="w"
         ).grid(row=1,column=0,sticky="w",pady=(3,0))
         self.update_btn=ctk.CTkButton(
-            header,text="새 버전 업데이트",width=190,height=32,corner_radius=8,
+            header,text="새 버전 업데이트",width=130,height=32,corner_radius=8,
             font=font(11,True),command=self._start_update,**BUTTON_PRIMARY
         )
         self.version_label=ctk.CTkLabel(
@@ -609,7 +609,6 @@ class App(ctk.CTk):
             return
         if release is not None:
             self._update_release=release
-            self._update_text="새 버전 업데이트"+(f" ({release.date[:10]})" if release.date else "")
             self.update_btn.configure(text=self._update_text)
             self.update_btn.grid()
 
