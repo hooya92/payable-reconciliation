@@ -75,7 +75,7 @@ class ScopedInputIssueTests(unittest.TestCase):
             wb=load_workbook(output)
             try:
                 row=next(r for r in wb["검토필요"].iter_rows(min_row=2)
-                         if r[0].value=="입력 데이터 확인")
+                         if r[0].value=="입력 데이터 확인" and "'소계'" in r[5].value)
                 self.assertIn("기대:",row[5].value)
                 self.assertIn("실제:",row[5].value)
                 self.assertIn("002222",row[5].value)
