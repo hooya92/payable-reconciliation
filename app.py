@@ -644,6 +644,8 @@ class App(ctk.CTk):
                         try:
                             updater.launch_swap(exe,staged)
                         except OSError as e:
+                            try: staged.unlink()
+                            except OSError: pass
                             self.update_btn.configure(state="normal",text="새 버전 업데이트")
                             messagebox.showerror("업데이트 실패",f"교체를 시작하지 못했습니다: {e}")
                             return

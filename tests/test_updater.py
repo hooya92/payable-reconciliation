@@ -70,6 +70,10 @@ class UpdaterTests(unittest.TestCase):
         self.assertLess(s.index("move /y"), s.index('start ""'))
         self.assertIn("PYINSTALLER_RESET_ENVIRONMENT=1", s)
         self.assertIn("한글 폴더", s)
+        # giving up must not leave the staged exe or the script behind
+        tail = s[s.index(":giveup"):]
+        self.assertIn("PayableRecon.update.exe", tail)
+        self.assertIn('del "%~f0"', tail)
 
 
 if __name__ == "__main__":

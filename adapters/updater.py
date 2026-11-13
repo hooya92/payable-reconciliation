@@ -118,11 +118,14 @@ def swap_script(exe: Path, staged: Path) -> str:
         "set /a tries+=1\r\n"
         f'move /y "{staged}" "{exe}" >nul 2>&1\r\n'
         "if errorlevel 1 (\r\n"
-        "  if %tries% geq 60 exit /b 1\r\n"
+        "  if %tries% geq 60 goto giveup\r\n"
         "  ping -n 2 127.0.0.1 >nul\r\n"
         "  goto retry\r\n"
         ")\r\n"
         f'start "" "{exe}"\r\n'
+        '(goto) 2>nul & del "%~f0"\r\n'
+        ":giveup\r\n"
+        f'del "{staged}" >nul 2>&1\r\n'
         '(goto) 2>nul & del "%~f0"\r\n'
     )
 
