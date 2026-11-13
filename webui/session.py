@@ -36,9 +36,10 @@ DETECT_TEXT = {
 
 
 class Session:
-    def __init__(self, dialogs, quit_callback=None, today=None):
+    def __init__(self, dialogs, quit_callback=None, today=None, minimize_callback=None):
         self.dialogs = dialogs            # open_files() / save_file(name) / open_folder(path)
         self.quit = quit_callback or (lambda: None)
+        self.minimize = minimize_callback or (lambda: None)
         self.lock = threading.RLock()
         today = today or date.today()
         self.year, self.month = today.year, today.month
