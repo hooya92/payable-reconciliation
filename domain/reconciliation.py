@@ -166,8 +166,13 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
     used: set[int] = set()
     results: list[ReconcileResult] = []
     prior_key_counts: dict[tuple[str, Decimal], int] = defaultdict(int)
+    # Group once: the "competing partial payment" check below must not rescan every prior
+    # item (and re-normalise its vendor code) for each candidate, which is quadratic.
+    prior_by_vendor: dict[str, list[tuple[PayableItem, str]]] = defaultdict(list)
     for item in prior_items:
-        prior_key_counts[(normalize_code(item.vendor_code), item.amount)] += 1
+        vendor = normalize_code(item.vendor_code)
+        prior_key_counts[(vendor, item.amount)] += 1
+        prior_by_vendor[vendor].append((item, normalize_text(item.description)))
 
     for item in prior_items:
         key = (normalize_code(item.vendor_code), item.amount)
@@ -184,12 +189,12 @@ def reconcile(prior_items: list[PayableItem], journal_lines: list[JournalLine]) 
         if len(candidates) == 1:
             line=candidates[0]
             # A same-amount debit might settle a different opening item partially.
+            line_description = normalize_text(line.description)
             competing_prior = any(
                 other is not item
-                and normalize_code(other.vendor_code) == key[0]
                 and other.amount > line.debit
-                and normalize_text(other.description) == normalize_text(line.description)
-                for other in prior_items
+                and other_description == line_description
+                for other, other_description in prior_by_vendor[key[0]]
             )
             if competing_prior and normalize_text(item.description) != normalize_text(line.description):
                 results.append(ReconcileResult(
