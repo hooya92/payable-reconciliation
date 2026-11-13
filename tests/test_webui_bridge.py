@@ -78,8 +78,21 @@ class PageSafetyTests(unittest.TestCase):
             self.assertNotIn(risky, js)
 
     def test_static_dir_has_the_page(self):
-        for name in ("index.html", "app.js", "app.css"):
-            self.assertTrue((launch.static_dir() / name).is_file())
+        for name in ("index.html", "app.js", "app.css", "fonts/PretendardVariable.woff2",
+                     "fonts/PRETENDARD-LICENSE.txt"):
+            self.assertTrue((launch.static_dir() / name).is_file(), name)
+
+    def test_the_font_is_served_with_its_license_beside_it(self):
+        from webui.server import make_server
+        server = make_server(0)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            port = server.server_address[1]
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{port}/fonts/PretendardVariable.woff2")
+            self.assertEqual(resp.headers["Content-Type"], "font/woff2")
+            self.assertGreater(len(resp.read()), 1_000_000)
+        finally:
+            server.shutdown(); server.server_close()
 
 
 if __name__ == "__main__":
