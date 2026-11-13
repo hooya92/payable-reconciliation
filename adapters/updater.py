@@ -23,6 +23,7 @@ RELEASE_API = f"https://api.github.com/repos/{REPO}/releases/tags/download-lates
 ASSET_NAME = "PayableRecon.exe"
 TIMEOUT = 8
 _SHA = re.compile(r"Build:\s*([0-9a-f]{7,40})", re.I)
+_DATE = re.compile(r"Date:\s*(\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)")
 
 
 @dataclass(frozen=True)
@@ -31,11 +32,18 @@ class Release:
     url: str
     size: int
     digest: str  # "sha256:<hex>" from GitHub, or ""
+    date: str = ""   # human-readable build time, e.g. "2026-11-13 14:05"
 
 
 def current_sha() -> str:
     from adapters.build_info import BUILD_SHA
     return BUILD_SHA
+
+
+def version_label() -> str:
+    """What a person reads as 'the version': the build time, not a commit id."""
+    from adapters.build_info import BUILD_DATE
+    return BUILD_DATE or ("개발 버전" if current_sha() == "dev" else "")
 
 
 def can_self_update() -> bool:
@@ -54,6 +62,7 @@ def parse_release(payload: dict) -> Release | None:
                 url=asset["browser_download_url"],
                 size=int(asset.get("size") or 0),
                 digest=str(asset.get("digest") or ""),
+                date=(_DATE.search(payload.get("body") or "") or [None, ""])[1],
             )
     return None
 

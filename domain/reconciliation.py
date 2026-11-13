@@ -351,14 +351,18 @@ def new_payables(
         normalize_code(r.prior.vendor_code) for r in prior_results
         if r.status == Status.SIGNED_NET_AUTO
     }
+    # Index the spare debits once per vendor (rescanning them for every credit is quadratic).
+    debits_by_vendor = defaultdict(list)
+    for d in spare_debits:
+        debits_by_vendor[normalize_code(d.vendor_code)].append((normalize_text(d.description), d))
     new_items = []
     for line in credits:
         code = normalize_code(line.vendor_code)
         if code in aggregate_vendors:
             continue
         key = (code, normalize_text(line.description))
-        vendor_debits = [d for d in spare_debits if normalize_code(d.vendor_code) == code]
-        same_desc_debits = [d for d in vendor_debits if normalize_text(d.description) == key[1]]
+        vendor_debits = [d for _, d in debits_by_vendor.get(code, ())]
+        same_desc_debits = [d for desc, d in debits_by_vendor.get(code, ()) if desc == key[1]]
         reason = ""
         if not allow_auto:
             reason = "입력 데이터 확인 항목이 있어 신규 발생분 자동 이월 보류"
