@@ -10,6 +10,7 @@ on:
       - "application/**"
       - "domain/**"
       - "adapters/excel/**"
+      - "adapters/updater.py"
       - "requirements.txt"
       - "assets/**"
 
@@ -43,6 +44,11 @@ jobs:
       - name: Run tests on Windows
         shell: pwsh
         run: python -m unittest discover -s tests -p "test_*.py" -v
+
+      - name: Stamp build identity
+        shell: pwsh
+        run: |
+          "BUILD_SHA = `"$env:GITHUB_SHA`"" | Set-Content "adapters/build_info.py" -Encoding utf8
 
       - name: Build Windows EXE
         shell: pwsh

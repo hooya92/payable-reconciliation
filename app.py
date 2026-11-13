@@ -18,6 +18,7 @@ from domain.models import Status
 from domain.normalization import parse_account_codes
 from domain.period import AccountingPeriod
 from application.service import run_reconciliation
+from adapters import updater
 
 # Colour tokens. Every text/background pair below is >= 4.5:1 (WCAG AA).
 # Light grey ground, white groups, one blue for actions; green/amber/red mean state only.
@@ -221,9 +222,14 @@ class App(ctk.CTk):
         self._detail_reasons={}
         self._file_add_busy=False
         self._file_add_queue=queue.Queue()
+        self._update_queue=queue.Queue()
+        self._update_release=None
 
         self._build()
         self._update_period()
+        if updater.can_self_update():
+            threading.Thread(target=lambda:self._update_queue.put(updater.check_latest()),daemon=True).start()
+            self.after(500,self._poll_update_check)
 
     def _build(self):
         s=ttk.Style(self)
@@ -274,6 +280,12 @@ class App(ctk.CTk):
             header,text="전월 말 명세서를 당월 더존 전표와 대사해 당월 말 명세서 초안을 만듭니다. 원본 파일은 수정하지 않습니다.",
             font=font(12),text_color=MUTED,anchor="w"
         ).grid(row=1,column=0,sticky="w",pady=(3,0))
+        self.update_btn=ctk.CTkButton(
+            header,text="새 버전 업데이트",width=130,height=32,corner_radius=8,
+            font=font(11,True),command=self._start_update,**BUTTON_PRIMARY
+        )
+        self.update_btn.grid(row=0,column=1,rowspan=2,sticky="e")
+        self.update_btn.grid_remove()
 
         def group(parent):
             return ctk.CTkFrame(parent,fg_color=CARD,corner_radius=12,border_width=0)
@@ -582,6 +594,69 @@ class App(ctk.CTk):
         self.account_codes.trace_add("write",lambda *_:self._on_account_code_changed())
         self._inputs_open=False
         self._apply_state_layout()
+
+    def _poll_update_check(self):
+        try:
+            release=self._update_queue.get_nowait()
+        except queue.Empty:
+            self.after(500,self._poll_update_check)
+            return
+        if release is not None:
+            self._update_release=release
+            self.update_btn.grid()
+
+    def _start_update(self):
+        release=self._update_release
+        if release is None or self._run_busy:
+            return
+        if not messagebox.askyesno(
+            "업데이트",
+            "새 버전을 내려받아 프로그램을 다시 시작합니다.\n"
+            "작업 중인 대사 결과는 사라지니, 필요하면 먼저 저장해 주세요.\n\n업데이트할까요?"
+        ):
+            return
+        exe=Path(sys.executable)
+        staged=updater.stage_path(exe)
+        self.update_btn.configure(state="disabled",text="내려받는 중… 0%")
+        q=queue.Queue()
+
+        def worker():
+            try:
+                updater.download(release,staged,lambda done,total:q.put(("p",done,total)))
+                q.put(("ok",))
+            except Exception as e:
+                try: staged.unlink()
+                except OSError: pass
+                q.put(("err",str(e) or "내려받기에 실패했습니다. 인터넷 연결을 확인해 주세요."))
+
+        def poll():
+            try:
+                while True:
+                    msg=q.get_nowait()
+                    if msg[0]=="p":
+                        pct=int(msg[1]*100/msg[2]) if msg[2] else 0
+                        self.update_btn.configure(text=f"내려받는 중… {pct}%")
+                    elif msg[0]=="err":
+                        self.update_btn.configure(state="normal",text="새 버전 업데이트")
+                        messagebox.showerror("업데이트 실패",msg[1]+"\n\n지금 쓰던 버전은 그대로입니다.")
+                        return
+                    else:
+                        try:
+                            updater.launch_swap(exe,staged)
+                        except OSError as e:
+                            try: staged.unlink()
+                            except OSError: pass
+                            self.update_btn.configure(state="normal",text="새 버전 업데이트")
+                            messagebox.showerror("업데이트 실패",f"교체를 시작하지 못했습니다: {e}")
+                            return
+                        self.destroy()
+                        return
+            except queue.Empty:
+                pass
+            self.after(100,poll)
+
+        threading.Thread(target=worker,daemon=True).start()
+        self.after(100,poll)
 
     def _style_button(self,btn,primary):
         btn.configure(**(BUTTON_PRIMARY if primary else BUTTON_SECONDARY))
