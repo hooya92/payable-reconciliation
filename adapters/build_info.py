@@ -1,0 +1,2 @@
+"""Build identity. CI overwrites this file with the commit being built; 'dev' means a source run."""
+BUILD_SHA = "dev"
