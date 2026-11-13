@@ -242,8 +242,7 @@ class App(ctk.CTk):
         self._update_period()
         if updater.can_self_update():
             threading.Thread(target=updater.cleanup_stale,args=(Path(sys.executable),),daemon=True).start()
-            threading.Thread(target=lambda:self._update_queue.put(updater.check_latest()),daemon=True).start()
-            self.after(500,self._poll_update_check)
+            self._start_update_check()
 
     def _build(self):
         s=ttk.Style(self)
@@ -614,6 +613,13 @@ class App(ctk.CTk):
         self._inputs_open=False
         self._apply_state_layout()
 
+    UPDATE_CHECK_MS=30*60*1000
+
+    def _start_update_check(self):
+        """Ask GitHub in the background (never blocks the window), then look again in 30 min."""
+        threading.Thread(target=lambda:self._update_queue.put(updater.check_latest()),daemon=True).start()
+        self.after(500,self._poll_update_check)
+
     def _poll_update_check(self):
         try:
             release=self._update_queue.get_nowait()
@@ -622,8 +628,15 @@ class App(ctk.CTk):
             return
         if release is not None:
             self._update_release=release
-            self.update_btn.configure(text=self._update_text)
             self.update_btn.grid()
+        self.after(self.UPDATE_CHECK_MS,self._timer_update_check)
+
+    def _timer_update_check(self):
+        # Not while a run / file analysis / download is going on; try again next time.
+        if self._run_busy or self._file_add_busy or str(self.update_btn.cget("state"))=="disabled":
+            self.after(self.UPDATE_CHECK_MS,self._timer_update_check)
+            return
+        self._start_update_check()
 
     def _start_update(self):
         release=self._update_release
@@ -645,7 +658,10 @@ class App(ctk.CTk):
 
         def worker():
             try:
-                updater.download(release,staged,lambda done,total:q.put(("p",done,total)))
+                # The button may have been up for a while: use the release as it is now.
+                fresh=updater.fetch_release(force=True)
+                target=fresh if fresh is not None and updater.is_newer(updater.current_sha(),fresh.sha) else release
+                updater.download(target,staged,lambda done,total:q.put(("p",done,total)))
                 q.put(("ok",))
             except Exception as e:
                 try: staged.unlink()
