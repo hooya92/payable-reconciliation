@@ -30,6 +30,13 @@ class ApiTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             api.remove_file("x", 0)
 
+    def test_window_buttons_reach_the_window(self):
+        calls = []
+        api = Api(Session(FakeDialogs(), quit_callback=lambda: calls.append("quit"),
+                          minimize_callback=lambda: calls.append("min")))
+        api.minimize_window(); api.close_window()
+        self.assertEqual(calls, ["min", "quit"])
+
     def test_state_is_plain_json(self):
         json.dumps(Api(Session(FakeDialogs())).get_state())
 
@@ -78,9 +85,17 @@ class PageSafetyTests(unittest.TestCase):
             self.assertNotIn(risky, js)
 
     def test_static_dir_has_the_page(self):
-        for name in ("index.html", "app.js", "app.css", "fonts/PretendardVariable.woff2",
+        for name in ("index.html", "app.js", "app.css", "rabbit.png", "fonts/PretendardVariable.woff2",
                      "fonts/PRETENDARD-LICENSE.txt"):
             self.assertTrue((launch.static_dir() / name).is_file(), name)
+
+    def test_the_title_row_has_the_rabbit_and_the_window_has_no_native_title_bar(self):
+        js = (launch.static_dir() / "app.js").read_text(encoding="utf-8")
+        self.assertIn('src="rabbit.png"', js)
+        self.assertIn("pywebview-drag-region", js)       # the page provides the drag area
+        src = (Path(launch.__file__)).read_text(encoding="utf-8")
+        self.assertIn("frameless=True", src)
+        self.assertTrue((launch.static_dir() / "rabbit.png").read_bytes().startswith(b"\x89PNG"))
 
     def test_the_font_is_served_with_its_license_beside_it(self):
         from webui.server import make_server

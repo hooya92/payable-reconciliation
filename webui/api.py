@@ -5,7 +5,7 @@ from __future__ import annotations
 _PUBLIC = (
     "get_state", "add_files", "add_paths", "remove_file", "clear_files", "set_account_codes",
     "set_period", "toggle_picker", "open_inputs", "run_reconciliation", "export_month_end",
-    "export_result", "check_update", "start_update",
+    "export_result", "check_update", "start_update", "minimize_window", "close_window",
 )
 
 
@@ -54,6 +54,12 @@ class Api:
 
     def start_update(self):
         return self._session.start_update()
+
+    def minimize_window(self):
+        self._session.minimize()
+
+    def close_window(self):
+        self._session.quit()
 
 
 def _kind(kind):
