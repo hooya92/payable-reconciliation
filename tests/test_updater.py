@@ -69,6 +69,20 @@ class UpdaterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self._download(b"<html>", updater.Release(SHA, "https://x/u", 6, ""))
 
+    def test_unchanged_release_answers_304_and_keeps_the_known_one(self):
+        import urllib.error
+        updater._cache.update(etag="",release=None)
+        first=FakeResp(__import__("json").dumps(PAYLOAD).encode()); first.headers={"ETag":'"abc"'}
+        sent=[]
+        def fake(req,timeout=0):
+            sent.append(req.get_header("If-none-match"))
+            if len(sent)==1: return first
+            raise urllib.error.HTTPError(req.full_url,304,"Not Modified",{},None)
+        with mock.patch.object(updater.urllib.request,"urlopen",side_effect=fake):
+            a=updater.fetch_release(); b=updater.fetch_release()
+        self.assertEqual(a,b); self.assertEqual(sent,[None,'"abc"'])
+        updater._cache.update(etag="",release=None)
+
     def test_source_run_never_self_updates(self):
         self.assertFalse(updater.can_self_update())
 

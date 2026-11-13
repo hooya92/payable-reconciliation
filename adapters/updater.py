@@ -14,6 +14,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -74,14 +75,33 @@ def is_newer(current: str, latest: str) -> bool:
     return not (current.startswith(latest) or latest.startswith(current))
 
 
-def check_latest() -> Release | None:
-    """The newer release, or None when up to date / unreachable. Never raises."""
+_cache = {"etag": "", "release": None}
+
+
+def fetch_release(force: bool = False) -> Release | None:
+    """The stable release as published (None if unreachable). Re-asking costs almost nothing:
+    an unchanged release answers 304 (not counted against GitHub's rate limit)."""
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "PayableRecon"}
+    if _cache["etag"] and not force:
+        headers["If-None-Match"] = _cache["etag"]
     try:
-        req = urllib.request.Request(RELEASE_API, headers={"Accept": "application/vnd.github+json", "User-Agent": "PayableRecon"})
+        req = urllib.request.Request(RELEASE_API, headers=headers)
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             release = parse_release(json.load(resp))
+            _cache["etag"] = resp.headers.get("ETag", "") or ""
+            _cache["release"] = release
+            return release
+    except urllib.error.HTTPError as e:
+        if e.code == 304:
+            return _cache["release"]
+        return None
     except Exception:
         return None
+
+
+def check_latest() -> Release | None:
+    """The newer release, or None when up to date / unreachable. Never raises."""
+    release = fetch_release()
     if release and is_newer(current_sha(), release.sha):
         return release
     return None
