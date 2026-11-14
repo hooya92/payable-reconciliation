@@ -117,7 +117,7 @@ function render() {
   let body = "";
   if (!s.result) {
     body = `<div class="card guide"><h2>이렇게 진행합니다</h2>
-      <div class="step"><div class="num">1</div><div><b>파일 추가</b><span>전월 말 명세서와 당월 더존 원장을 추가합니다. 회계월은 파일에서 자동으로 잡힙니다.</span></div></div>
+      <div class="step"><div class="num">1</div><div><b>파일 추가</b><span>전월 말 명세서와 당월 더존 원장을 추가합니다.<br>회계월은 파일에서 자동으로 잡힙니다.</span></div></div>
       <div class="step"><div class="num">2</div><div><b>대사 시작</b><span>자동으로 짝을 맞추고, 사람이 봐야 할 항목만 추려 줍니다.</span></div></div>
       <div class="step"><div class="num">3</div><div><b>당월 명세서 생성</b><span>결과를 검토한 뒤 저장합니다. 전월 명세서 양식 그대로 나옵니다.</span></div></div></div>`;
   } else if (!running) {
