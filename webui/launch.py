@@ -79,8 +79,8 @@ def run(selftest: bool = False) -> bool:
                           minimize_callback=lambda: holder["window"].minimize(),
                           drag_callback=lambda mode: holder["mover"].begin(mode))
         options = dict(
-            url=str(static_dir() / "index.html"), js_api=Api(session), width=500, height=840,
-            min_size=(460, 640), background_color="#F5F5F7",
+            url=str(static_dir() / "index.html"), js_api=Api(session), width=470, height=700,
+            min_size=(440, 560), background_color="#F5F5F7",
             # No Windows title bar: the page draws its own header, drag area and window buttons.
             frameless=True, easy_drag=False, resizable=True,
         )
