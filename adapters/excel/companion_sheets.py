@@ -6,6 +6,7 @@ a title line, a one-line summary, then a styled table (header on row 4, data fro
 from __future__ import annotations
 
 from collections import Counter
+from copy import copy
 
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -101,23 +102,33 @@ def _layout(ws, title, subtitle, headers, rows, widths, *, money, chip, wrap, ta
         else:
             aligns[col] = Alignment(horizontal="left", vertical="center", indent=1, wrap_text=col in wrap)
     chip_styles = {}
+    # Styling a cell property by property is slow on large sheets; build each distinct style once
+    # and copy its style array onto the other cells that share it.
+    built = {}
     for offset, values in enumerate(rows):
         r = HEADER_ROW + 1 + offset
-        fill = _ZEBRA[offset % 2]
+        parity = offset % 2
         lines = 1
         for col, value in enumerate(values[:len(headers)], 1):
             if col == 6:   # 사유 / 근거: one clause per line
                 value = _display(value)
             cell = ws.cell(r, col, value)
-            cell.font, cell.fill, cell.border, cell.alignment = _TEXT, fill, _BORDER, aligns[col]
-            if col in money and isinstance(value, (int, float)):
-                cell.number_format = _MONEY
-            if col == chip and value:
-                if value not in chip_styles:
-                    bg, fg = _CHIPS.get(value, _CHIP_DEFAULT)
-                    chip_styles[value] = (PatternFill("solid", fgColor=bg),
-                                          Font(name=_FONT, size=10, bold=True, color=fg))
-                cell.fill, cell.font = chip_styles[value]
+            is_money = col in money and isinstance(value, (int, float))
+            chip_value = value if col == chip and value else None
+            key = (col, parity, is_money, chip_value)
+            if key in built:
+                cell._style = copy(built[key])
+            else:
+                cell.font, cell.fill, cell.border, cell.alignment = _TEXT, _ZEBRA[parity], _BORDER, aligns[col]
+                if is_money:
+                    cell.number_format = _MONEY
+                if chip_value is not None:
+                    if chip_value not in chip_styles:
+                        bg, fg = _CHIPS.get(chip_value, _CHIP_DEFAULT)
+                        chip_styles[chip_value] = (PatternFill("solid", fgColor=bg),
+                                                   Font(name=_FONT, size=10, bold=True, color=fg))
+                    cell.fill, cell.font = chip_styles[chip_value]
+                built[key] = copy(cell._style)
             if col in wrap and isinstance(value, str):
                 per_line = max(int(widths[col - 1] * 0.9), 8)
                 lines = max(lines, sum(len(part) // per_line + 1 for part in value.split("\n")))
@@ -212,13 +223,16 @@ def add_presence_column(ws, statement, locate, desc_col, amount_col, offsets, pr
     by_key = {}
     for row in rows:
         by_key.setdefault((row[6].value, row[7].value, row[4].value), []).append(row)
+    by_raw_row = {}
+    for (source, number, amount), found in by_key.items():
+        if source != prior_name:
+            by_raw_row.setdefault((number, amount), []).extend(found)
     partner_of = {}
     for o in offsets:
         if not isinstance(o[10], (int, float)):
             continue
         prior_side = by_key.get((o[6], o[7], o[4]), [])
-        raw_side = [r for (f, n, amt), found in by_key.items() if f != prior_name and n == o[12]
-                    and amt == -o[10] for r in found]
+        raw_side = by_raw_row.get((o[12], -o[10]), [])
         if len(prior_side) == 1 and len(raw_side) == 1:
             p, r = prior_side[0], raw_side[0]
             partner_of[id(p)] = (r[6].value, r[7].value)

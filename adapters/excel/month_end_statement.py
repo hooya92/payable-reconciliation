@@ -53,6 +53,18 @@ def statement_sheet_name(period:AccountingPeriod)->str:
 _SHEET_RANGE_REF=re.compile(r"(?:'[^'!]+:[^'!]+'|[^\s'!:=(),+\-*/&<>^]+:[^\s'!:=(),+\-*/&<>^]+)!")
 
 
+def _formula_texts(wb):
+    """Every formula and defined-name text in the workbook (to see which sheets are still referenced)."""
+    texts=[str(dn.value) for dn in wb.defined_names.values()]
+    for sheet in wb.worksheets:
+        texts+=[str(dn.value) for dn in sheet.defined_names.values()]
+        for row in sheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value,str) and cell.value.startswith("="):
+                    texts.append(cell.value)
+    return texts
+
+
 def _put_first(wb, ws, notices):
     """Make the statement the first tab, unless a formula spans a range of sheets (order matters there)."""
     if wb.index(ws)==0:
@@ -609,9 +621,12 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             raise AssertionError("당월 명세서 행 수와 실제 생성 행 수가 일치하지 않습니다.")
 
         # Two removable companion sheets: what to check, and how every row was handled.
+        referenced=_formula_texts(wb)
         for old in [sheet for sheet in wb.worksheets if sheet is not ws and is_generated_companion(sheet)]:
-            # Last month's own companion sheets (copied along with the template) are not carried forward.
-            wb.remove(old)
+            # Last month's own companion sheets (copied along with the template) are not carried forward,
+            # unless something in the workbook still points at them.
+            if not any(f"{old.title}!" in text or f"'{old.title}'!" in text for text in referenced):
+                wb.remove(old)
         summary=write_review_sheet(wb,reviews,ws.title)
         changes=write_detail_sheet(wb,audits,offsets,len(reviews),plan.raw_count,template_path.name)
 
@@ -645,8 +660,15 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         def locate(source,row):
             targets=source_targets.get((template_path.name if source=="명세서" else source,row),[])
             return targets[0] if len(targets)==1 else None
-        add_presence_column(changes,ws,locate,fields["desc"],fields["amount"],offsets,template_path.name)
-        _put_first(wb,ws,notices)
+        # Both are conveniences: if either fails, the statement is still written as before.
+        try:
+            add_presence_column(changes,ws,locate,fields["desc"],fields["amount"],offsets,template_path.name)
+        except Exception:
+            notices.append("대사상세의 '본문' 확인 열을 만들지 못했습니다. 당월 명세서와 나머지 내용은 정상입니다.")
+        try:
+            _put_first(wb,ws,notices)
+        except Exception:
+            notices.append(f"당월 명세서 시트를 맨 앞으로 옮기지 못했습니다. 당월 명세서는 '{ws.title}' 시트입니다.")
 
         # Let Excel recalculate all copied per-vendor subtotal formulas on open.
         from openpyxl.workbook.properties import CalcProperties
