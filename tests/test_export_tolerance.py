@@ -140,6 +140,10 @@ class ExportToleranceTests(unittest.TestCase):
             try:
                 # Only the intended SUM subtotal/total formulas remain on the statement sheet.
                 for title,coord,value in formula_cells(wb):
+                    if title=="대사상세":
+                        # only our own live columns (본문 tracking, summary line); source text stays text
+                        self.assertTrue(coord=="A2" or coord.startswith("J"),(coord,value))
+                        continue
                     self.assertEqual(title,"26.09 당월명세서")
                     self.assertTrue(value.startswith(("=SUM(","=SUMIF(")),(coord,value))
                 self.assertEqual(wb["26.09 당월명세서"]["D3"].data_type=="f" or wb["26.09 당월명세서"]["D4"].data_type=="f",False)

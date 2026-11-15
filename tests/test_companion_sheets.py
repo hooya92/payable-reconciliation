@@ -78,6 +78,32 @@ class LayoutTests(unittest.TestCase):
             finally:
                 wb.close()
 
+    def test_body_column_follows_the_statement_rows_of_a_pair(self):
+        with tempfile.TemporaryDirectory() as folder:
+            prior, raw = fixtures.JournalCorrectionTests().make_files(folder, [
+                ("001111", "가상공영", "벨트 교체", 700000, 0, "2026-09-03")])
+            out, _ = export(folder, prior, raw)
+            wb = load_workbook(out)
+            try:
+                detail = wb["대사상세"]
+                self.assertEqual(detail.cell(HEADER_ROW, 10).value, "본문")
+                rows = list(detail.iter_rows(min_row=HEADER_ROW + 1))
+                prior_side = next(r for r in rows if r[0].value == "대사 일치" and r[6].value == prior.name)
+                statement = wb["26.09 당월명세서"]
+                mine = prior_side[7].hyperlink.location.split("!")[1].replace("D", "")
+                formula = prior_side[9].value
+                # both rows of the pair are referenced, and the cell is a live formula (not text)
+                self.assertEqual(prior_side[9].data_type, "f")
+                self.assertIn(f"'26.09 당월명세서'!$D${mine}", formula)
+                self.assertEqual(formula.count("COUNTA("), 4)
+                self.assertIn("✓ 짝과 함께 지움", formula)
+                carried = next(r for r in rows if r[0].value == "전월 이월")
+                self.assertIn("⚠ 지움 (이월·신규 행)", carried[9].value)
+                self.assertTrue(str(detail["A2"].value).startswith('="본문 정리'))
+                self.assertIsNotNone(statement)
+            finally:
+                wb.close()
+
     def test_a_clean_run_says_there_is_nothing_to_review(self):
         with tempfile.TemporaryDirectory() as folder:
             prior, raw = fixtures.JournalCorrectionTests().make_files(folder, [

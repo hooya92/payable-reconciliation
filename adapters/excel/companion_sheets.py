@@ -7,8 +7,9 @@ from __future__ import annotations
 
 from collections import Counter
 
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import get_column_letter, quote_sheetname
 
 REVIEW_SHEET = "검토필요"
 DETAIL_SHEET = "대사상세"
@@ -17,7 +18,7 @@ DETAIL_MARKER = "MONTH_END_DRAFT_DETAIL"      # L1 of 대사상세
 HEADER_ROW = 4
 
 REVIEW_HEADERS = ["검토 상태", "거래처코드", "거래처명", "적요·원본값", "금액", "사유", "원본파일", "원본행"]
-DETAIL_HEADERS = ["구분", "거래처코드", "거래처명", "명세 내용", "금액", "근거", "원본파일", "원본행", "대사 상대"]
+DETAIL_HEADERS = ["구분", "거래처코드", "거래처명", "명세 내용", "금액", "근거", "원본파일", "원본행", "대사 상대", "본문"]
 
 # Header rows of companion sheets written by earlier versions (row 1, first cells).
 _LEGACY_HEADERS = (
@@ -173,13 +174,13 @@ def write_detail_sheet(wb, audits, offsets, review_count, raw_count, prior_name)
             else:
                 found = by_raw.get((record[7], record[4]), [])
                 pair = found[0] if len(found) == 1 else ""
-        rows.append(record + [pair])
+        rows.append(record + [pair, None])
     counts = Counter(r[0] for r in rows)
     summary = "  ·  ".join(f"{k} {v}" for k, v in counts.items())
     subtitle = (f"{summary}   |   검토 필요 {review_count}건 · RAW 전표 {raw_count}건 · 대사 짝 {len(offsets)}건.  "
                 "발생·지급은 모두 보존하며, 대사 일치는 실제 상계 확정과 다릅니다.")
     _layout(ws, f"대사상세  ·  {len(rows)}행", subtitle, DETAIL_HEADERS, rows,
-            [14, 12, 14, 26, 15, 40, 14, 8, 38], money={5}, chip=1, wrap={4, 6, 9}, tab="9AA5B1")
+            [14, 12, 14, 26, 15, 40, 14, 8, 36, 20], money={5}, chip=1, wrap={4, 6, 9}, tab="9AA5B1")
     ws.cell(1, 12, DETAIL_MARKER)
     ws.column_dimensions["L"].hidden = True
     return ws
@@ -188,3 +189,71 @@ def write_detail_sheet(wb, audits, offsets, review_count, raw_count, prior_name)
 def table_rows(ws):
     """The data rows of a companion sheet (below its header row), as value tuples."""
     return [row[:len(DETAIL_HEADERS)] for row in ws.iter_rows(min_row=HEADER_ROW + 1, values_only=True)]
+
+
+KEPT, DONE, ONE_SIDE, WRONG = "본문에 있음", "✓ 짝과 함께 지움", "⚠ 한쪽만 지움", "⚠ 지움 (이월·신규 행)"
+DONE_SINGLE, REVIEWED = "✓ 지움", "지움 (검토 건)"
+_MUST_STAY = ("전월 이월", "당월 발생")
+
+
+def add_presence_column(ws, statement, locate, desc_col, amount_col, offsets, prior_name):
+    """Column J of 대사상세 follows the statement live: when a person deletes (or clears) a row there,
+    the formula's reference breaks and the cell says so. A matched pair should be removed together;
+    a carried-forward or new row should stay. Written after force_text_formulas: these are ours."""
+    sheet = quote_sheetname(statement.title)
+
+    def gone(target):
+        d = f"{sheet}!${get_column_letter(desc_col)}${target}"
+        a = f"{sheet}!${get_column_letter(amount_col)}${target}"
+        # COUNTA never errors on a cell's own error value; it errors only on a deleted reference.
+        return f"IFERROR(COUNTA({d},{a})=0,TRUE)"
+
+    rows = list(ws.iter_rows(min_row=HEADER_ROW + 1, max_col=len(DETAIL_HEADERS)))
+    by_key = {}
+    for row in rows:
+        by_key.setdefault((row[6].value, row[7].value, row[4].value), []).append(row)
+    partner_of = {}
+    for o in offsets:
+        if not isinstance(o[10], (int, float)):
+            continue
+        prior_side = by_key.get((o[6], o[7], o[4]), [])
+        raw_side = [r for (f, n, amt), found in by_key.items() if f != prior_name and n == o[12]
+                    and amt == -o[10] for r in found]
+        if len(prior_side) == 1 and len(raw_side) == 1:
+            p, r = prior_side[0], raw_side[0]
+            partner_of[id(p)] = (r[6].value, r[7].value)
+            partner_of[id(r)] = (p[6].value, p[7].value)
+
+    for row in rows:
+        cell = row[9]
+        target = locate(row[6].value, row[7].value)
+        if target is None or row[0].value == "보조 행 보존":
+            continue
+        mine = gone(target)
+        if row[0].value == "대사 일치":
+            other = partner_of.get(id(row))
+            other_target = locate(*other) if other else None
+            if other_target is not None:
+                theirs = gone(other_target)
+                cell.value = (f'=IF(AND({mine},{theirs}),"{DONE}",IF(OR({mine},{theirs}),"{ONE_SIDE}","{KEPT}"))')
+            else:
+                cell.value = f'=IF({mine},"{DONE_SINGLE}","{KEPT}")'
+        else:
+            removed = WRONG if row[0].value in _MUST_STAY else REVIEWED
+            cell.value = f'=IF({mine},"{removed}","{KEPT}")'
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    last = HEADER_ROW + max(len(rows), 1)
+    col = f"$J${HEADER_ROW + 1}:$J${last}"
+    kind = f"$A${HEADER_ROW + 1}:$A${last}"
+    ws.conditional_formatting.add(f"J{HEADER_ROW + 1}:J{last}", FormulaRule(
+        formula=[f'LEFT(J{HEADER_ROW + 1},1)="✓"'], stopIfTrue=True,
+        fill=PatternFill("solid", fgColor="E2EFDA"), font=Font(name=_FONT, bold=True, color="2E6B30")))
+    ws.conditional_formatting.add(f"J{HEADER_ROW + 1}:J{last}", FormulaRule(
+        formula=[f'LEFT(J{HEADER_ROW + 1},1)="⚠"'], stopIfTrue=True,
+        fill=PatternFill("solid", fgColor="FCE4D6"), font=Font(name=_FONT, bold=True, color="B5491B")))
+    # Live summary under the title: what is left to tidy up in the statement.
+    static = str(ws["A2"].value or "").replace('"', '""')
+    ws["A2"] = (f'="본문 정리  ·  완료 "&COUNTIF({col},"✓*")&"행 · 남은 대사 짝 "'
+                f'&COUNTIFS({kind},"대사 일치",{col},"{KEPT}")&"행 · 주의 "&COUNTIF({col},"⚠*")&"행'
+                f'   |   {static}"')

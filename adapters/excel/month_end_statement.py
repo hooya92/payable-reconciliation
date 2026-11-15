@@ -20,7 +20,7 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 from adapters.excel.text_safe import force_text_formulas, set_text
 
 from adapters.excel.companion_sheets import (
-    HEADER_ROW, is_generated_companion, write_detail_sheet, write_review_sheet,
+    HEADER_ROW, add_presence_column, is_generated_companion, write_detail_sheet, write_review_sheet,
 )
 from adapters.excel.reader import (
     _period_from_sheet_title, _first, _header, _is_blank, _is_summary_label, _select_prior_sheets, _statement_row_kinds,
@@ -641,6 +641,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             link_source_rows(extra)
         for generated in (summary,changes):
             force_text_formulas(generated)
+
+        def locate(source,row):
+            targets=source_targets.get((template_path.name if source=="명세서" else source,row),[])
+            return targets[0] if len(targets)==1 else None
+        add_presence_column(changes,ws,locate,fields["desc"],fields["amount"],offsets,template_path.name)
         _put_first(wb,ws,notices)
 
         # Let Excel recalculate all copied per-vendor subtotal formulas on open.
