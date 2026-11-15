@@ -218,8 +218,11 @@ class NextMonthTests(unittest.TestCase):
             for year, month, rows in ((2026, 10, [("001111", "가상물류", "10월 청구분", 0, 70, "2026-10-03")]),
                                       (2026, 11, [("001111", "가상물류", "11월 청구분", 0, 80, "2026-11-03")])):
                 current = next_month(keep_statement_only(current), folder, rows, year, month)
-                self.assertEqual(load_workbook(current, read_only=True).sheetnames[0],
-                                 f"{AccountingPeriod(year, month).short_label} 당월명세서")
+                wb = load_workbook(current, read_only=True)
+                try:
+                    self.assertEqual(wb.sheetnames[0], f"{AccountingPeriod(year, month).short_label} 당월명세서")
+                finally:
+                    wb.close()   # Windows keeps an open workbook locked
 
 
 if __name__ == "__main__":
