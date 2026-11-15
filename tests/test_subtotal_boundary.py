@@ -52,7 +52,7 @@ class SubtotalBoundaryTests(unittest.TestCase):
                 out, [prior], run.results, run.new_items, run.issues, PERIOD,
                 standalone_debits=run.standalone_debits, journal_items=run.journal_items,
                 journal_sources=run.journal_sources, source_paths=[prior, raw])
-            ws = load_workbook(out)["26.09"]
+            ws = load_workbook(out)["26.09 당월명세서"]
             rows = {r: str(ws.cell(r, 6).value or "") for r in range(3, ws.max_row + 1)
                     if ws.cell(r, 4).value}
             return run, notices, rows

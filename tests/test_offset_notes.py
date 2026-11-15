@@ -119,7 +119,7 @@ class StatementNotesTests(unittest.TestCase):
             run,out=generate(folder)
             wb=load_workbook(out,rich_text=True)
             try:
-                ws=wb["26.09"]
+                ws=wb["26.09 당월명세서"]
                 status={r:str(ws.cell(r,6).value) for r in range(3,ws.max_row+1)
                         if ws.cell(r,6).value is not None}
                 desc={r:ws.cell(r,4).value for r in range(3,ws.max_row+1)}
@@ -148,13 +148,13 @@ class StatementNotesTests(unittest.TestCase):
             run,out=generate(folder)
             wb=load_workbook(out)
             try:
-                ws=wb["26.09"]
+                ws=wb["26.09 당월명세서"]
                 # title + header, 4 opening rows + 3 RAW rows (2 payments, 1 credit),
                 # 1 vendor subtotal, 1 grand total: no extra rows are ever added.
                 self.assertEqual(ws.max_row,2+4+3+1+1)
                 self.assertEqual(ws.max_column,6)
                 self.assertEqual([c.value for c in ws[ws.max_row]][:1],["합 계"])
-                self.assertEqual(wb.sheetnames[0],"26.09")
+                self.assertEqual(wb.sheetnames[0],"26.09 당월명세서")
             finally:
                 wb.close()
 
@@ -170,7 +170,7 @@ class StaleStatusColumnTests(unittest.TestCase):
             run,out=generate(folder,stale=True)
             wb=load_workbook(out)
             try:
-                ws=wb["26.09"]
+                ws=wb["26.09 당월명세서"]
                 for row in ws.iter_rows(min_row=3):
                     for col in (9,10):       # I and J: last month's leftover status columns
                         cell=row[col-1]
@@ -184,7 +184,7 @@ class StaleStatusColumnTests(unittest.TestCase):
             run,out=generate(folder,stale=True)
             wb=load_workbook(out)
             try:
-                ws=wb["26.09"]
+                ws=wb["26.09 당월명세서"]
                 self.assertEqual(ws.cell(2,11).value,"비고")
                 self.assertIn("담당자 메모",[ws.cell(r,11).value for r in range(3,ws.max_row+1)])
             finally:

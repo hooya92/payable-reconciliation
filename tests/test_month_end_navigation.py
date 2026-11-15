@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -29,23 +30,23 @@ class MonthEndNavigationTests(unittest.TestCase):
             try:
                 # First pair adds a payment before the second original vendor.
                 # Original row 5 therefore appears at row 6 in the new sheet.
-                for sheet in ("대사내역","변경내역","검토필요"):
-                    for row in wb[sheet].iter_rows(min_row=2,max_col=8):
+                for sheet in ("대사상세","검토필요"):
+                    for row in wb[sheet].iter_rows(min_row=HEADER_ROW+1,max_col=8):
                         if row[7].hyperlink:
                             link=row[7].hyperlink
                             self.assertIsNone(link.target)
                             target=link.location.split("!")[1]
-                            self.assertEqual(wb["26.08"][target].value,row[3].value)
-                audit=wb["대사내역"]["H2"]
-                self.assertEqual(audit.value,3)
-                self.assertEqual(audit.hyperlink.location,"'26.08'!D3")
-                second_original=next(row for row in wb["변경내역"].iter_rows(min_row=2)
+                            self.assertEqual(wb["26.08 당월명세서"][target].value,row[3].value)
+                audit=next(row[7] for row in wb["대사상세"].iter_rows(min_row=HEADER_ROW+1)
+                           if row[6].value==prior.name and row[7].value==3)
+                self.assertEqual(audit.hyperlink.location,"'26.08 당월명세서'!D3")
+                second_original=next(row for row in wb["대사상세"].iter_rows(min_row=HEADER_ROW+1)
                                      if row[6].value==prior.name and row[7].value==5)
-                self.assertEqual(second_original[7].hyperlink.location,"'26.08'!D6")
-                orphan=wb["검토필요"]["H2"]
+                self.assertEqual(second_original[7].hyperlink.location,"'26.08 당월명세서'!D6")
+                orphan=wb["검토필요"].cell(HEADER_ROW+1,8)
                 self.assertEqual(orphan.value,3)
-                self.assertEqual(orphan.hyperlink.location,"'26.08'!D8")
-                self.assertIn("원본 파일 기준",wb["대사내역"]["H1"].comment.text)
+                self.assertEqual(orphan.hyperlink.location,"'26.08 당월명세서'!D8")
+                self.assertIn("원본 파일 기준",wb["대사상세"].cell(HEADER_ROW,8).comment.text)
                 self.assertTrue(all(p.read_bytes()==data for p,data in before.items()))
             finally:
                 wb.close()

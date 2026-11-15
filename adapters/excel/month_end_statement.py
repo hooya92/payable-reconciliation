@@ -19,8 +19,11 @@ from openpyxl.styles.cell_style import StyleArray
 from openpyxl.worksheet.hyperlink import Hyperlink
 from adapters.excel.text_safe import force_text_formulas, set_text
 
+from adapters.excel.companion_sheets import (
+    HEADER_ROW, add_presence_column, is_generated_companion, write_detail_sheet, write_review_sheet,
+)
 from adapters.excel.reader import (
-    _first, _header, _is_blank, _is_summary_label, _select_prior_sheets, _statement_row_kinds,
+    _period_from_sheet_title, _first, _header, _is_blank, _is_summary_label, _select_prior_sheets, _statement_row_kinds,
 )
 from domain.models import Status, DataQuality
 from domain.normalization import parse_amount, parse_literal_amount_formula
@@ -37,6 +40,45 @@ _PRIOR_HEADERS=[
     ("적요","내역","내용"),
     ("금액","미지급금","잔액"),
 ]
+
+
+STATEMENT_SUFFIX=" 당월명세서"
+
+
+def statement_sheet_name(period:AccountingPeriod)->str:
+    """'26.11 당월명세서': the month stays first so next month can still find this sheet by its month."""
+    return period.short_label+STATEMENT_SUFFIX
+
+
+_SHEET_RANGE_REF=re.compile(r"(?:'[^'!]+:[^'!]+'|[^\s'!:=(),+\-*/&<>^]+:[^\s'!:=(),+\-*/&<>^]+)!")
+
+
+def _formula_texts(wb):
+    """Every formula and defined-name text in the workbook (to see which sheets are still referenced)."""
+    texts=[str(dn.value) for dn in wb.defined_names.values()]
+    for sheet in wb.worksheets:
+        texts+=[str(dn.value) for dn in sheet.defined_names.values()]
+        for row in sheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value,str) and cell.value.startswith("="):
+                    texts.append(cell.value)
+    return texts
+
+
+def _put_first(wb, ws, notices):
+    """Make the statement the first tab, unless a formula spans a range of sheets (order matters there)."""
+    if wb.index(ws)==0:
+        return
+    for sheet in wb.worksheets:
+        for row in sheet.iter_rows():
+            for cell in row:
+                if isinstance(cell.value,str) and cell.value.startswith("=") and _SHEET_RANGE_REF.search(cell.value):
+                    notices.append("양식에 여러 시트를 묶어 계산하는 수식이 있어 시트 순서를 바꾸지 않았습니다. "
+                                   f"당월 명세서는 '{ws.title}' 시트입니다.")
+                    return
+    wb.move_sheet(ws,offset=-wb.index(ws))
+    for sheet in wb.worksheets:
+        sheet.sheet_view.tabSelected=sheet is ws
 
 
 def _amount(value):
@@ -176,9 +218,11 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         if len(selected)!=1:
             raise ValueError("당월 양식으로 복사할 전월 명세서 시트를 하나만 식별해야 합니다.")
         original,header,headers=selected[0]
-        target_name=period.short_label
-        if any(ws.title==target_name for ws in wb.worksheets):
-            raise ValueError(f"양식 파일에 당월 시트({target_name})가 이미 있습니다. 그 시트를 삭제하거나 이름을 바꾼 뒤 다시 실행해 주세요.")
+        target_name=statement_sheet_name(period)
+        clash=[sheet.title for sheet in wb.worksheets
+               if sheet.title==target_name or _period_from_sheet_title(sheet.title)==period]
+        if clash:
+            raise ValueError(f"양식 파일에 당월 시트({clash[0]})가 이미 있습니다. 그 시트를 삭제하거나 이름을 바꾼 뒤 다시 실행해 주세요.")
         fields={
             "code":_first(headers,"거래처코드","거래처 코드","코드"),
             "name":_first(headers,"거래처명","거래처","업체명"),
@@ -576,72 +620,22 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
         if row_no != header+required_rows+1:
             raise AssertionError("당월 명세서 행 수와 실제 생성 행 수가 일치하지 않습니다.")
 
-        # Original detail and payment rows remain traceable in this auxiliary tab.
-        offset_sheet=wb.create_sheet("대사내역")
-        offset_sheet.append([
-            "구분","거래처코드","거래처명","원본 적요","발생 금액","발생 일자",
-            "원본파일","원본행","더존 RAW 적요","더존 기표일자",
-            "더존 차변","상계 확정 여부","더존 RAW 행",
-        ])
-        for row in offsets:
-            offset_sheet.append(row)
-        offset_sheet.freeze_panes="A2"
-        for column,width in {"A":24,"B":17,"C":26,"D":37,"E":18,"F":18,
-                             "G":35,"H":12,"I":37,"J":18,"K":20,"L":20,"M":15}.items():
-            offset_sheet.column_dimensions[column].width=width
-        for row in offset_sheet.iter_rows(min_row=2):
-            for idx in (4,10,11):
-                row[idx].number_format="#,##0;[Red](#,##0);-"
-
-        # Status is the sole optional extra column; detailed reasons stay removable.
-        summary=wb.create_sheet("검토필요")
-        summary.append(["검토 상태","거래처코드","거래처명","적요·원본값","금액","사유","원본파일","원본행"])
-        summary["J1"]="MONTH_END_DRAFT_REVIEW"
-        for record in reviews:
-            summary.append(record)
-        summary.freeze_panes="A2"
-        changes=wb.create_sheet("변경내역")
-        changes.append(["구분","거래처코드","거래처명","명세 내용","금액","근거","원본파일","원본행"])
-        for record in audits:
-            changes.append(record)
-        changes.freeze_panes="A2"
-        changes["J1"]="※ 검토용 초안: 발생·지급은 모두 보존하며 대사 일치는 실제 상계 확정과 다릅니다."
-        changes["J2"]="대사내역·검토필요·변경내역은 검토 후 삭제할 수 있습니다. 검토 보류건 확정 전에는 다음 달 대사에 사용하지 마세요."
-        changes["J3"]=f"검토 필요 {len(reviews)}건 · RAW 전표 {plan.raw_count}건 · 일치 후보 {len(offsets)}건"
-        for extra in (summary,changes):
-            extra.column_dimensions["A"].width=23
-            extra.column_dimensions["B"].width=16
-            extra.column_dimensions["C"].width=25
-            extra.column_dimensions["D"].width=36
-            extra.column_dimensions["E"].width=18
-            extra.column_dimensions["F"].width=65
-            extra.column_dimensions["G"].width=32
-            extra.column_dimensions["H"].width=12
-        changes.column_dimensions["J"].width=75
-
-        # A new name avoids renaming a prior sheet, which would silently
-        # re-point any formula that references it.
-        balances=wb.create_sheet("당월 잔액검증")
-        balances.append(["거래처코드","거래처명","전월 잔액","당월 대변(발생·조정)",
-                         "당월 차변(지급·조정)","계산 잔액","생성 명세서 잔액","계산 차액",
-                         "계산 검증","원장 잔액","원장 차액","원장 비교","검증 근거"])
-        for record in plan.balances:
-            balances.append(record)
-        balances.freeze_panes="C2"
-        for column in "ABCDEFGHIJKL":
-            balances.column_dimensions[column].width=23
-        balances.column_dimensions["M"].width=80
-        for row in balances.iter_rows(min_row=2):
-            for idx in (2,3,4,5,6,7,9,10):
-                row[idx].number_format='#,##0;[Red](#,##0);"0"'
-        balances.auto_filter.ref=balances.dimensions
+        # Two removable companion sheets: what to check, and how every row was handled.
+        referenced=_formula_texts(wb)
+        for old in [sheet for sheet in wb.worksheets if sheet is not ws and is_generated_companion(sheet)]:
+            # Last month's own companion sheets (copied along with the template) are not carried forward,
+            # unless something in the workbook still points at them.
+            if not any(f"{old.title}!" in text or f"'{old.title}'!" in text for text in referenced):
+                wb.remove(old)
+        summary=write_review_sheet(wb,reviews,ws.title)
+        changes=write_detail_sheet(wb,audits,offsets,len(reviews),plan.raw_count,template_path.name)
 
         def link_source_rows(sheet):
-            sheet["H1"].comment=Comment(
+            sheet.cell(HEADER_ROW,8).comment=Comment(
                 "행 번호는 원본 파일 기준입니다. 클릭하면 생성된 당월 명세서의 해당 거래 행으로 이동합니다.",
                 "대사 안내"
             )
-            for row in sheet.iter_rows(min_row=2,max_col=8):
+            for row in sheet.iter_rows(min_row=HEADER_ROW+1,max_col=8):
                 source=row[6].value
                 if source=="명세서":
                     source=template_path.name
@@ -658,10 +652,23 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
                 font.underline="single"
                 cell.font=font
 
-        for extra in (offset_sheet,summary,changes):
+        for extra in (summary,changes):
             link_source_rows(extra)
-        for generated in (offset_sheet,summary,changes,balances):
+        for generated in (summary,changes):
             force_text_formulas(generated)
+
+        def locate(source,row):
+            targets=source_targets.get((template_path.name if source=="명세서" else source,row),[])
+            return targets[0] if len(targets)==1 else None
+        # Both are conveniences: if either fails, the statement is still written as before.
+        try:
+            add_presence_column(changes,ws,locate,fields["desc"],fields["amount"],offsets,template_path.name)
+        except Exception:
+            notices.append("대사상세의 '본문' 확인 열을 만들지 못했습니다. 당월 명세서와 나머지 내용은 정상입니다.")
+        try:
+            _put_first(wb,ws,notices)
+        except Exception:
+            notices.append(f"당월 명세서 시트를 맨 앞으로 옮기지 못했습니다. 당월 명세서는 '{ws.title}' 시트입니다.")
 
         # Let Excel recalculate all copied per-vendor subtotal formulas on open.
         from openpyxl.workbook.properties import CalcProperties

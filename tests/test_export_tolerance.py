@@ -50,7 +50,7 @@ class ExportToleranceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             prior,raw,run,out=self.prepare(folder)
             write_template(out,prior,raw,run)
-            self.assertIn("26.09",load_workbook(out).sheetnames)
+            self.assertEqual(load_workbook(out).sheetnames,["26.09 당월명세서","검토필요","대사상세"])
 
     def test_unkeepable_template_is_refused_with_a_reason_and_no_other_file(self):
         # Only whole-sheet problems still stop the export. A single unreadable row never does.
@@ -73,7 +73,7 @@ class ExportToleranceTests(unittest.TestCase):
             self.assertTrue(out.exists())
             wb=load_workbook(out)
             try:
-                ws=wb["26.09"]
+                ws=wb["26.09 당월명세서"]
                 rows=[[c.value for c in row] for row in ws.iter_rows()]
                 merged=[str(r) for r in ws.merged_cells.ranges]
             finally:
@@ -140,9 +140,13 @@ class ExportToleranceTests(unittest.TestCase):
             try:
                 # Only the intended SUM subtotal/total formulas remain on the statement sheet.
                 for title,coord,value in formula_cells(wb):
-                    self.assertEqual(title,"26.09")
+                    if title=="대사상세":
+                        # only our own live columns (본문 tracking, summary line); source text stays text
+                        self.assertTrue(coord=="A2" or coord.startswith("J"),(coord,value))
+                        continue
+                    self.assertEqual(title,"26.09 당월명세서")
                     self.assertTrue(value.startswith(("=SUM(","=SUMIF(")),(coord,value))
-                self.assertEqual(wb["26.09"]["D3"].data_type=="f" or wb["26.09"]["D4"].data_type=="f",False)
+                self.assertEqual(wb["26.09 당월명세서"]["D3"].data_type=="f" or wb["26.09 당월명세서"]["D4"].data_type=="f",False)
             finally:
                 wb.close()
 

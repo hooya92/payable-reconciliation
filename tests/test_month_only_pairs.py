@@ -37,7 +37,7 @@ def generate(claims, raw_rows, with_subtotal=False):
         write_month_end_statement(out,[prior],run.results,run.new_items,run.issues,PERIOD,
             standalone_debits=run.standalone_debits,journal_items=run.journal_items,
             journal_sources=run.journal_sources,source_paths=[prior,raw])
-        ws=load_workbook(out)["26.09"]
+        ws=load_workbook(out)["26.09 당월명세서"]
         rows={r:(ws.cell(r,4).value,ws.cell(r,5).value,str(ws.cell(r,6).value or ""))
               for r in range(3,ws.max_row+1) if ws.cell(r,4).value}
         if with_subtotal:

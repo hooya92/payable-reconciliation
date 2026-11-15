@@ -1,6 +1,7 @@
 """Preserve original note columns and move analysis states to auxiliary sheets."""
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from pathlib import Path
 from decimal import Decimal
 
@@ -42,14 +43,14 @@ class StatementColumnPreservationTests(unittest.TestCase):
             write_month_end_statement(o,[p],opening(p),[],[],PERIOD)
             wb=load_workbook(o)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws["F2"].value,"담당자 메모")
                 self.assertEqual(ws["F3"].value,"원본 메모")
                 self.assertEqual(ws["F4"].value,"소계 메모")
                 self.assertEqual(ws["G2"].value,"처리상태")
                 self.assertEqual(ws["G3"].value,"전월 이월")
                 self.assertEqual(ws["G4"].value,"소계")
-                self.assertIn("전월 이월", [x[0] for x in list(wb["변경내역"].values)[1:]])
+                self.assertIn("전월 이월", [x[0] for x in table_rows(wb["대사상세"])])
                 self.assertEqual(ws["E3"].number_format,"#,##0")
                 self.assertEqual(ws["E4"].fill.fgColor.rgb,"00FFFF99")
             finally:
@@ -62,7 +63,7 @@ class StatementColumnPreservationTests(unittest.TestCase):
             write_month_end_statement(o,[p],opening(p),[],[],PERIOD)
             wb=load_workbook(o)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws["G2"].value,"비고")
                 self.assertEqual(ws["G3"].value,"추가 유지")
                 self.assertEqual(ws["G4"].value,"소계 유지")
@@ -91,7 +92,7 @@ class StatementColumnPreservationTests(unittest.TestCase):
                                       journal_items=[debit,credit])
             wb=load_workbook(o)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 details=[(ws.cell(row,4).value,ws.cell(row,5).value,
                           ws.cell(row,7).value)
                          for row in range(3,ws.max_row+1)

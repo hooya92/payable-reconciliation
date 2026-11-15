@@ -80,7 +80,7 @@ class ScopedInputIssueTests(unittest.TestCase):
                 self.assertIn("실제:",row[5].value)
                 self.assertIn("002222",row[5].value)
                 self.assertIn("/",row[3].value)   # the row's own content, not just one cell
-                self.assertTrue(any("원인:" in str(row[5].value) for row in wb["26.08"].iter_rows()))
+                self.assertTrue(any("원인:" in str(row[5].value) for row in wb["26.08 당월명세서"].iter_rows()))
             finally:
                 wb.close()
 
@@ -99,7 +99,7 @@ class ScopedInputIssueTests(unittest.TestCase):
             )
             wb=load_workbook(output)
             try:
-                new_rows=[row for row in wb["26.08"].iter_rows()
+                new_rows=[row for row in wb["26.08 당월명세서"].iter_rows()
                           if row[3].value=="8월 신규"]
                 self.assertEqual(len(new_rows),3)
                 self.assertIn("입력",new_rows[0][5].value)

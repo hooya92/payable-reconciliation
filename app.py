@@ -1288,7 +1288,7 @@ class App(ctk.CTk):
             )
             self._set_banner(
                 "success","당월 명세서 초안 생성",
-                f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다."
+                f"{Path(path).name} · 전월 양식 기반, 검토필요·대사상세 시트는 삭제 가능합니다."
             )
             if notices:
                 # Nothing is blocked, but nothing is hidden either.

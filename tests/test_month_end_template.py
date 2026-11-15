@@ -1,6 +1,7 @@
 """Synthetic tests for same-template, editable month-end statement drafts."""
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from decimal import Decimal
 from pathlib import Path
 
@@ -72,8 +73,8 @@ class TemplateMonthEndTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(),before)
             wb=load_workbook(output)
             try:
-                self.assertEqual(wb.sheetnames,["26.08","대사내역","검토필요","변경내역","당월 잔액검증"])
-                ws=wb["26.08"]
+                self.assertEqual(wb.sheetnames,["26.08 당월명세서","검토필요","대사상세"])
+                ws=wb["26.08 당월명세서"]
                 self.assertIn("2026년 8월",ws["A1"].value)
                 self.assertIn("A1:E1",[str(x) for x in ws.merged_cells.ranges])
                 self.assertEqual(ws.column_dimensions["D"].width,44)
@@ -81,8 +82,8 @@ class TemplateMonthEndTests(unittest.TestCase):
                 self.assertEqual({r[3] for r in data},{"이월 비용","지급완료","검토 대상","신규 비용"})
                 self.assertEqual(ws["F2"].value,"처리상태")  # Adjacent, removable status column
                 self.assertEqual(sum(r[4] for r in data),1000)
-                self.assertEqual(len(list(wb["검토필요"].values)),2)
-                self.assertIn("당월 발생",[r[0] for r in list(wb["변경내역"].values)[1:]])
+                self.assertEqual(len(table_rows(wb["검토필요"])),1)
+                self.assertIn("당월 발생",[r[0] for r in table_rows(wb["대사상세"])])
                 self.assertEqual(ws.cell(3,5).fill.fgColor.rgb,"00DDEEFF")
             finally:
                 wb.close()
@@ -101,7 +102,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],r,[],[],TARGET)
             wb=load_workbook(o)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws["A1"].value,"2026-08-31 거래처 명세")
                 self.assertEqual(ws["C5"].value,"소계")
                 self.assertEqual(ws["A5"].value,"000011")
@@ -148,7 +149,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             )
             wb=load_workbook(o)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws.max_row,9)
                 self.assertEqual([ws.cell(r,3).value for r in (5,7,9)],["소계"]*3)
                 self.assertEqual([ws.cell(r,1).value for r in (5,7,9)],["001111","002222","003333"])
@@ -177,8 +178,8 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],[],[new],[],TARGET)
             wb=load_workbook(o)
             try:
-                self.assertEqual(wb["26.08"].max_row,6)
-                self.assertEqual(wb["26.08"]["F6"].value,"확인 필요 · 당월 지급/조정 확인 필요")
+                self.assertEqual(wb["26.08 당월명세서"].max_row,6)
+                self.assertEqual(wb["26.08 당월명세서"]["F6"].value,"확인 필요 · 당월 지급/조정 확인 필요")
                 self.assertIn("확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
             finally:
                 wb.close()
@@ -225,8 +226,8 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],[ReconcileResult(Status.UNPAID,item)],[],[],TARGET)
             wb=load_workbook(o)
             try:
-                self.assertEqual(wb.sheetnames,["26.08","기존 안내","대사내역","검토필요","변경내역","당월 잔액검증"])
-                ws=wb["26.08"]
+                self.assertEqual(wb.sheetnames,["26.08 당월명세서","기존 안내","검토필요","대사상세"])
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws["E3"].fill.fgColor.rgb,"00DDEEFF")
                 self.assertEqual(ws.max_row,5)
                 self.assertEqual(ws.sheet_view.zoomScale,77)
@@ -251,7 +252,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             self.assertEqual(p.read_bytes(),initial)
             wb=load_workbook(o)
             try:
-                merged=[str(r) for r in wb["26.08"].merged_cells.ranges]
+                merged=[str(r) for r in wb["26.08 당월명세서"].merged_cells.ranges]
                 self.assertNotIn("B4:C4",merged)
                 self.assertIn("A1:E1",merged)  # the title merge is left alone
             finally:

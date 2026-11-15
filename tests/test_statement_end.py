@@ -64,8 +64,8 @@ def export(tail=()):
             return "refused",str(exc),[],{}
         wb=load_workbook(out)
         try:
-            rows=[[c.value for c in row] for row in wb["26.09"].iter_rows()]
-            fills={i:wb["26.09"].cell(i,1).fill.fgColor.rgb for i in range(1,wb["26.09"].max_row+1)}
+            rows=[[c.value for c in row] for row in wb["26.09 당월명세서"].iter_rows()]
+            fills={i:wb["26.09 당월명세서"].cell(i,1).fill.fgColor.rgb for i in range(1,wb["26.09 당월명세서"].max_row+1)}
         finally:
             wb.close()
         return "template","\n".join(notices),rows,fills

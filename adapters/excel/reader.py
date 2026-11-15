@@ -1,4 +1,5 @@
 from __future__ import annotations
+from adapters.excel.companion_sheets import REVIEW_MARKER, review_data_rows
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from pathlib import Path
@@ -643,9 +644,8 @@ def read_prior(path: str|Path, owner: str = "", period: AccountingPeriod|None=No
     try:
         # Generated month-end drafts containing unresolved reviews must not be
         # silently treated as approved opening balances in the next month.
-        pending=next((ws for ws in wb.worksheets if ws.title=="검토필요"),None)
-        if (pending is not None and pending.cell(1,10).value=="MONTH_END_DRAFT_REVIEW"
-                and pending.max_row>1):
+        # Found by its marker, not its name: a renamed or '검토필요1' review sheet still counts.
+        if any(ws.cell(1,10).value==REVIEW_MARKER and review_data_rows(ws)>0 for ws in wb.worksheets):
             raise ValueError(
                 "자동 생성된 명세서에 검토필요 항목이 남아 있습니다. "
                 "본문을 확인·수정한 뒤 검토필요 시트를 삭제하고 다음 달 대사를 진행해주세요."

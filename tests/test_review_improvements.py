@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from unittest import mock
 from dataclasses import replace
 from decimal import Decimal as D
@@ -52,7 +53,7 @@ class ReviewImprovementTests(unittest.TestCase):
             self.assertTrue(next(x for x in run.new_items if x.journal.description=="신규 청소").auto_carry)
             wb=load_workbook(output)
             try:
-                row=next(r for r in wb["26.09"].iter_rows() if r[3].value=="신규 청소")
+                row=next(r for r in wb["26.09 당월명세서"].iter_rows() if r[3].value=="신규 청소")
                 self.assertEqual(row[5].value,"당월 신규")
             finally:
                 wb.close()
@@ -142,11 +143,10 @@ class ReviewImprovementTests(unittest.TestCase):
             self.assertEqual(raw.read_bytes(),original)
             wb=load_workbook(output)
             try:
-                check=list(wb["당월 잔액검증"].values)[1]
-                self.assertEqual(check[6],200000)
-                self.assertEqual(check[10],-10000)
-                self.assertEqual(check[11],"원장 차액 확인")
-                self.assertTrue(any(r[0]=="잔액 확인" for r in wb["검토필요"].values))
+                check=next(r for r in table_rows(wb["검토필요"]) if r[0]=="잔액 확인")
+                self.assertEqual(check[4],200000)
+                self.assertIn("원장 차액 -10,000원",check[5])
+                self.assertEqual(check[6],"거래처 소계")
             finally:
                 wb.close()
 
@@ -186,7 +186,7 @@ class ReviewImprovementTests(unittest.TestCase):
             wb=load_workbook(output)
             try:
                 self.assertEqual(wb["잔액검증"]["A1"].value,"전월 자료")
-                self.assertIn("당월 잔액검증",wb.sheetnames)
-                self.assertEqual(wb["26.09"]["H1"].value,"='잔액검증'!A1")
+                self.assertNotIn("당월 잔액검증",wb.sheetnames)
+                self.assertEqual(wb["26.09 당월명세서"]["H1"].value,"='잔액검증'!A1")
             finally:
                 wb.close()

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from decimal import Decimal
 from pathlib import Path
 
@@ -68,7 +69,7 @@ class JournalCorrectionTests(unittest.TestCase):
             self.assertTrue(next(n for n in run.new_items if n.journal.vendor_code=="000003").auto_carry)
             wb=load_workbook(output)
             try:
-                ws=wb["26.09"]
+                ws=wb["26.09 당월명세서"]
                 self.assertEqual([ws.cell(r,5).value for r in range(3,9)],
                                  [700000,200000,-200000,200000,-200000,-700000])
                 self.assertEqual(sum(ws.cell(r,5).value for r in range(3,9)),0)
@@ -88,8 +89,8 @@ class JournalCorrectionTests(unittest.TestCase):
                 self.assertEqual(ws["E3"].value,-ws["E8"].value)
                 self.assertIn("전월 동일 금액 발생 후보 1건",ws["F5"].comment.text)
                 self.assertIn("양수 동일 금액 후보 1건",ws["F5"].comment.text)
-                self.assertEqual([row[3].value for row in wb["대사내역"].iter_rows(min_row=2)
-                                  if row[1].value=="001111"],["벨트 교체"])
+                self.assertEqual([r[3] for r in table_rows(wb["대사상세"])
+                                  if r[1]=="001111" and str(r[8] or "").startswith("↔ 더존")],["벨트 교체"])
                 self.assertTrue(any(row[0].value==Status.CORRECTION_SUSPECT.value
                                     for row in wb["검토필요"].iter_rows(min_row=2)))
             finally:
@@ -101,8 +102,8 @@ class JournalCorrectionTests(unittest.TestCase):
             self.assertEqual(run.issues,[])
             wb=load_workbook(output)
             try:
-                self.assertEqual(wb["26.09"]["E5"].value,50)
-                self.assertTrue(wb["26.09"]["F5"].value.startswith(Status.CORRECTION_SUSPECT.value))
+                self.assertEqual(wb["26.09 당월명세서"]["E5"].value,50)
+                self.assertTrue(wb["26.09 당월명세서"]["F5"].value.startswith(Status.CORRECTION_SUSPECT.value))
             finally:
                 wb.close()
 
@@ -120,7 +121,7 @@ class JournalCorrectionTests(unittest.TestCase):
             self.assertFalse(any(r.prior.vendor_code=="000099" for r in run.results))
             wb=load_workbook(output)
             try:
-                row=next(row for row in wb["26.09"].iter_rows() if row[3].value=="수정 전표")
+                row=next(row for row in wb["26.09 당월명세서"].iter_rows() if row[3].value=="수정 전표")
                 self.assertEqual(row[4].value,50)
                 self.assertTrue(row[5].value.startswith(Status.CORRECTION_SUSPECT.value))
                 self.assertTrue(any(row[1].value=="000099" and row[0].value==Status.CORRECTION_SUSPECT.value
