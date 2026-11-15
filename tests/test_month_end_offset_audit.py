@@ -81,7 +81,7 @@ class MonthEndOffsetAuditTests(unittest.TestCase):
             self.assertEqual([r.status for r in run.results],[Status.MATCHED,Status.UNPAID])
             wb=load_workbook(path)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws.max_row,9)
                 lines=[(ws.cell(i,4).value,ws.cell(i,5).value,ws.cell(i,3).value)
                        for i in range(3,ws.max_row+1)]
@@ -113,7 +113,7 @@ class MonthEndOffsetAuditTests(unittest.TestCase):
             self.assertEqual(run.new_items[0].remaining,0)
             wb=load_workbook(path)
             try:
-                entries=[r[3] for r in wb["26.08"].values]
+                entries=[r[3] for r in wb["26.08 당월명세서"].values]
                 self.assertEqual(entries.count("8월 청구"),2)
                 offsets=[r for r in list(wb["대사내역"].values)[1:]]
                 self.assertEqual(len(offsets),1)

@@ -52,7 +52,7 @@ class ReviewImprovementTests(unittest.TestCase):
             self.assertTrue(next(x for x in run.new_items if x.journal.description=="신규 청소").auto_carry)
             wb=load_workbook(output)
             try:
-                row=next(r for r in wb["26.09"].iter_rows() if r[3].value=="신규 청소")
+                row=next(r for r in wb["26.09 당월명세서"].iter_rows() if r[3].value=="신규 청소")
                 self.assertEqual(row[5].value,"당월 신규")
             finally:
                 wb.close()

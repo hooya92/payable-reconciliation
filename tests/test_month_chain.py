@@ -97,11 +97,11 @@ class MonthChainTests(unittest.TestCase):
     def test_next_month_reads_the_generated_statement_unchanged(self):
         with tempfile.TemporaryDirectory() as folder:
             run,sept=generate(folder)
-            sept_ws=load_workbook(sept)["26.09"]
+            sept_ws=load_workbook(sept)["26.09 당월명세서"]
             expected=body(sept_ws)
             nxt=keep_statement_only(sept)
             octo=next_month(nxt,folder,self.OCT,2026,10)
-            ws=load_workbook(octo)["26.10"]
+            ws=load_workbook(octo)["26.10 당월명세서"]
             # every row of last month's statement is carried exactly (description + amount)
             self.assertEqual(body(ws)[:len(expected)],expected)
             assert_links_point_at_real_partners(self,ws)
@@ -110,7 +110,7 @@ class MonthChainTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             run,sept=generate(folder)
             octo=next_month(keep_statement_only(sept),folder,self.OCT,2026,10)
-            ws=load_workbook(octo)["26.10"]
+            ws=load_workbook(octo)["26.10 당월명세서"]
             statuses="\n".join(str(ws.cell(r,6).value or "") for r in range(3,ws.max_row+1))
             # October has no 7월분/8월분 payments, so no 7월/8월 group may appear
             self.assertNotIn("7월 묶음",statuses)
@@ -128,9 +128,9 @@ class MonthChainTests(unittest.TestCase):
                              ("status header blanked",{"blank_status_header":True})):
             with self.subTest(label), tempfile.TemporaryDirectory() as folder:
                 run,sept=generate(folder)
-                expected=body(load_workbook(sept)["26.09"])
+                expected=body(load_workbook(sept)["26.09 당월명세서"])
                 octo=next_month(keep_statement_only(sept,**kwargs),folder,self.OCT,2026,10)
-                ws=load_workbook(octo)["26.10"]
+                ws=load_workbook(octo)["26.10 당월명세서"]
                 self.assertEqual(body(ws)[:len(expected)],expected)
                 texts=[str(c.value) for row in ws.iter_rows(min_row=3) for c in row[5:] if c.value is not None]
                 # nothing of September's own wording survives in any column
@@ -163,7 +163,7 @@ class MonthChainTests(unittest.TestCase):
             write_month_end_statement(sept,[prior],run.results,run.new_items,run.issues,PERIOD,
                 standalone_debits=run.standalone_debits,journal_items=run.journal_items,
                 journal_sources=run.journal_sources,source_paths=[prior,raw])
-            ws=load_workbook(sept)["26.09"]
+            ws=load_workbook(sept)["26.09 당월명세서"]
             # rows: 3 벨트(+700,000)  4 도어(+200,000)  5 지급(-700,000)  6 subtotal
             self.assertEqual(ws["F3"].value,"자동 대사 · 5행과 대차")
             self.assertEqual(ws["F5"].value,"자동 대사 · 3행과 대차")
@@ -174,7 +174,7 @@ class MonthChainTests(unittest.TestCase):
             # by hand); the new sheet recomputes every status and never reuses the old ones
             octo=next_month(keep_statement_only(sept),folder,
                             [("000002","정상 업체","정상 비용",100,0,"2026-10-05")],2026,10)
-            ws10=load_workbook(octo)["26.10"]
+            ws10=load_workbook(octo)["26.10 당월명세서"]
             self.assertEqual(body(ws10)[:len(expected)],expected)
             assert_links_point_at_real_partners(self,ws10)
             self.assertEqual(len(ws10._hyperlinks),0)
@@ -192,13 +192,13 @@ class MonthChainTests(unittest.TestCase):
             write_month_end_statement(sept,[prior],run.results,run.new_items,run.issues,PERIOD,
                 standalone_debits=run.standalone_debits,journal_items=run.journal_items,
                 journal_sources=run.journal_sources,source_paths=[prior,raw])
-            ws=load_workbook(sept)["26.09"]
+            ws=load_workbook(sept)["26.09 당월명세서"]
             self.assertIn("함께 대차 후보 (합계 0)",str(ws["F3"].value))
             assert_links_point_at_real_partners(self,ws)
             expected=body(ws)
             octo=next_month(keep_statement_only(sept),folder,
                             [("001111","가상물류","8월 청구분",0,100,"2026-10-05")],2026,10)
-            ws10=load_workbook(octo)["26.10"]
+            ws10=load_workbook(octo)["26.10 당월명세서"]
             self.assertEqual(body(ws10)[:len(expected)],expected)
             assert_links_point_at_real_partners(self,ws10)
             self.assertEqual(len(ws10._hyperlinks),0)

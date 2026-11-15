@@ -36,7 +36,7 @@ class FullTemplateStyleTests(unittest.TestCase):
             write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
             wb=load_workbook(output)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 for row in range(4,10):
                     self.assertEqual(ws.cell(row,5).value,-100)
                     self.assertEqual(ws.cell(row,5).fill.fgColor.rgb,"00E5D5FF")
@@ -68,7 +68,7 @@ class FullTemplateStyleTests(unittest.TestCase):
             self.assertEqual(read.issues,[])
             self.assertEqual(read.review_items[0][0].amount,Decimal(700))
             write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
-            wb=load_workbook(output);ws=wb["26.08"]
+            wb=load_workbook(output);ws=wb["26.08 당월명세서"]
             try:
                 self.assertEqual([ws.cell(r,5).value for r in (3,4,5)],[1000,-100,-200])
                 self.assertEqual(ws["E6"].value,"=SUM(E3:E5)")
@@ -96,7 +96,7 @@ class FullTemplateStyleTests(unittest.TestCase):
             self.assertEqual(read.review_items[0][0].amount,Decimal("840000"))
             write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
             wb=load_workbook(output)
-            self.assertEqual(wb["26.08"]["E4"].value,"=-280000")
+            self.assertEqual(wb["26.08 당월명세서"]["E4"].value,"=-280000")
             wb.close()
             self.assertEqual(prior.read_bytes(),before)
             wb=load_workbook(prior);wb["26.07"]["E4"]="=-E3"
@@ -127,7 +127,7 @@ class FullTemplateStyleTests(unittest.TestCase):
             write_month_end_statement(output,[prior],[],[],[],AccountingPeriod(2026,8))
             wb=load_workbook(output)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 for pos,(value,style) in expected.items():
                     self.assertEqual(ws[pos].value,value)
                     self.assertEqual(ws[pos]._style,style)
@@ -182,7 +182,7 @@ class FullTemplateStyleTests(unittest.TestCase):
             self.assertEqual(prior.read_bytes(),original_bytes)
             wb=load_workbook(output)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws.max_row,7)
                 self.assertEqual([ws.cell(r,5).value for r in (3,4,6)],[100,-100,250])
                 self.assertEqual([r[0] for r in list(wb["대사내역"].values)[1:]],["대사 일치 후보"])

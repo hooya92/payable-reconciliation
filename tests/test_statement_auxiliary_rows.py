@@ -38,7 +38,7 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
             fresh=NewPayable(line,Decimal(50),"",True)
             write_month_end_statement(output,[prior],results,[fresh],[],AccountingPeriod(2026,8),
                                       journal_items=[line])
-            wb=load_workbook(output);ws=wb["26.08"]
+            wb=load_workbook(output);ws=wb["26.08 당월명세서"]
             try:
                 self.assertEqual(ws["E6"].value,"=SUM(E3:E5)")
                 self.assertEqual(ws["A7"].value,"합 계")
@@ -77,7 +77,7 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
                 AccountingPeriod(2026,8))
             wb=load_workbook(output)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws["E6"].value,"=SUM(E3:E5)")
                 self.assertEqual(ws["E7"].value,"=E6-123")
                 self.assertEqual(ws["E7"].data_type,"s")
@@ -100,7 +100,7 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
                 AccountingPeriod(2026,8))
             wb=load_workbook(output)
             try:
-                self.assertEqual(wb["26.08"]["D6"].value,"담당자 확인 메모")
+                self.assertEqual(wb["26.08 당월명세서"]["D6"].value,"담당자 확인 메모")
             finally:
                 wb.close()
 
@@ -133,7 +133,7 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
                 AccountingPeriod(2026,8))
             wb=load_workbook(output)
             try:
-                cell=wb["26.08"]["E6"]
+                cell=wb["26.08 당월명세서"]["E6"]
                 self.assertEqual(cell.value,600)
                 self.assertEqual(cell.data_type,"n")
                 self.assertIn("담당자 확인용",cell.comment.text)
@@ -156,5 +156,5 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
                     out=Path(folder)/"result.xlsx"
                     notices=write_month_end_statement(out,[prior],[],[],[],AccountingPeriod(2026,8))
                     self.assertTrue([text for text in notices if "6행" in text],notices)
-                    ws=load_workbook(out)["26.08"]
+                    ws=load_workbook(out)["26.08 당월명세서"]
                     self.assertIn("추가 거래",[ws.cell(r,4).value for r in range(1,ws.max_row+1)])

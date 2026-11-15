@@ -301,7 +301,7 @@ def build_month_end_plan(opening, results, new_items, issues, source_name, sourc
             ledger_text=("원장 비교 미확정" if check[10] is None
                          else f"원장 차액 {check[10]:,.0f}원")
             reviews.append(("잔액 확인",check[0],check[1],"거래처 잔액 검증",_amount(check[6]),
-                            f"계산 차액 {check[7]:,.0f}원 / {ledger_text} · {check[12]}","당월 잔액검증",None))
+                            f"계산 차액 {check[7]:,.0f}원 / {ledger_text} · {check[12]}","거래처 소계",None))
     status_notes,subtotal_notes,link_notes=_offset_explanations(
         records,balances,net_vendors,results,matched_debits,opening_records,
         journal_records,source_name,source_sheet,correction_status,status_reasons,issues)

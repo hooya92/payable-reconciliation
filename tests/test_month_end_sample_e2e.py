@@ -80,7 +80,7 @@ class ExampleMonthEndFlowTests(unittest.TestCase):
             )
             self.assertEqual(prior.read_bytes(),original)
             wb=load_workbook(output)
-            ws=wb["26.08"]
+            ws=wb["26.08 당월명세서"]
             try:
                 self.assertEqual(ws.max_row,23)  # six opening + seven RAW details + seven subtotals + three header rows
                 details=[ws.cell(i,4).value for i in range(4,ws.max_row+1)

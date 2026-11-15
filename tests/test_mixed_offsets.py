@@ -79,7 +79,7 @@ class MixedOffsetStatementTests(unittest.TestCase):
             write_month_end_statement(out,[prior],run.results,run.new_items,run.issues,PERIOD,
                 standalone_debits=run.standalone_debits,journal_items=run.journal_items,
                 journal_sources=run.journal_sources,source_paths=[prior,raw])
-            wb=load_workbook(out); ws=wb["26.09"]
+            wb=load_workbook(out); ws=wb["26.09 당월명세서"]
             try:
                 self.assertEqual([ws.cell(r,5).value for r in (3,4,5)],[100000001,200000003,-300000004])
                 for row,partners in ((3,"4~5"),(4,"3·5"),(5,"3~4")):

@@ -101,7 +101,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],r,[],[],TARGET)
             wb=load_workbook(o)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws["A1"].value,"2026-08-31 거래처 명세")
                 self.assertEqual(ws["C5"].value,"소계")
                 self.assertEqual(ws["A5"].value,"000011")
@@ -148,7 +148,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             )
             wb=load_workbook(o)
             try:
-                ws=wb["26.08"]
+                ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws.max_row,9)
                 self.assertEqual([ws.cell(r,3).value for r in (5,7,9)],["소계"]*3)
                 self.assertEqual([ws.cell(r,1).value for r in (5,7,9)],["001111","002222","003333"])
@@ -177,8 +177,8 @@ class TemplateMonthEndTests(unittest.TestCase):
             write_month_end_statement(o,[p],[],[new],[],TARGET)
             wb=load_workbook(o)
             try:
-                self.assertEqual(wb["26.08"].max_row,6)
-                self.assertEqual(wb["26.08"]["F6"].value,"확인 필요 · 당월 지급/조정 확인 필요")
+                self.assertEqual(wb["26.08 당월명세서"].max_row,6)
+                self.assertEqual(wb["26.08 당월명세서"]["F6"].value,"확인 필요 · 당월 지급/조정 확인 필요")
                 self.assertIn("확인 필요",[r[0] for r in list(wb["검토필요"].values)[1:]])
             finally:
                 wb.close()
@@ -251,7 +251,7 @@ class TemplateMonthEndTests(unittest.TestCase):
             self.assertEqual(p.read_bytes(),initial)
             wb=load_workbook(o)
             try:
-                merged=[str(r) for r in wb["26.08"].merged_cells.ranges]
+                merged=[str(r) for r in wb["26.08 당월명세서"].merged_cells.ranges]
                 self.assertNotIn("B4:C4",merged)
                 self.assertIn("A1:E1",merged)  # the title merge is left alone
             finally:

@@ -47,7 +47,7 @@ class StatusColumnTests(unittest.TestCase):
             write_month_end_statement(out,[prior],run.results,run.new_items,run.issues,PERIOD,
                 standalone_debits=run.standalone_debits,journal_items=run.journal_items,
                 journal_sources=run.journal_sources,source_paths=[prior,raw])
-            ws=load_workbook(out)["26.09"]
+            ws=load_workbook(out)["26.09 당월명세서"]
             return [c.column_letter for c in ws[2] if c.value=="처리상태"]
 
     def test_stray_memo_cells_below_the_table_do_not_push_the_status_column_away(self):

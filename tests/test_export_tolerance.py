@@ -73,7 +73,7 @@ class ExportToleranceTests(unittest.TestCase):
             self.assertTrue(out.exists())
             wb=load_workbook(out)
             try:
-                ws=wb["26.09"]
+                ws=wb["26.09 당월명세서"]
                 rows=[[c.value for c in row] for row in ws.iter_rows()]
                 merged=[str(r) for r in ws.merged_cells.ranges]
             finally:
