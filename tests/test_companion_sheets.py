@@ -86,7 +86,7 @@ class LayoutTests(unittest.TestCase):
             wb = load_workbook(out)
             try:
                 detail = wb["대사상세"]
-                self.assertEqual(detail.cell(HEADER_ROW, 10).value, "본문")
+                self.assertEqual(detail.cell(HEADER_ROW, 10).value, "확인 상태")
                 rows = list(detail.iter_rows(min_row=HEADER_ROW + 1))
                 prior_side = next(r for r in rows if r[0].value == "대사 일치" and r[6].value == prior.name)
                 statement = wb["26.09 당월명세서"]
@@ -95,11 +95,12 @@ class LayoutTests(unittest.TestCase):
                 # both rows of the pair are referenced, and the cell is a live formula (not text)
                 self.assertEqual(prior_side[9].data_type, "f")
                 self.assertIn(f"'26.09 당월명세서'!$D${mine}", formula)
-                self.assertEqual(formula.count("COUNTA("), 4)
+                self.assertIn(f"'26.09 당월명세서'!$F${mine}", formula)   # the 처리상태 cell of the same row
+                self.assertIn("✓ 확인 (처리상태 지움)", formula)
                 self.assertIn("✓ 짝과 함께 지움", formula)
                 carried = next(r for r in rows if r[0].value == "전월 이월")
                 self.assertIn("⚠ 지움 (이월·신규 행)", carried[9].value)
-                self.assertTrue(str(detail["A2"].value).startswith('="본문 정리'))
+                self.assertTrue(str(detail["A2"].value).startswith('="확인 현황'))
                 self.assertIsNotNone(statement)
             finally:
                 wb.close()

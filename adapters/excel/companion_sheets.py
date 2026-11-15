@@ -19,7 +19,7 @@ DETAIL_MARKER = "MONTH_END_DRAFT_DETAIL"      # L1 of 대사상세
 HEADER_ROW = 4
 
 REVIEW_HEADERS = ["검토 상태", "거래처코드", "거래처명", "적요·원본값", "금액", "사유", "원본파일", "원본행"]
-DETAIL_HEADERS = ["구분", "거래처코드", "거래처명", "명세 내용", "금액", "근거", "원본파일", "원본행", "대사 상대", "본문"]
+DETAIL_HEADERS = ["구분", "거래처코드", "거래처명", "명세 내용", "금액", "근거", "원본파일", "원본행", "대사 상대", "확인 상태"]
 
 # Header rows of companion sheets written by earlier versions (row 1, first cells).
 _LEGACY_HEADERS = (
@@ -202,15 +202,16 @@ def table_rows(ws):
     return [row[:len(DETAIL_HEADERS)] for row in ws.iter_rows(min_row=HEADER_ROW + 1, values_only=True)]
 
 
-KEPT, DONE, ONE_SIDE, WRONG = "본문에 있음", "✓ 짝과 함께 지움", "⚠ 한쪽만 지움", "⚠ 지움 (이월·신규 행)"
-DONE_SINGLE, REVIEWED = "✓ 지움", "지움 (검토 건)"
+KEPT, DONE, ONE_SIDE, WRONG = "확인 전", "✓ 짝과 함께 지움", "⚠ 한쪽만 지움", "⚠ 지움 (이월·신규 행)"
+DONE_SINGLE, REVIEWED, CONFIRMED = "✓ 지움", "지움 (검토 건)", "✓ 확인 (처리상태 지움)"
 _MUST_STAY = ("전월 이월", "당월 발생")
 
 
-def add_presence_column(ws, statement, locate, desc_col, amount_col, offsets, prior_name):
-    """Column J of 대사상세 follows the statement live: when a person deletes (or clears) a row there,
-    the formula's reference breaks and the cell says so. A matched pair should be removed together;
-    a carried-forward or new row should stay. Written after force_text_formulas: these are ours."""
+def add_presence_column(ws, statement, locate, desc_col, amount_col, status_col, offsets, prior_name):
+    """Column J of 대사상세 follows the statement live. Per row it reads the statement:
+    row removed -> a matched pair should go together (a carried-forward or new row should stay);
+    row kept but its 처리상태 cell emptied (or the whole column deleted) -> the person checked it.
+    Written after force_text_formulas: these are ours."""
     sheet = quote_sheetname(statement.title)
 
     def gone(target):
@@ -218,6 +219,10 @@ def add_presence_column(ws, statement, locate, desc_col, amount_col, offsets, pr
         a = f"{sheet}!${get_column_letter(amount_col)}${target}"
         # COUNTA never errors on a cell's own error value; it errors only on a deleted reference.
         return f"IFERROR(COUNTA({d},{a})=0,TRUE)"
+
+    def checked(target):
+        # an emptied status cell, or a deleted status column (the reference breaks)
+        return f"IFERROR(COUNTA({sheet}!${get_column_letter(status_col)}${target})=0,TRUE)"
 
     rows = list(ws.iter_rows(min_row=HEADER_ROW + 1, max_col=len(DETAIL_HEADERS)))
     by_key = {}
@@ -249,17 +254,17 @@ def add_presence_column(ws, statement, locate, desc_col, amount_col, offsets, pr
             other_target = locate(*other) if other else None
             if other_target is not None:
                 theirs = gone(other_target)
-                cell.value = (f'=IF(AND({mine},{theirs}),"{DONE}",IF(OR({mine},{theirs}),"{ONE_SIDE}","{KEPT}"))')
+                cell.value = (f'=IF(AND({mine},{theirs}),"{DONE}",IF(OR({mine},{theirs}),"{ONE_SIDE}",'
+                              f'IF({checked(target)},"{CONFIRMED}","{KEPT}")))')
             else:
-                cell.value = f'=IF({mine},"{DONE_SINGLE}","{KEPT}")'
+                cell.value = f'=IF({mine},"{DONE_SINGLE}",IF({checked(target)},"{CONFIRMED}","{KEPT}"))'
         else:
             removed = WRONG if row[0].value in _MUST_STAY else REVIEWED
-            cell.value = f'=IF({mine},"{removed}","{KEPT}")'
+            cell.value = f'=IF({mine},"{removed}",IF({checked(target)},"{CONFIRMED}","{KEPT}"))'
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
     last = HEADER_ROW + max(len(rows), 1)
     col = f"$J${HEADER_ROW + 1}:$J${last}"
-    kind = f"$A${HEADER_ROW + 1}:$A${last}"
     ws.conditional_formatting.add(f"J{HEADER_ROW + 1}:J{last}", FormulaRule(
         formula=[f'LEFT(J{HEADER_ROW + 1},1)="✓"'], stopIfTrue=True,
         fill=PatternFill("solid", fgColor="E2EFDA"), font=Font(name=_FONT, bold=True, color="2E6B30")))
@@ -268,6 +273,6 @@ def add_presence_column(ws, statement, locate, desc_col, amount_col, offsets, pr
         fill=PatternFill("solid", fgColor="FCE4D6"), font=Font(name=_FONT, bold=True, color="B5491B")))
     # Live summary under the title: what is left to tidy up in the statement.
     static = str(ws["A2"].value or "").replace('"', '""')
-    ws["A2"] = (f'="본문 정리  ·  완료 "&COUNTIF({col},"✓*")&"행 · 남은 대사 짝 "'
-                f'&COUNTIFS({kind},"대사 일치",{col},"{KEPT}")&"행 · 주의 "&COUNTIF({col},"⚠*")&"행'
+    ws["A2"] = (f'="확인 현황  ·  완료 "&COUNTIF({col},"✓*")&"행 · 확인 전 "'
+                f'&COUNTIF({col},"{KEPT}")&"행 · 주의 "&COUNTIF({col},"⚠*")&"행'
                 f'   |   {static}"')

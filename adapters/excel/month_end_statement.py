@@ -662,9 +662,9 @@ def write_month_end_statement(path, prior_paths, results, new_items, issues, per
             return targets[0] if len(targets)==1 else None
         # Both are conveniences: if either fails, the statement is still written as before.
         try:
-            add_presence_column(changes,ws,locate,fields["desc"],fields["amount"],offsets,template_path.name)
+            add_presence_column(changes,ws,locate,fields["desc"],fields["amount"],status_column,offsets,template_path.name)
         except Exception:
-            notices.append("대사상세의 '본문' 확인 열을 만들지 못했습니다. 당월 명세서와 나머지 내용은 정상입니다.")
+            notices.append("대사상세의 '확인 상태' 열을 만들지 못했습니다. 당월 명세서와 나머지 내용은 정상입니다.")
         try:
             _put_first(wb,ws,notices)
         except Exception:
