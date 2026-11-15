@@ -183,3 +183,8 @@ def write_detail_sheet(wb, audits, offsets, review_count, raw_count, prior_name)
     ws.cell(1, 12, DETAIL_MARKER)
     ws.column_dimensions["L"].hidden = True
     return ws
+
+
+def table_rows(ws):
+    """The data rows of a companion sheet (below its header row), as value tuples."""
+    return [row[:len(DETAIL_HEADERS)] for row in ws.iter_rows(min_row=HEADER_ROW + 1, values_only=True)]

@@ -154,7 +154,7 @@ class StatementNotesTests(unittest.TestCase):
                 self.assertEqual(ws.max_row,2+4+3+1+1)
                 self.assertEqual(ws.max_column,6)
                 self.assertEqual([c.value for c in ws[ws.max_row]][:1],["합 계"])
-                self.assertEqual(wb.sheetnames[0],"26.09")
+                self.assertEqual(wb.sheetnames[0],"26.09 당월명세서")
             finally:
                 wb.close()
 

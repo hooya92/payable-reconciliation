@@ -1,4 +1,5 @@
 """Only settled pairs disappear; every omission remains traceable in 상계내역."""
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from pathlib import Path
 import tempfile
 import unittest
@@ -91,16 +92,15 @@ class MonthEndOffsetAuditTests(unittest.TestCase):
                 self.assertEqual(sum(r[1] for r in lines if r[2]!="소계"),-200000)
                 self.assertEqual(ws["E9"].value,"=SUM(E8:E8)")
                 self.assertEqual(ws["E9"].fill.fgColor.rgb,"00FFF2A6")
-                offsets=list(wb["대사내역"].values)
-                self.assertEqual(len(offsets),2)
-                self.assertEqual(offsets[1][:5],
-                                 ("대사 일치 후보","001111","가상AA","유류비AA",1000000))
-                self.assertEqual(offsets[1][8:13],
-                                 ("유류비AA","2026-08-05",1000000,None,2))
-                changes=[r[0] for r in list(wb["변경내역"].values)[1:]]
+                detail=table_rows(wb["대사상세"])
+                pairs=[r for r in detail if str(r[8] or "").startswith("↔ 더존")]
+                self.assertEqual(len(pairs),1)
+                self.assertEqual(pairs[0][:5],("대사 일치","001111","가상AA","유류비AA",1000000))
+                self.assertEqual(pairs[0][8],"↔ 더존 2행 · 2026-08-05 · 유류비AA")
+                changes=[r[0] for r in detail]
                 self.assertIn("대사 일치",changes)
                 self.assertIn("원장 단독",changes)
-                reviews=[r[0] for r in list(wb["검토필요"].values)[1:]]
+                reviews=[r[0] for r in table_rows(wb["검토필요"])]
                 self.assertIn("원장 단독",reviews)
             finally:
                 wb.close()
@@ -115,11 +115,10 @@ class MonthEndOffsetAuditTests(unittest.TestCase):
             try:
                 entries=[r[3] for r in wb["26.08 당월명세서"].values]
                 self.assertEqual(entries.count("8월 청구"),2)
-                offsets=[r for r in list(wb["대사내역"].values)[1:]]
-                self.assertEqual(len(offsets),1)
-                self.assertEqual(offsets[0][0],"대사 일치 후보")
-                self.assertEqual(offsets[0][4],1000000)
-                self.assertEqual(offsets[0][10:12],(1000000,None))
+                pairs=[r for r in table_rows(wb["대사상세"]) if str(r[8] or "").startswith("↔ 더존")]
+                self.assertEqual(len(pairs),1)
+                self.assertEqual(pairs[0][0],"대사 일치")
+                self.assertEqual(pairs[0][4],1000000)
             finally:
                 wb.close()
 

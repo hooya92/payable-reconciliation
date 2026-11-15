@@ -442,7 +442,7 @@ class Session:
                     journal_items=run.journal_items, journal_sources=run.journal_sources,
                     source_paths=self.last_source_paths)
                 self._banner("success", "당월 명세서 초안 생성",
-                             f"{Path(path).name} · 전월 양식 기반, 검토필요·변경내역 시트는 삭제 가능합니다.")
+                             f"{Path(path).name} · 전월 양식 기반, 검토필요·대사상세 시트는 삭제 가능합니다.")
                 if notices:
                     shown = "\n".join("· " + t for t in notices[:12])
                     more = f"\n· 외 {len(notices)-12}건 (검토필요 시트 참고)" if len(notices) > 12 else ""

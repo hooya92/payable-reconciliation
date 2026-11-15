@@ -1,6 +1,7 @@
 """Synthetic end-to-end example resembling the grouped yellow-subtotal statement."""
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from decimal import Decimal
 from pathlib import Path
 
@@ -104,11 +105,11 @@ class ExampleMonthEndFlowTests(unittest.TestCase):
                     self.assertEqual(ws.cell(idx,5).font.name,"굴림")
                 self.assertEqual(ws["D4"].font.name,"굴림")
                 self.assertEqual(ws["F3"].value,"처리상태")  # A:E copied; F carries statuses.
-                change_states=[r[0] for r in list(wb["변경내역"].values)[1:]]
+                change_states=[r[0] for r in table_rows(wb["대사상세"])]
                 self.assertIn("당월 발생",change_states)
                 self.assertIn("대사 일치",change_states)
                 self.assertTrue(any("부분지급" in str(row[5])
-                                    for row in list(wb["검토필요"].values)[1:]))
+                                    for row in table_rows(wb["검토필요"])))
             finally:
                 wb.close()
 

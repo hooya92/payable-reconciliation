@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from zipfile import ZipFile
 from xml.etree import ElementTree
 from decimal import Decimal
@@ -51,10 +52,10 @@ class StatementAuxiliaryRowsTests(unittest.TestCase):
                 self.assertIn("전월 원본",ws["E8"].comment.text)
                 self.assertEqual(ws["D9"].value,"추가로 작성한 업무 안내")
                 self.assertIn("$E$9",str(ws.print_area))
-                preserved=[r for r in wb["변경내역"].iter_rows(min_row=2)
+                preserved=[r for r in wb["대사상세"].iter_rows(min_row=HEADER_ROW+1)
                            if r[0].value=="보조 행 보존"]
                 self.assertEqual(len(preserved),3)
-                self.assertEqual(preserved[0][7].hyperlink.location,"'26.08'!D7")
+                self.assertEqual(preserved[0][7].hyperlink.location,"'26.08 당월명세서'!D7")
             finally:
                 wb.close()
             self.assertEqual(prior.read_bytes(),before)

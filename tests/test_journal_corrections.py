@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from decimal import Decimal
 from pathlib import Path
 
@@ -88,8 +89,8 @@ class JournalCorrectionTests(unittest.TestCase):
                 self.assertEqual(ws["E3"].value,-ws["E8"].value)
                 self.assertIn("전월 동일 금액 발생 후보 1건",ws["F5"].comment.text)
                 self.assertIn("양수 동일 금액 후보 1건",ws["F5"].comment.text)
-                self.assertEqual([row[3].value for row in wb["대사내역"].iter_rows(min_row=2)
-                                  if row[1].value=="001111"],["벨트 교체"])
+                self.assertEqual([r[3] for r in table_rows(wb["대사상세"])
+                                  if r[1]=="001111" and str(r[8] or "").startswith("↔ 더존")],["벨트 교체"])
                 self.assertTrue(any(row[0].value==Status.CORRECTION_SUSPECT.value
                                     for row in wb["검토필요"].iter_rows(min_row=2)))
             finally:

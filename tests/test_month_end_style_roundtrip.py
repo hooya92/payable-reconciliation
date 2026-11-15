@@ -1,6 +1,7 @@
 """Real Excel cell-style and date-type preservation when inserting month-end rows."""
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from datetime import datetime, date
 from decimal import Decimal
 from pathlib import Path
@@ -185,7 +186,8 @@ class FullTemplateStyleTests(unittest.TestCase):
                 ws=wb["26.08 당월명세서"]
                 self.assertEqual(ws.max_row,7)
                 self.assertEqual([ws.cell(r,5).value for r in (3,4,6)],[100,-100,250])
-                self.assertEqual([r[0] for r in list(wb["대사내역"].values)[1:]],["대사 일치 후보"])
+                self.assertEqual([r[0] for r in table_rows(wb["대사상세"]) if str(r[8] or "").startswith("↔ 더존")],
+                                 ["대사 일치"])
                 for i in (3,4,6):
                     cell=ws.cell(i,5)
                     self.assertEqual(cell.font.name,"굴림")

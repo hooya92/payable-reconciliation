@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from adapters.excel.companion_sheets import HEADER_ROW, table_rows
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -80,11 +81,11 @@ class ServiceSafetyTests(unittest.TestCase):
             )
             wb=load_workbook(target,read_only=True)
             try:
-                sources={r[6] for r in list(wb["변경내역"].values)[1:]}
+                sources={r[6] for r in table_rows(wb["대사상세"])}
                 self.assertIn("raw_a.xlsx",sources)
                 self.assertIn("raw_b.xlsx",sources)
                 self.assertEqual(
-                    sum(r[4] for r in list(wb["26.08"].values)[1:]),30000
+                    sum(r[4] for r in list(wb["26.08 당월명세서"].values)[1:]),30000
                 )
             finally:
                 wb.close()

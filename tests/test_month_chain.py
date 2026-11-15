@@ -139,7 +139,7 @@ class MonthChainTests(unittest.TestCase):
     def test_three_months_in_a_row(self):
         with tempfile.TemporaryDirectory() as folder:
             run,current=generate(folder)
-            sheet="26.09"
+            sheet="26.09 당월명세서"
             rows=[
                 [("001111","가상물류","9월 청구분",50,0,"2026-10-05")],
                 [("001111","가상물류","10월 청구분",0,70,"2026-11-03")],
@@ -148,7 +148,7 @@ class MonthChainTests(unittest.TestCase):
                 expected=body(load_workbook(current)[sheet])
                 year,month=(2026,10) if index==0 else (2026,11)
                 current=next_month(keep_statement_only(current),folder,raw_rows,year,month)
-                sheet=f"26.{month:02d}"
+                sheet=f"26.{month:02d} 당월명세서"
                 ws=load_workbook(current)[sheet]
                 self.assertEqual(body(ws)[:len(expected)],expected)
                 assert_links_point_at_real_partners(self,ws)
